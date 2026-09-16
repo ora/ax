@@ -7,6 +7,11 @@ import { pause, watchdog } from "./shared";
 // this client requires, so it stays away from that endpoint on purpose.)
 
 const PLATFORM_BASE = "https://api.agentfront.sh";
+
+/** The platform API base: explicit override, else $ORA_PLATFORM_URL, else prod. */
+export function platformBase(override?: string): string {
+	return (override ?? process.env.ORA_PLATFORM_URL ?? PLATFORM_BASE).replace(/\/+$/, "");
+}
 const RUN_IDLE_MS = 120_000; // agents legitimately go quiet between turns
 
 // --- Wire shapes ---
@@ -144,7 +149,7 @@ export interface JourneyRun {
 // The ora_sk_ secret goes in the authorization HEADER (never the body) and is
 // exchanged for a ~15-minute bearer token used on every later call.
 
-async function exchangeKey(base: string, secret: string): Promise<string> {
+export async function exchangeKey(base: string, secret: string): Promise<string> {
 	const res = await fetch(`${base}/auth/token`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },

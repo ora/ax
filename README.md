@@ -35,7 +35,7 @@ Five commands:
 ## audit
 
 ```
-ax audit <url> [--min-score n] [--max-age s] [--force] [--tunnel-cmd c] [--api-key k] [--json] [--show-passing] [--show-skipped]
+ax audit <url> [--min-score n] [--max-age s] [--force] [--tunnel ora] [--tunnel-cmd c] [--api-key k] [--json] [--show-passing] [--show-skipped]
 ```
 
 ```
@@ -65,7 +65,8 @@ ax audit <url> [--min-score n] [--max-age s] [--force] [--tunnel-cmd c] [--api-k
 | `--min-score <n>` | Exit `1` when the score is below `n` (0-100) — the CI gate |
 | `--max-age <s>` | Accept a cached result up to `s` seconds old (server default 6h, clamped to 1-24h) |
 | `--force` | Bypass the cache and rescan — spends the stricter 6/day force budget |
-| `--tunnel-cmd <c>` | Expose a local target through your own tunnel command and audit the public URL it prints (also read from `ORA_TUNNEL_CMD`) |
+| `--tunnel ora` | Expose a local target through ora's own tunnel and audit it — needs `ORA_API_KEY` with the `tunnels:write` + `tunnels:connect` scopes (also read from `ORA_TUNNEL`) |
+| `--tunnel-cmd <c>` | Bring your own tunnel: a command that exposes the local target and prints its public `https://` URL (also read from `ORA_TUNNEL_CMD`) |
 | `--api-key <k>` | ora-issued scan API key — lifts every scan rate limit (also read from `ORA_SCAN_API_KEY`) |
 | `--json` | The raw ora audit payload on stdout, exactly as the API served it |
 | `--show-passing` | List every passing check, not just the per-layer summary bar |
@@ -91,16 +92,27 @@ Exit codes are the contract:
 
 Budget notes: ora allows 30 scans + 6 `--force` scans per rolling 24h per IP (plus a 10/min burst limit). Results served from the freshness cache cost nothing, so a CI job that audits on every push stays well inside the budget — tune the window with `--max-age`, and reserve `--force` for verifying a fix you just deployed. High-volume callers can present an ora-issued scan API key (`--api-key` or `ORA_SCAN_API_KEY`), which exempts them from all of these limits; keys are issued manually by ora (no self-serve signup), and an unrecognized key silently falls back to the keyless limits rather than erroring. An auth-gated MCP target reports `mcpAuthRequired` and scores 0 as "could not evaluate"; `--min-score` deliberately skips the gate rather than failing on it.
 
-### Auditing localhost (`--tunnel-cmd`)
+### Auditing localhost (`--tunnel ora`, `--tunnel-cmd`)
 
-A local dev server only exists on your machine, so ora can't reach it. The simplest option is to audit a publicly reachable deployment of the same code (e.g. a preview URL). To audit localhost itself, bring your own tunnel: pass `--tunnel-cmd` (or set `ORA_TUNNEL_CMD`) with a command that exposes the local server and prints its public `https://` URL. The CLI runs it, audits the URL it prints, and tears the tunnel down when done.
+A local dev server only exists on your machine, so ora can't reach it. The simplest option is to audit a publicly reachable deployment of the same code (e.g. a preview URL). To audit localhost itself, run it through a tunnel. The result is stored as **ephemeral** either way: excluded from ora's rankings and leaderboard, served with `Cache-Control: no-store`, never indexed, and deleted after 7 days.
+
+**ora's own tunnel.** With an ora platform key (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done — nothing to install, nothing left behind:
 
 ```
+ax audit localhost:3000 --tunnel ora
+```
+
+The hostname is an unguessable UUID under `*.t.agentfront.sh` that stops answering the moment the audit finishes (or you press Ctrl-C). Today the tunnel is opened in `public` mode, because ora's scanner cannot yet present a per-tunnel credential; a `protected` mode the scanner can use is on the roadmap.
+
+**Bring your own tunnel.** Pass `--tunnel-cmd` (or set `ORA_TUNNEL_CMD`) with any command that exposes the local server and prints its public `https://` URL. The CLI runs it, audits the URL it prints, and tears the tunnel down when done:
+
+```
+ax audit localhost:3000 --tunnel-cmd 'ora tunnel 3000 --access public'   # ora's tunnel CLI (npm i -g @ora-ai/cli; ora login)
 ax audit localhost:3000 --tunnel-cmd 'ngrok http 3000 --log stdout'
 ```
 
-- **The CLI ships no tunnel vendor and never downloads executables at runtime** — any tunnel tool you already have works, as long as it prints its public URL to stdout or stderr.
-- The result is stored as **ephemeral**: excluded from ora's rankings and deleted after a few days.
+- **The CLI ships no tunnel vendor and never downloads executables at runtime** — ora's own tunnel is first-party protocol code over Node's built-in WebSocket; any other tunnel tool you already have works through `--tunnel-cmd`, as long as it prints its public URL to stdout or stderr.
+- With `ora tunnel`, `--access public` is required today: `protected` prints a tokenized link the scanner cannot use.
 - Off-site checks (registry listings, brand search) usually fail for a throwaway tunnel hostname — the report says so. Use tunnel audits to iterate on your on-site surface, not to compare scores.
 - Free tiers of some tunnel vendors serve an interstitial warning page to browser-like requests, which can distort what the scanner sees — prefer a vendor/plan that serves your origin directly.
 
@@ -351,10 +363,11 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
 | `ORA_API_URL` | audit, deep-journey, skill | `https://ora.ai` | Public API base (no auth) |
-| `ORA_PLATFORM_URL` | journey | `https://api.agentfront.sh` | Authenticated platform API base |
-| `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`) |
+| `ORA_PLATFORM_URL` | journey, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
+| `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
+| `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
 | `ORA_API_URL` | webmcp-audit | `https://ora.ai` | Also the ingest base for `webmcp-audit` |
-| `ORA_API_KEY` | journey, webmcp-audit | — (required for journey) | Secret key (`ora_sk_…`); journey exchanges it for a bearer token, webmcp-audit sends it to lift the ingest rate limits |
+| `ORA_API_KEY` | journey, audit `--tunnel ora`, webmcp-audit | — (required for journey and `--tunnel ora`) | Secret key (`ora_sk_…`); journey and `--tunnel ora` exchange it for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes), webmcp-audit sends it to lift the ingest rate limits |
 | `ORA_SCAN_API_KEY` | audit, deep-journey | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). deep-journey accepts it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | deep-journey | — (optional) | ora-issued partner API key; unlocks `--task` and the 1000/24h keyed allowance |
 
