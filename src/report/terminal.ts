@@ -19,6 +19,18 @@ export interface ReportView {
 type Paint = (s: string) => string;
 type CellValue = string | [string, Paint];
 
+/**
+ * The one line of copy for an auth-gated MCP target, shared by the report
+ * banner (a stored result still carrying the legacy `mcpAuthRequired` marker)
+ * and by the command's MCP_AUTH_REQUIRED branch, so the two never drift.
+ */
+export const MCP_AUTH_REQUIRED_NOTICE = "⚠ MCP handshake requires credentials — target is unscored";
+
+// Only the marked-result banner earns this: it sits under a header that just
+// printed 0/F. ora's MCP_AUTH_REQUIRED error carries no score at all, so the
+// command's copy would be explaining a number the user never saw.
+const UNSCORED_ZERO_EXPLAINER = " (0/F means could not evaluate, not failed everything)";
+
 const FLOOR_WIDTH = 80;
 const CEIL_WIDTH = 120;
 const BAR_CELLS = 10;
@@ -257,11 +269,7 @@ export function renderReport(report: Report, view: ReportView = {}): string[] {
 		);
 	}
 	if (report.mcpAuthRequired) {
-		lines.push(
-			pc.yellow(
-				"  ⚠ MCP handshake requires credentials — target is unscored (0/F means could not evaluate, not failed everything)",
-			),
-		);
+		lines.push(pc.yellow(`  ${MCP_AUTH_REQUIRED_NOTICE}${UNSCORED_ZERO_EXPLAINER}`));
 	}
 	if (report.summary) {
 		for (const row of hardWrap(report.summary, term - 4)) lines.push(`  ${pc.dim(row)}`);

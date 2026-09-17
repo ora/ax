@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import realAuditScan from "../api/__fixtures__/audit-scan.json";
 import * as api from "../api/audit";
 import type { AuditScanResult } from "../contract";
+import { MCP_AUTH_REQUIRED_NOTICE } from "../report/terminal";
 import * as tunnel from "../tunnel";
 import * as oraTunnel from "../tunnel/ora";
 import { auditCommand, EXIT } from "./audit";
@@ -23,6 +24,26 @@ const FIXTURE = realAuditScan as unknown as AuditScanResult;
 
 const resolveWith = (extra: Partial<AuditScanResult> = {}) =>
 	vi.mocked(api.performAudit).mockResolvedValue({ result: { ...FIXTURE, ...extra } });
+
+// Contract 1.25.0: the auth-gated MCP target arrives as a typed error frame,
+// not as a scored result. The frame itself is what --json has to print.
+const MCP_AUTH_FRAME = {
+	type: "error",
+	message: "The MCP server requires authentication, so it could not be inspected.",
+	code: "MCP_AUTH_REQUIRED",
+	mcpAuthRequired: true,
+	mcpUrl: "https://example.com/mcp",
+	urlKind: "mcp",
+	timestamp: "2026-09-17T10:20:30.000Z",
+};
+
+const rejectWithMcpAuth = () =>
+	vi.mocked(api.performAudit).mockRejectedValue(
+		new api.AuditApiError(`ora audit failed: ${MCP_AUTH_FRAME.message}`, {
+			code: api.MCP_AUTH_REQUIRED,
+			payload: MCP_AUTH_FRAME,
+		}),
+	);
 
 const run = (over: Partial<Parameters<typeof auditCommand>[0]> = {}) =>
 	auditCommand({
@@ -119,6 +140,71 @@ describe("auditCommand exit codes", () => {
 		expect(await run({ minScore: "70" })).toBe(EXIT.OK);
 	});
 
+	it("0 when ora answers MCP_AUTH_REQUIRED — unscored, not a failed audit", async () => {
+		rejectWithMcpAuth();
+		expect(await run()).toBe(EXIT.OK);
+		expect(vi.mocked(console.error).mock.calls.flat().join("\n")).not.toMatch(/Audit failed/);
+	});
+
+	it("skips the gate on an MCP_AUTH_REQUIRED error and says so on stderr", async () => {
+		rejectWithMcpAuth();
+		expect(await run({ minScore: "70" })).toBe(EXIT.OK);
+		const notes = vi
+			.mocked(process.stderr.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+		expect(notes).toContain("--min-score skipped");
+		expect(notes).toContain("unscored");
+	});
+
+	it("--json prints the MCP_AUTH_REQUIRED error object exactly as ora served it", async () => {
+		rejectWithMcpAuth();
+		await run({ json: true });
+		const printed = vi
+			.mocked(process.stdout.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+		expect(printed).toBe(`${JSON.stringify(MCP_AUTH_FRAME, null, 2)}\n`);
+	});
+
+	it("without --json, MCP_AUTH_REQUIRED prints the shared notice and the MCP URL", async () => {
+		rejectWithMcpAuth();
+		expect(await run({ json: false })).toBe(EXIT.OK);
+		const out = vi.mocked(console.log).mock.calls.flat().join("\n");
+		expect(out).toContain(MCP_AUTH_REQUIRED_NOTICE);
+		expect(out).toContain(MCP_AUTH_FRAME.mcpUrl);
+		// ora sends no score on this path, so the notice must not explain a 0/F
+		// the user never sees - that clause belongs to the legacy banner alone.
+		expect(out).not.toContain("0/F");
+		expect(vi.mocked(process.stdout.write)).not.toHaveBeenCalled();
+	});
+
+	it("--json falls back to code and message when the error carries no payload", async () => {
+		// AuditApiError is public: a library consumer can raise one with a code
+		// and no payload, and stringifying undefined would print "undefined".
+		vi.mocked(api.performAudit).mockRejectedValue(
+			new api.AuditApiError("ora audit failed: no payload here", {
+				code: api.MCP_AUTH_REQUIRED,
+			}),
+		);
+		expect(await run({ json: true })).toBe(EXIT.OK);
+		const printed = vi
+			.mocked(process.stdout.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+		expect(JSON.parse(printed)).toEqual({
+			code: api.MCP_AUTH_REQUIRED,
+			message: "ora audit failed: no payload here",
+		});
+	});
+
+	it("3 on an AuditApiError carrying any other code", async () => {
+		vi.mocked(api.performAudit).mockRejectedValue(
+			new api.AuditApiError("ora rate limit exceeded", { code: "RATE_LIMITED" }),
+		);
+		expect(await run()).toBe(EXIT.API);
+	});
+
 	it("--json prints the raw payload byte-for-byte", async () => {
 		resolveWith();
 		const write = vi.mocked(process.stdout.write);
@@ -212,6 +298,15 @@ describe("auditCommand tunnels", () => {
 		vi.mocked(oraTunnel.openOraTunnel).mockResolvedValue(handle);
 		vi.mocked(api.performAudit).mockRejectedValue(new api.AuditApiError("ora is down"));
 		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.API);
+		expect(handle.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("--tunnel ora closes the tunnel on the MCP_AUTH_REQUIRED path, and still exits 0", async () => {
+		process.env.ORA_API_KEY = "ora_sk_test";
+		const handle = fakeTunnel();
+		vi.mocked(oraTunnel.openOraTunnel).mockResolvedValue(handle);
+		rejectWithMcpAuth();
+		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.OK);
 		expect(handle.close).toHaveBeenCalledTimes(1);
 	});
 

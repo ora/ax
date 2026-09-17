@@ -5,7 +5,7 @@ import { BUILT_AGAINST, resetContractWarning } from "../contract";
 // terminal event against contract 1.8.0 (2026-08-13). Real shape, not
 // hand-rolled - tests derive variations from it with explicit deltas.
 import realAuditScan from "./__fixtures__/audit-scan.json";
-import { performAudit } from "./audit";
+import { AuditApiError, isMcpAuthRequired, MCP_AUTH_REQUIRED, performAudit } from "./audit";
 
 const FIXTURE = realAuditScan as unknown as AuditScanResult;
 
@@ -145,6 +145,54 @@ describe("performAudit", () => {
 			),
 		);
 		await expect(performAudit("example.com")).rejects.toThrow(/Domain is not reachable/);
+	});
+
+	// Contract 1.25.0: an auth-gated MCP target is no longer a scored result
+	// carrying mcpAuthRequired - the stream emits one typed error frame and
+	// closes. The code has to survive the throw or the command cannot tell it
+	// apart from a real failure, and the frame itself is what --json prints.
+	it("carries MCP_AUTH_REQUIRED off the stream with the served frame attached", async () => {
+		const frame = {
+			type: "error",
+			message: "The MCP server requires authentication, so it could not be inspected.",
+			code: "MCP_AUTH_REQUIRED",
+			mcpAuthRequired: true,
+			mcpUrl: "https://example.com/mcp",
+			urlKind: "mcp",
+			timestamp: "2026-09-17T10:20:30.000Z",
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => scanStream([frame])),
+		);
+
+		const error = await performAudit("example.com/mcp").catch((cause) => cause);
+		expect(error).toBeInstanceOf(AuditApiError);
+		expect(error.code).toBe(MCP_AUTH_REQUIRED);
+		expect(error.payload).toEqual(frame);
+		expect(error.message).toContain("requires authentication");
+		expect(isMcpAuthRequired(error)).toBe(true);
+	});
+
+	it("keeps the code and the served message from a 422 MCP_AUTH_REQUIRED body", async () => {
+		const body = {
+			error: "The MCP server requires authentication, so it could not be inspected.",
+			code: "MCP_AUTH_REQUIRED",
+			mcpAuthRequired: true,
+			mcpUrl: "https://example.com/mcp",
+			urlKind: "mcp",
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => asJson(body, 422)),
+		);
+
+		const error = await performAudit("example.com/mcp").catch((cause) => cause);
+		expect(error).toBeInstanceOf(AuditApiError);
+		expect(error.code).toBe(MCP_AUTH_REQUIRED);
+		expect(error.payload).toEqual(body);
+		expect(error.message).toContain(body.error);
+		expect(isMcpAuthRequired(error)).toBe(true);
 	});
 
 	it("rejects when the stream closes without scan_complete", async () => {
@@ -290,7 +338,11 @@ describe("performAudit", () => {
 			"fetch",
 			vi.fn(async () => asJson({ error: "Bad", message: "Domain failed validation" }, 400)),
 		);
-		await expect(performAudit("not a domain")).rejects.toThrow(/Domain failed validation/);
+		const error = await performAudit("not a domain").catch((cause) => cause);
+		expect(error.message).toContain("Domain failed validation");
+		// No code on the wire: an ordinary failure, not the unscored path.
+		expect(error.code).toBeNull();
+		expect(isMcpAuthRequired(error)).toBe(false);
 	});
 
 	it("times out when the stream goes silent", async () => {

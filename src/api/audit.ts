@@ -1,6 +1,6 @@
 import type { AuditScanResult, AuditScoreResult } from "../contract";
 import { warnOnNewerContract } from "../contract";
-import { errorBodyText, pause, watchdog } from "./shared";
+import { errorBody, pause, watchdog } from "./shared";
 
 // Client for ora's public agent-readiness audit. Uses the SSE endpoint
 // (GET /api/scan/stream?format=audit) rather than POST /api/scan: the
@@ -17,8 +17,37 @@ const POLL_EVERY_MS = 2_000;
 const POLL_LIMIT = 45; // ≈90s of patience for async deep analysis
 const BAR_CELLS = 14;
 
-/** Any failure to obtain a result from ora: network, HTTP, rate limit, timeout. */
-export class AuditApiError extends Error {}
+/**
+ * Any failure to obtain a result from ora: network, HTTP, rate limit, timeout.
+ *
+ * `code` is the server's machine-readable reason where it gave one, so a
+ * caller can branch without matching on prose, and `payload` is the error
+ * object exactly as ora served it (what `--json` prints - invariant 4). Both
+ * are null/undefined for the failures ora has no code for.
+ */
+export class AuditApiError extends Error {
+	readonly code: string | null;
+	readonly payload: unknown;
+
+	constructor(message: string, options: { code?: string | null; payload?: unknown } = {}) {
+		super(message);
+		this.name = "AuditApiError";
+		this.code = options.code ?? null;
+		this.payload = options.payload;
+	}
+}
+
+/**
+ * ora's answer for a target whose MCP handshake needs credentials (contract
+ * 1.25.0): the scan is refused rather than scored, so there is no score to
+ * gate on. Not a failure - the CLI reports it and exits 0.
+ */
+export const MCP_AUTH_REQUIRED = "MCP_AUTH_REQUIRED";
+
+/** True when ora refused the scan because the MCP server wants credentials. */
+export function isMcpAuthRequired(error: unknown): error is AuditApiError {
+	return error instanceof AuditApiError && error.code === MCP_AUTH_REQUIRED;
+}
 
 /**
  * The raw audit payload: scan-shaped from the stream's terminal event,
@@ -135,7 +164,11 @@ async function consumeScanStream(
 	}
 	if (!res.ok || !res.body) {
 		dog.disarm();
-		throw new AuditApiError(`ora audit failed: ${await errorBodyText(res)}`);
+		const body = await errorBody(res);
+		throw new AuditApiError(`ora audit failed: ${body.message}`, {
+			code: body.code,
+			payload: body.payload,
+		});
 	}
 
 	const narrate = progressNarrator();
@@ -167,9 +200,12 @@ async function consumeScanStream(
 				if (line) options.progress?.(line);
 				if (event.type === "error") {
 					// The server closes right after this frame; without surfacing it
-					// the caller would only see "ended before completing".
+					// the caller would only see "ended before completing". The frame
+					// carries the code (MCP_AUTH_REQUIRED is not a failure) and is
+					// itself what --json prints, so both ride along.
 					throw new AuditApiError(
 						`ora audit failed: ${typeof event.message === "string" ? event.message : "scan error"}`,
+						{ code: typeof event.code === "string" ? event.code : null, payload: event },
 					);
 				}
 				if (event.type === "scan_complete" && event.result) {

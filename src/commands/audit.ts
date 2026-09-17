@@ -1,6 +1,7 @@
-import { AuditApiError, type AuditOutcome, performAudit } from "../api/audit";
+import pc from "picocolors";
+import { AuditApiError, type AuditOutcome, isMcpAuthRequired, performAudit } from "../api/audit";
 import { toReport } from "../report/model";
-import { renderReport } from "../report/terminal";
+import { MCP_AUTH_REQUIRED_NOTICE, renderReport } from "../report/terminal";
 import { isLocalTarget, openTunnel, type Tunnel } from "../tunnel";
 import { MISSING_KEY_HINT, openOraTunnel } from "../tunnel/ora";
 import { spinner } from "../ui/spinner";
@@ -31,6 +32,13 @@ export interface AuditCommandInput {
  *   3 API unreachable / timeout / rate limit exhausted
  */
 export const EXIT = { OK: 0, BELOW_MIN_SCORE: 1, USAGE: 2, API: 3 } as const;
+
+// Documented contract guidance: an auth-gated MCP target is unscored, so a
+// gate has nothing to compare against and must not fail on it. Both routes to
+// that state - ora's MCP_AUTH_REQUIRED error and the legacy marker on a stored
+// result - say it with this one line.
+const MIN_SCORE_SKIPPED_NOTE =
+	"--min-score skipped: the MCP handshake requires credentials, so the target is unscored\n";
 
 function parseIntFlag(
 	raw: string | undefined,
@@ -94,6 +102,12 @@ function resolveTunnelMode(input: AuditCommandInput): TunnelMode | { error: stri
 		return { kind: "ora" };
 	}
 	return { kind: "none" };
+}
+
+/** The MCP endpoint ora named in its error object, when it named one. */
+function mcpUrlOf(payload: unknown): string | undefined {
+	const url = (payload as { mcpUrl?: unknown } | null | undefined)?.mcpUrl;
+	return typeof url === "string" && url ? url : undefined;
 }
 
 export async function auditCommand(input: AuditCommandInput): Promise<number> {
@@ -203,6 +217,29 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			: await audit;
 	} catch (cause) {
 		spinner.stop();
+		// Not a failure: ora refused to scan a target whose MCP handshake needs
+		// credentials, which is the same unscored state the legacy marker
+		// describes - report it and exit 0.
+		if (isMcpAuthRequired(cause)) {
+			if (input.json) {
+				// Raw passthrough: the error object exactly as ora served it. An
+				// AuditApiError raised without one (the class is public) still has to
+				// print well-formed JSON rather than the literal `undefined`.
+				const served =
+					cause.payload === undefined
+						? { code: cause.code, message: cause.message }
+						: cause.payload;
+				process.stdout.write(`${JSON.stringify(served, null, 2)}\n`);
+			} else {
+				console.log("");
+				console.log(pc.yellow(`  ${MCP_AUTH_REQUIRED_NOTICE}`));
+				const mcpUrl = mcpUrlOf(cause.payload);
+				if (mcpUrl) console.log(pc.dim(`  MCP endpoint: ${mcpUrl}`));
+				console.log("");
+			}
+			if (minScore.value !== undefined) process.stderr.write(MIN_SCORE_SKIPPED_NOTE);
+			return EXIT.OK;
+		}
 		console.error(`Audit failed: ${cause instanceof Error ? cause.message : String(cause)}`);
 		return cause instanceof AuditApiError ? EXIT.API : EXIT.USAGE;
 	} finally {
@@ -227,12 +264,10 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 	}
 
 	if (minScore.value !== undefined) {
+		// Legacy marker on a stored result (older servers, and score polls that
+		// still return a marked row): unscored for the same reason.
 		if (result.mcpAuthRequired) {
-			// Documented contract guidance: an auth-gated MCP scan is unscored -
-			// its 0/F means "could not evaluate", so a gate must not fail on it.
-			process.stderr.write(
-				"--min-score skipped: the MCP handshake requires credentials, so the target is unscored\n",
-			);
+			process.stderr.write(MIN_SCORE_SKIPPED_NOTE);
 			return EXIT.OK;
 		}
 		if (result.score < minScore.value) {
