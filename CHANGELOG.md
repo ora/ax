@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/ora/ax/compare/v0.8.0...v0.8.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **audit:** an MCP_AUTH_REQUIRED error is the unscored path, exit 0 ([#54](https://github.com/ora/ax/issues/54)) ([f21c766](https://github.com/ora/ax/commit/f21c766e0a314fd212f7b5d617508554e9a4de47))
+
 ## [0.8.0](https://github.com/ora/ax/compare/v0.7.5...v0.8.0) (2026-09-17)
 
 
