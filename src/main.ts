@@ -40,10 +40,15 @@ const audit = defineCommand({
 			description: "Bypass the cache and rescan (spends the stricter 6/day force budget)",
 			default: false,
 		},
+		tunnel: {
+			type: "string",
+			description:
+				"Open ora's own tunnel to a local target (value: ora); needs ORA_API_KEY with the tunnels:write + tunnels:connect scopes. Also read from ORA_TUNNEL. The result is stored as ephemeral",
+		},
 		"tunnel-cmd": {
 			type: "string",
 			description:
-				"Command that exposes a local target and prints its public https URL (e.g. 'ngrok http 3000 --log stdout'); also read from ORA_TUNNEL_CMD. The result is stored as ephemeral",
+				"Bring your own tunnel: a command that exposes a local target and prints its public https URL (e.g. 'ngrok http 3000 --log stdout'); also read from ORA_TUNNEL_CMD. The result is stored as ephemeral",
 		},
 		"api-key": {
 			type: "string",
@@ -74,6 +79,7 @@ const audit = defineCommand({
 			maxAge: args["max-age"] as string | undefined,
 			force: Boolean(args.force),
 			tunnelCmd: args["tunnel-cmd"] as string | undefined,
+			tunnel: args.tunnel as string | undefined,
 			apiKey: args["api-key"] as string | undefined,
 		});
 	},
@@ -268,6 +274,7 @@ function helpScreen(): string {
 		`    ${g} ${NAME} audit https://docs.example.com`,
 		`    ${g} ${NAME} audit https://docs.example.com --min-score 70   ${d("# CI gate")}`,
 		`    ${g} ${NAME} audit https://docs.example.com --json`,
+		`    ${g} ${NAME} audit localhost:3000 --tunnel ora   ${d("# audit a local dev server")}`,
 		`    ${g} ${NAME} webmcp-audit http://localhost:3000`,
 		`    ${g} ${NAME} deep-journey stripe.com --intent pricing`,
 		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
@@ -276,7 +283,8 @@ function helpScreen(): string {
 		`    --min-score <n>  ${d("Exit 1 when the score is below n (0-100); the CI gate")}`,
 		`    --max-age <s>    ${d("Accept a cached result up to s seconds old (default 6h)")}`,
 		`    --force          ${d("Bypass the cache and rescan (6/day budget)")}`,
-		`    --tunnel-cmd <c> ${d("Expose a local target via your own tunnel command (e.g. 'ngrok http 3000 --log stdout')")}`,
+		`    --tunnel ora     ${d("Expose a local target through ora's own tunnel (needs ORA_API_KEY: tunnels:write + tunnels:connect)")}`,
+		`    --tunnel-cmd <c> ${d("...or through your own tunnel command (e.g. 'ngrok http 3000 --log stdout')")}`,
 		`    --api-key <k>    ${d("ora-issued scan API key that lifts the rate limits; also read from ORA_SCAN_API_KEY")}`,
 		`    --json           ${d("Print the raw ora audit payload as JSON")}`,
 		`    --show-passing   ${d("List each passing check (hidden by default)")}`,

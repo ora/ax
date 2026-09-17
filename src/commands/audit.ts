@@ -2,6 +2,7 @@ import { AuditApiError, type AuditOutcome, performAudit } from "../api/audit";
 import { toReport } from "../report/model";
 import { renderReport } from "../report/terminal";
 import { isLocalTarget, openTunnel, type Tunnel } from "../tunnel";
+import { MISSING_KEY_HINT, openOraTunnel } from "../tunnel/ora";
 import { spinner } from "../ui/spinner";
 
 export interface AuditCommandInput {
@@ -16,6 +17,8 @@ export interface AuditCommandInput {
 	force: boolean;
 	/** User-supplied command that exposes the target and prints a public https URL. */
 	tunnelCmd?: string;
+	/** Raw --tunnel value; "ora" opens ora's own tunnel (needs ORA_API_KEY). */
+	tunnel?: string;
 	/** ora-issued scan API key (--api-key); the client falls back to ORA_SCAN_API_KEY. */
 	apiKey?: string;
 }
@@ -60,6 +63,39 @@ function normalizeTarget(raw: string): string | undefined {
 	}
 }
 
+type TunnelMode = { kind: "none" } | { kind: "ora" } | { kind: "cmd"; command: string };
+
+/**
+ * Which tunnel to open, if any. Explicit flags beat the environment, and a
+ * command beats the ora mode at each level, so a `--tunnel-cmd` on the
+ * command line always wins over an `ORA_TUNNEL=ora` left in a .env.
+ */
+function resolveTunnelMode(input: AuditCommandInput): TunnelMode | { error: string } {
+	const flagCmd = input.tunnelCmd?.trim();
+	if (flagCmd) return { kind: "cmd", command: flagCmd };
+	const flagMode = input.tunnel?.trim();
+	if (flagMode !== undefined) {
+		if (flagMode !== "ora") {
+			return {
+				error: `--tunnel must be "ora" (ora's own tunnel), got ${JSON.stringify(input.tunnel)}`,
+			};
+		}
+		return { kind: "ora" };
+	}
+	const envCmd = process.env.ORA_TUNNEL_CMD?.trim();
+	if (envCmd) return { kind: "cmd", command: envCmd };
+	const envMode = process.env.ORA_TUNNEL?.trim();
+	if (envMode) {
+		if (envMode !== "ora") {
+			return {
+				error: `ORA_TUNNEL must be "ora" (ora's own tunnel), got ${JSON.stringify(envMode)}`,
+			};
+		}
+		return { kind: "ora" };
+	}
+	return { kind: "none" };
+}
+
 export async function auditCommand(input: AuditCommandInput): Promise<number> {
 	const target = normalizeTarget(input.url);
 	if (!target) {
@@ -76,17 +112,24 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 	}
 
 	// A local target only exists on this machine, so ora can never reach it
-	// directly. The CLI ships no tunnel vendor of its own: the user supplies
-	// the command (--tunnel-cmd / ORA_TUNNEL_CMD) and the result is stored as
+	// directly. Two ways through: ora's own tunnel (--tunnel ora, needs the
+	// platform key) or a user-supplied command (--tunnel-cmd / ORA_TUNNEL_CMD)
+	// that prints a public https URL. Either way the result is stored as
 	// ephemeral so the throwaway hostname never pollutes rankings.
-	const tunnelCmd = input.tunnelCmd?.trim() || process.env.ORA_TUNNEL_CMD?.trim();
-	const useTunnel = Boolean(tunnelCmd);
+	const tunnelMode = resolveTunnelMode(input);
+	if ("error" in tunnelMode) {
+		console.error(tunnelMode.error);
+		return EXIT.USAGE;
+	}
+	const useTunnel = tunnelMode.kind !== "none";
 	if (!useTunnel && isLocalTarget(target)) {
 		console.error(
 			[
 				`${target} only exists on this machine, and ora audits public URLs.`,
 				"Either audit a publicly reachable deployment of this site (e.g. a preview URL),",
-				"or run it through a tunnel you provide:",
+				"or run it through a tunnel:",
+				"  ax audit localhost:3000 --tunnel ora   # ora's own tunnel; needs ORA_API_KEY",
+				"  ax audit localhost:3000 --tunnel-cmd 'ora tunnel 3000 --access public'",
 				"  ax audit localhost:3000 --tunnel-cmd 'ngrok http 3000 --log stdout'",
 				"Any command that prints a public https URL works; the result is stored as",
 				"ephemeral (excluded from rankings, deleted after a few days).",
@@ -94,48 +137,76 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		);
 		return EXIT.USAGE;
 	}
+	if (tunnelMode.kind === "ora" && !process.env.ORA_API_KEY) {
+		console.error(MISSING_KEY_HINT);
+		return EXIT.USAGE;
+	}
 
 	const interactive = !input.json;
 	if (interactive) spinner.start(`Auditing ${target} with ora`);
 	let tunnel: Tunnel | undefined;
-	const closeTunnel = () => tunnel?.close();
+	let opening: Promise<Tunnel> | undefined;
+	const interrupt = new AbortController();
+	const closeTunnel = async () => {
+		await tunnel?.close();
+	};
+	// The tunnel must not outlive an interrupted run. Installing a signal
+	// listener removes Node's default exit, so after cleanup the handler
+	// must terminate the process itself (conventional 128 + signal codes).
+	// ora's tunnel deletes its row over HTTP, so the exit waits for close();
+	// a Ctrl-C during setup aborts the open, whose own cleanup deletes the row.
+	// The listeners come off on the first signal so a second Ctrl-C gets
+	// Node's default exit if the cleanup itself hangs.
 	const onSignal = (signal: NodeJS.Signals) => {
-		closeTunnel();
-		process.exit(signal === "SIGINT" ? 130 : 143);
+		process.removeListener("SIGINT", onSignal);
+		process.removeListener("SIGTERM", onSignal);
+		interrupt.abort();
+		void (async () => {
+			await opening?.catch(() => undefined);
+			await closeTunnel();
+		})().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
 	};
 	let auditTarget = target;
-	if (useTunnel && tunnelCmd) {
+	if (tunnelMode.kind !== "none") {
 		if (interactive) spinner.update(`Opening a tunnel to ${target}`);
+		process.on("SIGINT", onSignal);
+		process.on("SIGTERM", onSignal);
 		try {
-			tunnel = await openTunnel(tunnelCmd);
+			opening =
+				tunnelMode.kind === "ora"
+					? openOraTunnel(target, { signal: interrupt.signal })
+					: openTunnel(tunnelMode.command);
+			tunnel = await opening;
 		} catch (cause) {
 			spinner.stop();
+			process.removeListener("SIGINT", onSignal);
+			process.removeListener("SIGTERM", onSignal);
 			console.error(cause instanceof Error ? cause.message : String(cause));
 			return EXIT.USAGE;
 		}
-		// The tunnel must not outlive an interrupted run. Installing a signal
-		// listener removes Node's default exit, so after cleanup the handler
-		// must terminate the process itself (conventional 128 + signal codes).
-		process.on("SIGINT", onSignal);
-		process.on("SIGTERM", onSignal);
 		auditTarget = tunnel.url;
 	}
 
 	let outcome: AuditOutcome;
 	try {
-		outcome = await performAudit(auditTarget, {
+		const audit = performAudit(auditTarget, {
 			progress: interactive ? (line) => spinner.update(line) : undefined,
 			maxAgeSeconds: maxAge.value,
 			force: input.force,
 			ephemeral: useTunnel || undefined,
 			apiKey: input.apiKey?.trim() || undefined,
 		});
+		// A tunnel that dies mid-audit leaves ora scoring a hostname that no
+		// longer answers: fail the run rather than render that as a result.
+		outcome = tunnel?.dropped
+			? await Promise.race([audit, tunnel.dropped.then((error) => Promise.reject(error))])
+			: await audit;
 	} catch (cause) {
 		spinner.stop();
 		console.error(`Audit failed: ${cause instanceof Error ? cause.message : String(cause)}`);
 		return cause instanceof AuditApiError ? EXIT.API : EXIT.USAGE;
 	} finally {
-		closeTunnel();
+		await closeTunnel();
 		process.removeListener("SIGINT", onSignal);
 		process.removeListener("SIGTERM", onSignal);
 	}

@@ -41,6 +41,7 @@
 		"@biomejs/biome": "^2.5.7",
 		"@commitlint/cli": "^21.2.2",
 		"@commitlint/config-conventional": "^21.2.2",
+		"@ora-ai/tunnel-protocol": "^0.2.0",
 		"@types/node": "^26.2.0",
 		"@vitest/coverage-v8": "^3",
 		"citty": "^0.2.2",

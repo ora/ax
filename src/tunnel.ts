@@ -12,9 +12,19 @@ import { spawn } from "node:child_process";
 export class TunnelError extends Error {}
 
 export interface Tunnel {
-	/** The public https origin the tunnel command printed. */
+	/** The public https origin the tunnel serves. */
 	url: string;
-	close: () => void;
+	/**
+	 * Tear the tunnel down. May be async (ora's own tunnel deletes its row over
+	 * HTTP); callers on an exit path await it before terminating the process.
+	 */
+	close: () => void | Promise<void>;
+	/**
+	 * Settles when the tunnel dies on its own (connection dropped, revoked)
+	 * rather than through close(). An audit racing against it fails instead
+	 * of scoring a hostname that no longer answers.
+	 */
+	dropped?: Promise<TunnelError>;
 }
 
 const TUNNEL_READY_MS = 30_000;
@@ -85,10 +95,16 @@ export async function openTunnel(command: string, readyMs = TUNNEL_READY_MS): Pr
 // the status is whatever the local server returns. Probes are spaced 5s
 // apart: a fresh tunnel DNS record takes seconds to exist, and hammering it
 // early primes the resolver's negative cache, which then outlives the
-// propagation delay.
-async function waitRoutable(url: string, routableMs: number): Promise<void> {
+// propagation delay. Shared with ora's own tunnel (src/tunnel/ora.ts).
+export async function waitRoutable(
+	url: string,
+	routableMs: number = TUNNEL_ROUTABLE_MS,
+	probeEveryMs = 5000,
+	signal?: AbortSignal,
+): Promise<void> {
 	const deadline = Date.now() + routableMs;
 	while (Date.now() < deadline) {
+		if (signal?.aborted) throw new TunnelError("interrupted while waiting for the tunnel");
 		try {
 			const res = await fetch(url, {
 				redirect: "manual",
@@ -98,7 +114,7 @@ async function waitRoutable(url: string, routableMs: number): Promise<void> {
 		} catch {
 			// DNS not propagated yet, or the probe timed out - keep waiting
 		}
-		await new Promise((r) => setTimeout(r, 5000));
+		await new Promise((r) => setTimeout(r, probeEveryMs));
 	}
 	throw new TunnelError(
 		[

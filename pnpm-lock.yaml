@@ -20,6 +20,9 @@ importers:
       '@commitlint/config-conventional':
         specifier: ^21.2.2
         version: 21.2.2
+      '@ora-ai/tunnel-protocol':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@types/node':
         specifier: ^26.2.0
         version: 26.2.0
@@ -569,6 +572,10 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@ora-ai/tunnel-protocol@0.2.0':
+    resolution: {integrity: sha512-mEjEvle1joVvN46ePx51dym4KMKDpQGBvC102XN2e6Xu0GWT27pMrIW0rNmIIvHyu7R5COv9O8X1HMyKLZNG7g==}
+    engines: {node: '>=20'}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -1676,6 +1683,9 @@ packages:
     resolution: {integrity: sha512-2rAgRKu54VsHkqI0/tYkmluGXHD4KW7yZoycuqDQ15QOTnc2VVfy0nN/1eMhnQLO00A+dwtK20xuCnc1YGeUyg==}
     engines: {node: ^20.19.0 || ^22.12.0 || >=23}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@ampproject/remapping@2.3.0':
@@ -2053,6 +2063,10 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
+
+  '@ora-ai/tunnel-protocol@0.2.0':
+    dependencies:
+      zod: 4.6.5
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -3073,3 +3087,5 @@ snapshots:
       string-width: 8.2.2
       y18n: 5.0.8
       yargs-parser: 22.0.0
+
+  zod@4.6.5: {}
