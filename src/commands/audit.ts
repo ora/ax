@@ -222,8 +222,14 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		// describes - report it and exit 0.
 		if (isMcpAuthRequired(cause)) {
 			if (input.json) {
-				// Raw passthrough: the error object exactly as ora served it.
-				process.stdout.write(`${JSON.stringify(cause.payload, null, 2)}\n`);
+				// Raw passthrough: the error object exactly as ora served it. An
+				// AuditApiError raised without one (the class is public) still has to
+				// print well-formed JSON rather than the literal `undefined`.
+				const served =
+					cause.payload === undefined
+						? { code: cause.code, message: cause.message }
+						: cause.payload;
+				process.stdout.write(`${JSON.stringify(served, null, 2)}\n`);
 			} else {
 				console.log("");
 				console.log(pc.yellow(`  ${MCP_AUTH_REQUIRED_NOTICE}`));

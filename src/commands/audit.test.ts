@@ -173,7 +173,29 @@ describe("auditCommand exit codes", () => {
 		const out = vi.mocked(console.log).mock.calls.flat().join("\n");
 		expect(out).toContain(MCP_AUTH_REQUIRED_NOTICE);
 		expect(out).toContain(MCP_AUTH_FRAME.mcpUrl);
+		// ora sends no score on this path, so the notice must not explain a 0/F
+		// the user never sees - that clause belongs to the legacy banner alone.
+		expect(out).not.toContain("0/F");
 		expect(vi.mocked(process.stdout.write)).not.toHaveBeenCalled();
+	});
+
+	it("--json falls back to code and message when the error carries no payload", async () => {
+		// AuditApiError is public: a library consumer can raise one with a code
+		// and no payload, and stringifying undefined would print "undefined".
+		vi.mocked(api.performAudit).mockRejectedValue(
+			new api.AuditApiError("ora audit failed: no payload here", {
+				code: api.MCP_AUTH_REQUIRED,
+			}),
+		);
+		expect(await run({ json: true })).toBe(EXIT.OK);
+		const printed = vi
+			.mocked(process.stdout.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+		expect(JSON.parse(printed)).toEqual({
+			code: api.MCP_AUTH_REQUIRED,
+			message: "ora audit failed: no payload here",
+		});
 	});
 
 	it("3 on an AuditApiError carrying any other code", async () => {
