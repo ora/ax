@@ -429,7 +429,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.24.0";
+      contractVersion: "1.25.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -438,7 +438,7 @@ export interface components {
       /** @description Age of the served stored result in seconds (also sent as the Age response header). Present with servedFromCache. */
       resultAgeSeconds?: number;
       /**
-       * @description Present when an MCP-family scan short-circuited because the server's handshake demanded credentials (401/403). Score 0 with empty layers then means 'could not evaluate', NOT 'failed everything' - treat the target as unscored rather than failing a gate on it.
+       * @description Legacy marker retained for compatibility with stored results. New authentication-required scans return an MCP_AUTH_REQUIRED error without score or grade; public reads of a historical marked result return the same error.
        * @enum {boolean}
        */
       mcpAuthRequired?: true;
@@ -628,11 +628,11 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.24.0";
+      contractVersion: "1.25.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
-       * @description Present when an MCP-family scan short-circuited because the server's handshake demanded credentials (401/403). Score 0 with empty layers then means 'could not evaluate', NOT 'failed everything' - treat the target as unscored rather than failing a gate on it.
+       * @description Legacy marker retained for compatibility with stored results. New authentication-required scans return an MCP_AUTH_REQUIRED error without score or grade; public reads of a historical marked result return the same error.
        * @enum {boolean}
        */
       mcpAuthRequired?: true;
@@ -672,7 +672,7 @@ export interface components {
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.24.0";
+      contractVersion: "1.25.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -762,7 +762,7 @@ export interface components {
       url: string;
       /** @description Array of check ids from GET /api/checks - one id minimum, up to the catalogued check count. Duplicate ids are deduplicated; ids the catalog does not list are rejected with error code UNKNOWN_CHECK_IDS. */
       checkIds: string[];
-      /** @description Optional URL of the target's MCP server, matching the same field on POST /api/scan. When omitted, ora auto-discovers MCP endpoints. An empty string is treated as absent. */
+      /** @description Optional URL of the target's MCP server, matching the same field on POST /api/scan. It pins the MCP endpoint; a failed handshake never substitutes a discovered server. When omitted, ora auto-discovers MCP endpoints. An empty string is treated as absent. */
       mcpUrl?: unknown;
     };
     /** @description The outcome of a selective check run. The run always executes - results are never served from a cache. The response carries no aggregate score of any kind: per-check score and maxScore only, with GET /api/score/{domain} as the score surface. Results carry no tier or layer fields - join with GET /api/checks by id to group or rank them. */
@@ -771,7 +771,7 @@ export interface components {
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.24.0";
+      contractVersion: "1.25.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -1988,7 +1988,7 @@ export interface components {
        * @enum {string}
        */
       urlKind?: "domain" | "mcp" | "mcp-app" | "ephemeral";
-      /** @description Optional. True when an MCP-family scan (urlKind 'mcp' or 'mcp-app') was short-circuited because the server returned 401/403 on the handshake. When set, 'layers' is empty and 'score' is 0; ora cannot evaluate agent-readiness for auth-gated MCP servers. UI surfaces an auth-required notice instead of the score hero. */
+      /** @description Legacy marker retained for compatibility. New authentication-required scans and reads of historical marked results return HTTP 422 MCP_AUTH_REQUIRED without score or grade. */
       mcpAuthRequired?: boolean;
       /**
        * @description Present (and always true) only when POST /api/scan answered from the freshness window with a stored result instead of running a scan. Absent on a live scan and on GET /api/score/{domain}, which is always a cached read.
@@ -2166,6 +2166,18 @@ export interface components {
       /** @description Optional recovery hint (e.g. /api/scan on NOT_FOUND). */
       next?: string;
     };
+    McpAuthRequiredResponse: {
+      /** @description Why the MCP server could not be inspected. */
+      error: string;
+      /** @constant */
+      code: "MCP_AUTH_REQUIRED";
+      /** @constant */
+      mcpAuthRequired: true;
+      /** @description The MCP endpoint that required authentication. */
+      mcpUrl: string;
+      /** @enum {string} */
+      urlKind: "mcp" | "mcp-app";
+    };
     /**
      * @description ora's house error envelope. `error` is always present; the other fields depend on which guard rejected the request, so a client should branch on `code` / `retry_after_ms` being present rather than assume them.
      * @example {
@@ -2293,7 +2305,7 @@ export interface operations {
            */
           url: string;
           /**
-           * @description Optional MCP server URL to test
+           * @description Optional MCP server URL to inspect as the sole MCP target. A failed endpoint is never replaced by a discovered server
            * @example
            */
           mcpUrl?: string;
@@ -2342,6 +2354,12 @@ export interface operations {
       400: {
         content: {
           "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description MCP authentication is required. No score or grade was produced. The failed attempt does not overwrite a previous measured scan. */
+      422: {
+        content: {
+          "application/json": components["schemas"]["McpAuthRequiredResponse"];
         };
       };
       /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP; 6 per day for force=true). Cache-served responses never count against the daily quota. The response includes a Retry-After header indicating seconds until the next request is allowed, and a JSON body with error and retry_after_ms. */
@@ -2453,7 +2471,7 @@ export interface operations {
       query: {
         /** @description The domain, MCP server URL, or MCP app URL to scan. The server detects which kind of input was provided and runs the appropriate check set. */
         domain: string;
-        /** @description Optional explicit MCP server URL to test alongside the scan */
+        /** @description Optional MCP server URL to inspect as the sole MCP target; it is never replaced by a discovered server */
         mcp?: string;
         /** @description Same freshness window as POST /api/scan: how stale a stored result may be and still be streamed back instead of running a new scan. Defaults to 21600 (6 hours), clamped to [3600, 86400]. */
         maxAgeSeconds?: number;
@@ -2466,7 +2484,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Server-Sent Events stream of scan progress. With `?format=audit`, the terminal `scan_complete` event's `result` is `#/components/schemas/AuditScanResult`; every other event is unchanged. When a stored result inside the freshness window answers the request, the stream is a `kind_detected` frame followed by a terminal `scan_complete` event carrying `servedFromCache: true` and `resultAgeSeconds`, and the response carries an `Age` header. */
+      /** @description Server-Sent Events stream of scan progress. If MCP authentication is required, the stream ends with an error event carrying code MCP_AUTH_REQUIRED, mcpAuthRequired: true, mcpUrl and urlKind, without scan_complete or a score. With `?format=audit`, the terminal `scan_complete` event's `result` is `#/components/schemas/AuditScanResult`; every other event is unchanged. When a stored result inside the freshness window answers the request, the stream is a `kind_detected` frame followed by a terminal `scan_complete` event carrying `servedFromCache: true` and `resultAgeSeconds`, and the response carries an `Age` header. */
       200: {
         content: {
           "text/event-stream": string;
@@ -2565,6 +2583,12 @@ export interface operations {
       404: {
         content: {
           "application/json": components["schemas"]["NotScannedResponse"];
+        };
+      };
+      /** @description MCP authentication is required. No score or grade was produced. The failed attempt does not overwrite a previous measured scan. */
+      422: {
+        content: {
+          "application/json": components["schemas"]["McpAuthRequiredResponse"];
         };
       };
       /** @description Rate limit exceeded - max 10 requests per minute per IP. The response carries a Retry-After header with the seconds until the oldest request in the window ages out. */
