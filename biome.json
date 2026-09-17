@@ -36,7 +36,8 @@
 			"!**/coverage",
 			"!**/.context",
 			"!src/contract/types.gen.ts",
-			"!src/webmcp/vendor"
+			"!src/webmcp/vendor",
+			"!src/tunnel/vendor"
 		]
 	}
 }

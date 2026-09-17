@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { type ClientRequest, request as httpRequest, type IncomingMessage } from "node:http";
+import pkg from "../../package.json";
+import { exchangeKey, platformBase } from "../api/platform";
+import { type Tunnel, TunnelError, waitRoutable } from "../tunnel";
 import {
 	type HeaderMap,
 	type ISocket,
@@ -9,21 +12,18 @@ import {
 	type LocalResponse,
 	TunnelConnector,
 	V1Codec,
-} from "@ora-ai/tunnel-protocol";
-import pkg from "../../package.json";
-import { exchangeKey, platformBase } from "../api/platform";
-import { type Tunnel, TunnelError, waitRoutable } from "../tunnel";
+} from "./vendor";
 
 // ora's own reverse tunnel (`ax audit --tunnel ora`): create a tunnel row on
 // the platform API, dial its WebSocket data plane, forward every proxied
 // request to the local server, audit the public hostname, delete the row.
 //
-// This is protocol code, not a vendor: @ora-ai/tunnel-protocol is the wire
-// format ora's tunnel service speaks (zod only, bundled into the bin), the
-// transport is Node's built-in WebSocket, and nothing is downloaded at
-// runtime. The tunnel is created `public` because ora's scanner cannot yet
-// present a per-tunnel credential; the hostname is an unguessable UUID that
-// stops answering the moment the row is deleted.
+// This is protocol code, not a vendor: ./vendor is the client half of ora's
+// own wire protocol (copied from @ora-ai/tunnel-protocol, see vendor/index.ts
+// for why it is a copy), the transport is Node's built-in WebSocket, and
+// nothing is downloaded at runtime. The tunnel is created `public` because
+// ora's scanner cannot yet present a per-tunnel credential; the hostname is
+// an unguessable UUID that stops answering the moment the row is deleted.
 
 export interface OraTunnelOptions {
 	/** The ora_sk_ platform key; falls back to $ORA_API_KEY. */
