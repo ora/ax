@@ -19,6 +19,14 @@ export interface ReportView {
 type Paint = (s: string) => string;
 type CellValue = string | [string, Paint];
 
+/**
+ * One line of copy for an auth-gated MCP target, shared by the report banner
+ * (a stored result still carrying the legacy `mcpAuthRequired` marker) and by
+ * the command's MCP_AUTH_REQUIRED branch, so the two paths never drift.
+ */
+export const MCP_AUTH_REQUIRED_NOTICE =
+	"⚠ MCP handshake requires credentials — target is unscored (0/F means could not evaluate, not failed everything)";
+
 const FLOOR_WIDTH = 80;
 const CEIL_WIDTH = 120;
 const BAR_CELLS = 10;
@@ -257,11 +265,7 @@ export function renderReport(report: Report, view: ReportView = {}): string[] {
 		);
 	}
 	if (report.mcpAuthRequired) {
-		lines.push(
-			pc.yellow(
-				"  ⚠ MCP handshake requires credentials — target is unscored (0/F means could not evaluate, not failed everything)",
-			),
-		);
+		lines.push(pc.yellow(`  ${MCP_AUTH_REQUIRED_NOTICE}`));
 	}
 	if (report.summary) {
 		for (const row of hardWrap(report.summary, term - 4)) lines.push(`  ${pc.dim(row)}`);
