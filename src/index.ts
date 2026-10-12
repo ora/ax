@@ -4,6 +4,13 @@
 // type declarations and has no runtime dependencies.
 
 export {
+	type AgentFile,
+	AgentFilesApiError,
+	type AgentFilesBundle,
+	type AgentFilesOptions,
+	fetchAgentFiles,
+} from "./api/agent-files";
+export {
 	AuditApiError,
 	type AuditOptions,
 	type AuditOutcome,

@@ -3,6 +3,7 @@ import pc from "picocolors";
 import pkg from "../package.json";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
+import { generateFilesCommand } from "./commands/generate-files";
 import { journeyCommand } from "./commands/journey";
 import { skillCommand } from "./commands/skill";
 import { webmcpAuditCommand } from "./commands/webmcp-audit";
@@ -173,6 +174,45 @@ const deepJourney = defineCommand({
 	},
 });
 
+const generateFiles = defineCommand({
+	meta: {
+		name: "generate-files",
+		description:
+			"Draft a domain's agent discovery files (ard.json, ai-catalog.json, poppy.json) into <out>/.well-known/ (exit codes: 0 ok, 2 usage or files already exist, 3 API error)",
+	},
+	args: {
+		domain: {
+			type: "positional",
+			description: "Domain the files speak for (e.g. example.com)",
+			required: true,
+		},
+		out: {
+			type: "string",
+			description:
+				"Directory your site serves from; files land in <out>/.well-known/ (default: current directory)",
+		},
+		force: {
+			type: "boolean",
+			description: "Overwrite files that already exist",
+			default: false,
+		},
+		json: {
+			type: "boolean",
+			description: "Print ora's payload as JSON and write nothing",
+			default: false,
+		},
+	},
+	async run({ args }) {
+		// Same exitCode-over-exit rule as audit: let stdout drain before exiting.
+		process.exitCode = await generateFilesCommand({
+			domain: args.domain as string,
+			out: args.out as string | undefined,
+			force: Boolean(args.force),
+			json: Boolean(args.json),
+		});
+	},
+});
+
 const skill = defineCommand({
 	meta: {
 		name: "skill",
@@ -269,6 +309,7 @@ function helpScreen(): string {
 		`    deep-journey ${d("<url>")}  ${d("Run a real agent at a site on a curated or free-text task")}`,
 		`    journey ${d("<intent>")}    ${d("Send a real agent at a site and watch it live (workspace)")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
+		`    generate-files ${d("<domain>")} ${d("Draft ard.json, ai-catalog.json and poppy.json for a domain")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -278,6 +319,7 @@ function helpScreen(): string {
 		`    ${g} ${NAME} webmcp-audit http://localhost:3000`,
 		`    ${g} ${NAME} deep-journey stripe.com --intent pricing`,
 		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
+		`    ${g} ${NAME} generate-files example.com --out public`,
 		"",
 		`  ${d("audit options:")}`,
 		`    --min-score <n>  ${d("Exit 1 when the score is below n (0-100); the CI gate")}`,
@@ -311,6 +353,12 @@ function helpScreen(): string {
 		`    --json           ${d("Print the terminal run detail as JSON")}`,
 		`    ${d("no key needed · public caps: 100 runs/24h per target, 20 runs/24h per IP")}`,
 		"",
+		`  ${d("generate-files options:")}`,
+		`    --out <dir>      ${d("Directory your site serves from; writes <dir>/.well-known/* (default: .)")}`,
+		`    --force          ${d("Overwrite files that already exist (otherwise nothing is written)")}`,
+		`    --json           ${d("Print ora's payload as JSON and write nothing")}`,
+		`    ${d("drafts from ora's last scan of the domain - review each file before you publish it")}`,
+		"",
 		`  ${d("journey options:")}`,
 		`    --domain <d>     ${d("Site the agent targets (e.g. stripe.com)")}`,
 		`    --harness <h>    ${d("Agent harness: claude-code (default), codex, openclaw, hermess, claude-agent, eve, …")}`,
@@ -327,7 +375,14 @@ const root = defineCommand({
 		version: pkg.version,
 		description: "Score any site's agent readiness — and watch real AI agents navigate it",
 	},
-	subCommands: { audit, "webmcp-audit": webmcpAudit, "deep-journey": deepJourney, journey, skill },
+	subCommands: {
+		audit,
+		"webmcp-audit": webmcpAudit,
+		"deep-journey": deepJourney,
+		journey,
+		skill,
+		"generate-files": generateFiles,
+	},
 	setup() {
 		// Bare invocation and top-level --help get the curated screen; subcommand
 		// --help stays with citty's generated usage.

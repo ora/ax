@@ -1,0 +1,4 @@
+{
+	"errorCode": "INVALID_ARGUMENT",
+	"message": "Invalid domain: pass a public host such as example.com"
+}

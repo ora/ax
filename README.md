@@ -31,6 +31,7 @@ Five commands:
 - **`deep-journey <url>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks free-text tasks (`--task`) and a larger allowance.
 - **`journey "<intent>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)).
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
+- **`generate-files <domain>`** — draft the agent discovery files a site publishes about itself (`ard.json`, `ai-catalog.json`, `poppy.json`) into `.well-known/`, filled in from ora's last scan of the domain.
 
 ## audit
 
@@ -259,6 +260,18 @@ ax skill --json                         # the raw registry index
 
 Skills come from ora's public registry (`https://ora.ai/.well-known/agent-skills/`) and every byte is verified against the registry's sha256 digest before it is printed or installed. Skill content is never bundled into this package. `--dir <path>` overrides the install directory, and `--json` prints the registry index as JSON instead of the formatted list.
 
+## generate-files
+
+```
+ax generate-files example.com               # writes ./.well-known/{ard,ai-catalog,poppy}.json
+ax generate-files example.com --out public  # writes public/.well-known/... (your site's static root)
+ax generate-files example.com --json        # ora's payload, files + notes, nothing written
+```
+
+Drafts the files agents look for under a site's `/.well-known/`: an [Agentic Resource Discovery](https://agenticresourcediscovery.org/) catalog (`ard.json`, the same document as `ai-catalog.json` for the [AI Catalog Standard](https://ai-catalog.io/)'s path) and a [Personal Agent Protocol](https://personalagentprotocol.org/docs/spec) `poppy.json`. ora builds them from what it already knows about the domain (its last scan; no new crawl), so run `ax audit` first for a domain ora has never scanned - without a scan the catalog lists only the website. Every catalog entry is anchored to your domain, not to ora. The `poppy.json` is the minimal valid document (signed-out browsing); the OAuth issuer and APIs ora saw are printed as notes rather than written into it, because naming them is only correct once they implement the protocol. These are drafts: read each file and its notes before you publish.
+
+Nothing is overwritten: if any target file exists, nothing is written and the command exits `2` - pass `--force` to overwrite, or `--out <dir>` to write elsewhere. Exit codes: `0` written, `2` usage (bad domain, files exist), `3` API. Same files as the web generator at [directory.ora.ai/generate](https://directory.ora.ai/generate) and `GET https://ora.ai/api/agent-files/{domain}`.
+
 ## Library use
 
 The same contract-typed client the CLI uses is importable:
@@ -270,7 +283,7 @@ const { result } = await audit("stripe.com");
 console.log(result.score, result.grade, result.topFixes);
 ```
 
-`result` is the raw versioned audit payload (`AuditScanResult` / `AuditScoreResult`, generated from ora's OpenAPI spec). `fetchSkill` / `fetchSkillIndex` expose the digest-verified skill registry.
+`result` is the raw versioned audit payload (`AuditScanResult` / `AuditScoreResult`, generated from ora's OpenAPI spec). `fetchSkill` / `fetchSkillIndex` expose the digest-verified skill registry, and `fetchAgentFiles` the agent files generator.
 
 The public journey client is exported too — the same no-key path as `ax deep-journey`:
 
@@ -362,7 +375,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
-| `ORA_API_URL` | audit, deep-journey, skill | `https://ora.ai` | Public API base (no auth) |
+| `ORA_API_URL` | audit, deep-journey, skill, generate-files | `https://ora.ai` | Public API base (no auth) |
 | `ORA_PLATFORM_URL` | journey, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
