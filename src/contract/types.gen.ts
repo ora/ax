@@ -131,6 +131,13 @@ export interface paths {
      */
     get: operations["ardGetCatalogDump"];
   };
+  "/api/agent-files/{domain}": {
+    /**
+     * Draft a domain's own agent discovery files (ard.json, ai-catalog.json, poppy.json)
+     * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol, Draft 0.1). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
+     */
+    get: operations["generateAgentFiles"];
+  };
   "/api/ard/jwks": {
     /**
      * Get the public JWK set for verifying signed attestations (Agentic Resource Discovery)
@@ -429,7 +436,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.29.0";
+      contractVersion: "1.30.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -632,7 +639,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.29.0";
+      contractVersion: "1.30.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
@@ -680,7 +687,7 @@ export interface components {
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.29.0";
+      contractVersion: "1.30.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -779,7 +786,7 @@ export interface components {
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.29.0";
+      contractVersion: "1.30.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -2174,6 +2181,35 @@ export interface components {
       /** @description Optional recovery hint (e.g. /api/scan on NOT_FOUND). */
       next?: string;
     };
+    /** @description Draft agent discovery files for one domain, returned by GET /api/agent-files/{domain}. */
+    AgentFilesBundle: {
+      /** @description The domain the files speak for (leading www. dropped). */
+      domain: string;
+      /** @description The product name used in the files; the domain itself when ora knows no name. */
+      productName: string;
+      /**
+       * Format: date-time
+       * @description When ora last scanned the domain; null when it never has, in which case the files carry only what the domain alone implies.
+       */
+      scannedAt: string | null;
+      files: components["schemas"]["AgentFile"][];
+    };
+    AgentFile: {
+      /** @description Where the domain serves the file, e.g. /.well-known/ard.json. */
+      path: string;
+      /** @description The standard the file follows. */
+      spec: {
+        name: string;
+        version: string;
+        url: string;
+      };
+      /** @description The JSON document to publish at path. */
+      content: {
+        [key: string]: unknown;
+      };
+      /** @description What to review or add before publishing, in plain sentences. */
+      notes: string[];
+    };
     McpAuthRequiredResponse: {
       /** @description Why the MCP server could not be inspected. */
       error: string;
@@ -3062,6 +3098,48 @@ export interface operations {
       };
       /** @description RATE_LIMIT_EXCEEDED - max 60 requests per minute per IP. */
       429: {
+        content: {
+          "application/json": components["schemas"]["ArdErrorResponse"];
+        };
+      };
+    };
+  };
+  /**
+   * Draft a domain's own agent discovery files (ard.json, ai-catalog.json, poppy.json)
+   * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol, Draft 0.1). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
+   */
+  generateAgentFiles: {
+    parameters: {
+      path: {
+        /** @description A public host such as example.com (a full https:// URL without a path is also accepted). IPs, ports, paths and localhost are refused. */
+        domain: string;
+      };
+    };
+    responses: {
+      /** @description The drafted files. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["AgentFilesBundle"];
+        };
+      };
+      /** @description The domain was spelled differently from its canonical form (www., upper case, a trailing dot); Location is /api/agent-files/<domain>. */
+      308: {
+        content: never;
+      };
+      /** @description INVALID_ARGUMENT - not a public domain. */
+      400: {
+        content: {
+          "application/json": components["schemas"]["ArdErrorResponse"];
+        };
+      };
+      /** @description RATE_LIMIT_EXCEEDED - max 60 requests per minute per IP. */
+      429: {
+        content: {
+          "application/json": components["schemas"]["ArdErrorResponse"];
+        };
+      };
+      /** @description INTERNAL_ERROR */
+      500: {
         content: {
           "application/json": components["schemas"]["ArdErrorResponse"];
         };
