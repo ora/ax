@@ -429,7 +429,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.27.0";
+      contractVersion: "1.29.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -632,7 +632,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.27.0";
+      contractVersion: "1.29.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
@@ -680,7 +680,7 @@ export interface components {
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.27.0";
+      contractVersion: "1.29.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -779,7 +779,7 @@ export interface components {
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.27.0";
+      contractVersion: "1.29.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -2331,6 +2331,8 @@ export interface operations {
            * @enum {string}
            */
           siteType?: "content" | "business" | "app" | "store";
+          /** @description Optional, defaults to false. A few checks confirm that an endpoint the site declares for agents enforces what it declares by sending it a request that must be refused (for example an unauthenticated POST). Pass true to send those requests for this scan; without it the affected checks reuse the domain's previous result where one exists. */
+          activeProbes?: boolean;
         };
       };
     };
@@ -2492,6 +2494,8 @@ export interface operations {
         force?: "1";
         /** @description Pass 1 to store the result as disposable - the same flag POST /api/scan takes in its body, with the same 400 EPHEMERAL_CLOBBER refusal when the domain already has a real stored scan. */
         ephemeral?: "1";
+        /** @description Pass 1 to send the requests a few checks send to endpoints the site declares for agents - the query spelling of `activeProbes: true` on POST /api/scan. Absent, they are not sent. */
+        activeProbes?: "1";
         /** @description Pass `audit` to receive the versioned, allowlisted audit shape (AuditScanResult / AuditScoreResult) instead of the default body: every field is documented, carries a `contractVersion`, and internal fields are dropped. Omit it and the response is unchanged from previous releases. On GET /api/scan/stream, only the `scan_complete` event's `result` is projected - all other events are identical to the default stream. */
         format?: "audit";
         /** @description Opt-in expansion list (comma-separated). Experimental: the audit schemas declare `siteType` only as a loose object, so its inner fields may change without a version bump, and pinning the contract major does not freeze them. `siteType` adds one response key, `siteType`: the same scan scored against what the site is (`content`, `business`, `app`, or `store`). It carries `type`, `source` (`declared`, `self-declared`, `classified`, `default`, `blocked`, or `unavailable`), `confidence` (`high` or `low`), `basis`, `score` (0-100 or null), per-layer `layers` (`id`, `score`, `maxScore`), per-check `states` (`req`, `bonus`, `gated`, or `emerging`), and `gatedOut` (each excluded check id with the gate that excluded it). A site-type score uses a different rubric from the canonical `score` and can land above or below it: never compare the two, only another `siteType.score` of the same `type`. When no type resolves, the key is `{ type: null, source: "unavailable", confidence: "low", score: null, layers: [] }` with a `basis` saying why. On the stream the key rides the `scan_complete` event beside `result`, never inside it. */

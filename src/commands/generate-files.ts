@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import pc from "picocolors";
 import { AgentFilesApiError, type AgentFilesBundle, fetchAgentFiles } from "../api/agent-files";
 import { EXIT } from "./audit";
@@ -20,20 +20,35 @@ export function serializeAgentFile(content: Record<string, unknown>): string {
 	return `${JSON.stringify(content, null, 2)}\n`;
 }
 
-/** Where each file of the bundle lands under `out` (paths already vetted by the client). */
+/**
+ * The files ax writes, keyed by the path ora names. The value - a constant,
+ * never the server's string - is what reaches the filesystem, so a response
+ * cannot choose where on disk anything lands (on top of the client's path
+ * check in ../api/agent-files). A file ora adds later is reported and skipped
+ * until ax learns it: this package is a trust artifact.
+ */
+const WRITABLE_FILES: ReadonlyMap<string, string> = new Map([
+	["/.well-known/ard.json", "ard.json"],
+	["/.well-known/ai-catalog.json", "ai-catalog.json"],
+	["/.well-known/poppy.json", "poppy.json"],
+]);
+
+type BundleFile = AgentFilesBundle["files"][number];
+
+/** Where each known file of the bundle lands under `<out>/.well-known/`; unknown paths are skipped. */
 export function plannedWrites(
 	bundle: AgentFilesBundle,
 	out: string,
-): { target: string; file: AgentFilesBundle["files"][number] }[] {
-	const root = resolve(out);
-	return bundle.files.map((file) => {
-		const target = resolve(root, `.${file.path}`);
-		// Belt and braces on top of the client's path check: never outside `out`.
-		if (relative(root, target).startsWith("..")) {
-			throw new AgentFilesApiError(`refusing to write outside ${root}: ${file.path}`);
-		}
-		return { target, file };
-	});
+): { writes: { target: string; file: BundleFile }[]; skipped: BundleFile[] } {
+	const dir = join(resolve(out), ".well-known");
+	const writes: { target: string; file: BundleFile }[] = [];
+	const skipped: BundleFile[] = [];
+	for (const file of bundle.files) {
+		const name = WRITABLE_FILES.get(file.path);
+		if (name) writes.push({ target: join(dir, name), file });
+		else skipped.push(file);
+	}
+	return { writes, skipped };
 }
 
 function wrap(text: string, width: number, indent: string): string[] {
@@ -78,7 +93,14 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 	}
 
 	const out = input.out ?? ".";
-	const writes = plannedWrites(bundle, out);
+	const { writes, skipped } = plannedWrites(bundle, out);
+	for (const file of skipped) {
+		console.error(
+			pc.yellow(
+				`skipped ${file.path}: this version of ax does not write it - upgrade with npm i -g ax@latest`,
+			),
+		);
+	}
 	const existing = writes.filter((w) => existsSync(w.target));
 	if (existing.length > 0 && !input.force) {
 		console.error("These files already exist, so nothing was written:");
