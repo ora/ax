@@ -54,11 +54,16 @@ describe("generateFilesCommand", () => {
 
 	it("writes only the files it knows, skipping any path ora adds later", async () => {
 		const extra = { ...BUNDLE.files[0], path: "/.well-known/future.json" };
-		vi.mocked(api.fetchAgentFiles).mockResolvedValueOnce({ ...BUNDLE, files: [...BUNDLE.files, extra] });
+		vi.mocked(api.fetchAgentFiles).mockResolvedValueOnce({
+			...BUNDLE,
+			files: [...BUNDLE.files, extra],
+		});
 		expect(await run()).toBe(EXIT.OK);
 		expect(existsSync(join(out, ".well-known", "future.json"))).toBe(false);
 		expect(existsSync(join(out, ".well-known", "ard.json"))).toBe(true);
-		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("skipped /.well-known/future.json"));
+		expect(console.error).toHaveBeenCalledWith(
+			expect.stringContaining("skipped /.well-known/future.json"),
+		);
 	});
 
 	it("--json prints ora's payload verbatim and writes nothing", async () => {
