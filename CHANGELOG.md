@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/ora/ax/compare/v0.9.0...v0.9.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **generate-files:** print written paths absolute when outside the working directory ([#70](https://github.com/ora/ax/issues/70)) ([58f39f0](https://github.com/ora/ax/commit/58f39f0953fe23f3aea32bf06300ec1b37e55ff7))
+
 ## [0.9.0](https://github.com/ora/ax/compare/v0.8.2...v0.9.0) (2026-10-12)
 
 
