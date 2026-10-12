@@ -6,7 +6,7 @@ import invalidDomain from "../api/__fixtures__/agent-files-invalid.json";
 import realBundle from "../api/__fixtures__/agent-files-unscanned.json";
 import * as api from "../api/agent-files";
 import { EXIT } from "./audit";
-import { generateFilesCommand, serializeAgentFile } from "./generate-files";
+import { displayPath, generateFilesCommand, serializeAgentFile } from "./generate-files";
 
 vi.mock("../api/agent-files", async (importOriginal) => {
 	const original = await importOriginal<typeof api>();
@@ -97,5 +97,16 @@ describe("generateFilesCommand", () => {
 	it("exits 2 with no domain", async () => {
 		expect(await run({ domain: "  " })).toBe(EXIT.USAGE);
 		expect(api.fetchAgentFiles).not.toHaveBeenCalled();
+	});
+});
+
+describe("displayPath", () => {
+	it("is relative inside the working directory and absolute outside it", () => {
+		expect(displayPath("/home/me/site/public/.well-known/ard.json", "/home/me/site")).toBe(
+			join("public", ".well-known", "ard.json"),
+		);
+		expect(displayPath("/tmp/ax-check/.well-known/ard.json", "/home/me/site")).toBe(
+			"/tmp/ax-check/.well-known/ard.json",
+		);
 	});
 });

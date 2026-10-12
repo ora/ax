@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import pc from "picocolors";
 import { AgentFilesApiError, type AgentFilesBundle, fetchAgentFiles } from "../api/agent-files";
 import { EXIT } from "./audit";
@@ -49,6 +49,16 @@ export function plannedWrites(
 		else skipped.push(file);
 	}
 	return { writes, skipped };
+}
+
+/**
+ * How a written path is shown: relative to the working directory when it is
+ * inside it, absolute otherwise (`--out /tmp/x` from elsewhere printed
+ * `../../../../tmp/x/...`).
+ */
+export function displayPath(target: string, cwd: string = process.cwd()): string {
+	const rel = relative(cwd, target);
+	return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : target;
 }
 
 function wrap(text: string, width: number, indent: string): string[] {
@@ -104,7 +114,7 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 	const existing = writes.filter((w) => existsSync(w.target));
 	if (existing.length > 0 && !input.force) {
 		console.error("These files already exist, so nothing was written:");
-		for (const w of existing) console.error(`  ${relative(process.cwd(), w.target) || w.target}`);
+		for (const w of existing) console.error(`  ${displayPath(w.target)}`);
 		console.error(
 			pc.dim("Pass --force to overwrite them, or --out <dir> to write somewhere else."),
 		);
@@ -123,7 +133,7 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 	console.log("");
 	for (const { target, file } of writes) {
 		console.log(
-			`  ${pc.green("wrote")} ${relative(process.cwd(), target) || target}  ${pc.dim(`${file.spec.name} ${file.spec.version}`)}`,
+			`  ${pc.green("wrote")} ${displayPath(target)}  ${pc.dim(`${file.spec.name} ${file.spec.version}`)}`,
 		);
 		for (const note of file.notes) {
 			const [first, ...rest] = wrap(note, 74, "");
