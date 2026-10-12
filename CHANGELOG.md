@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/ora/ax/compare/v0.8.2...v0.9.0) (2026-10-12)
+
+
+### Features
+
+* add generate-files to draft a domain's ard.json, ai-catalog.json and poppy.json ([#67](https://github.com/ora/ax/issues/67)) ([d895c00](https://github.com/ora/ax/commit/d895c00d5ee48bf9f26b768b2bf18e49e715b6c5))
+
 ## [0.8.2](https://github.com/ora/ax/compare/v0.8.1...v0.8.2) (2026-10-10)
 
 
