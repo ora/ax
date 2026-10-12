@@ -82,4 +82,12 @@ describe("normalizeDomainInput", () => {
 		expect(normalizeDomainInput(" https://Example.com// ")).toBe("Example.com");
 		expect(normalizeDomainInput("example.com")).toBe("example.com");
 	});
+
+	it("handles a long run of slashes in linear time", () => {
+		const hostile = `${"/".repeat(200_000)}x`;
+		const started = performance.now();
+		expect(normalizeDomainInput(hostile)).toBe(hostile);
+		expect(normalizeDomainInput(`a${"/".repeat(200_000)}`)).toBe("a");
+		expect(performance.now() - started).toBeLessThan(1_000);
+	});
 });

@@ -64,12 +64,20 @@ export function isSafeAgentFilePath(path: string): boolean {
 	return SAFE_PATH.test(path) && !path.includes("..");
 }
 
+/**
+ * Drop trailing slashes with a scan rather than `/\/+$/`: that regex retries
+ * at every `/` of a long run that is not at the end, quadratic on input a
+ * caller controls (CodeQL js/polynomial-redos).
+ */
+export function trimTrailingSlashes(value: string): string {
+	let end = value.length;
+	while (end > 0 && value[end - 1] === "/") end--;
+	return value.slice(0, end);
+}
+
 /** Strip a scheme and trailing slash so `https://example.com/` reads as a domain. */
 export function normalizeDomainInput(input: string): string {
-	return input
-		.trim()
-		.replace(/^https?:\/\//i, "")
-		.replace(/\/+$/, "");
+	return trimTrailingSlashes(input.trim().replace(/^https?:\/\//i, ""));
 }
 
 /** Fetch the drafted files for `domain` from ora. */
@@ -77,7 +85,7 @@ export async function fetchAgentFiles(
 	domain: string,
 	options: AgentFilesOptions = {},
 ): Promise<AgentFilesBundle> {
-	const base = (options.baseUrl ?? process.env.ORA_API_URL ?? PUBLIC_BASE).replace(/\/+$/, "");
+	const base = trimTrailingSlashes(options.baseUrl ?? process.env.ORA_API_URL ?? PUBLIC_BASE);
 	const url = `${base}/api/agent-files/${encodeURIComponent(normalizeDomainInput(domain))}`;
 	let res: Response;
 	try {
