@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/ora/ax/compare/v0.10.0...v0.10.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* **webmcp-audit:** re-sync the capture with ora's WebMCP engine (shim 3) ([#77](https://github.com/ora/ax/issues/77)) ([5ce6913](https://github.com/ora/ax/commit/5ce6913f70161fcdc7c080b0c2625cb409f2307f))
+
 ## [0.10.0](https://github.com/ora/ax/compare/v0.9.1...v0.10.0) (2026-10-13)
 
 
