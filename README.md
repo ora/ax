@@ -31,7 +31,7 @@ Five commands:
 - **`deep-journey <url>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks free-text tasks (`--task`) and a larger allowance.
 - **`journey "<intent>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)).
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
-- **`generate-files <domain>`** — draft the agent discovery files a site publishes about itself (`ard.json`, `ai-catalog.json`, `poppy.json`) into `.well-known/`, filled in from ora's last scan of the domain.
+- **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
 ## audit
 
@@ -263,14 +263,25 @@ Skills come from ora's public registry (`https://ora.ai/.well-known/agent-skills
 ## generate-files
 
 ```
-ax generate-files example.com               # writes ./.well-known/{ard,ai-catalog,poppy}.json
-ax generate-files example.com --out public  # writes public/.well-known/... (your site's static root)
+ax generate-files example.com               # writes into the current directory
+ax generate-files example.com --out public  # writes into public/ (your site's web root)
 ax generate-files example.com --json        # ora's payload, files + notes, nothing written
 ```
 
-Drafts the files agents look for under a site's `/.well-known/`: an [Agentic Resource Discovery](https://agenticresourcediscovery.org/) catalog (`ard.json`, the same document as `ai-catalog.json` for the [AI Catalog Standard](https://ai-catalog.io/)'s path) and a [Personal Agent Protocol](https://personalagentprotocol.org/docs/spec) `poppy.json`. ora builds them from what it already knows about the domain (its last scan; no new crawl), so run `ax audit` first for a domain ora has never scanned - without a scan the catalog lists only the website. Every catalog entry is anchored to your domain, not to ora. The `poppy.json` is the minimal valid document (signed-out browsing); the OAuth issuer and APIs ora saw are printed as notes rather than written into it, because naming them is only correct once they implement the protocol. These are drafts: read each file and its notes before you publish.
+Drafts the files agents look for on a site, filled in from ora's last scan of the domain (no new crawl), so run `ax audit` first for a domain ora has never scanned:
 
-Nothing is overwritten: if any target file exists, nothing is written and the command exits `2` - pass `--force` to overwrite, or `--out <dir>` to write elsewhere. Exit codes: `0` written, `2` usage (bad domain, files exist), `3` API. Same files as the web generator at [directory.ora.ai/generate](https://directory.ora.ai/generate) and `GET https://ora.ai/api/agent-files/{domain}`.
+| File | Written to | What it is |
+|---|---|---|
+| `ard.json`, `ai-catalog.json` | `.well-known/` | An [Agentic Resource Discovery](https://agenticresourcediscovery.org/) catalog (the same document at the [AI Catalog Standard](https://ai-catalog.io/)'s path). Every entry is anchored to your domain, not to ora |
+| `poppy.json` | `.well-known/` | A [Personal Agent Protocol](https://personalagentprotocol.org/docs/spec) file for signed-out browsing; the OAuth issuer and APIs ora saw are printed as notes, because naming them is only correct once they implement the protocol |
+| `llms.txt` | web root | An index of the docs, APIs and agent endpoints ora found; skipped when you already publish one |
+| `robots.txt` | web root | An edit of your current robots.txt: every line kept, a group added for AI search crawlers and user-requested agents your `User-agent: *` rules block (copying your other rules), and a `Sitemap:` line. Training crawlers and crawlers you block by name are never touched |
+| `api-catalog` | `.well-known/` | An [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) API catalog pointing at your OpenAPI description |
+| `server-card` | `<mcp path>/` | A draft MCP server card for each MCP server that has none. A card for a server on another host (`mcp.example.com`) is printed, not written |
+
+A file ora cannot draft honestly (you already publish it, or ora never read the original) is left out and explained under "Not drafted". These are drafts: read each file and its notes before you publish.
+
+Nothing is overwritten: if any target file exists - your `robots.txt` included - nothing is written and the command exits `2`. Pass `--force` to overwrite, or `--out <dir>` to write elsewhere and compare. Exit codes: `0` written, `2` usage (bad domain, files exist), `3` API. Same files as the web generator at [directory.ora.ai/generate](https://directory.ora.ai/generate) and `GET https://ora.ai/api/agent-files/{domain}?include=all`.
 
 ## Library use
 

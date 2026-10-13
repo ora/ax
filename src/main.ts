@@ -178,7 +178,7 @@ const generateFiles = defineCommand({
 	meta: {
 		name: "generate-files",
 		description:
-			"Draft a domain's agent discovery files (ard.json, ai-catalog.json, poppy.json) into <out>/.well-known/ (exit codes: 0 ok, 2 usage or files already exist, 3 API error)",
+			"Draft a domain's agent files (ard.json, ai-catalog.json, poppy.json, llms.txt, a robots.txt edit, api-catalog, MCP server cards) into <out> (exit codes: 0 ok, 2 usage or files already exist, 3 API error)",
 	},
 	args: {
 		domain: {
@@ -189,7 +189,7 @@ const generateFiles = defineCommand({
 		out: {
 			type: "string",
 			description:
-				"Directory your site serves from; files land in <out>/.well-known/ (default: current directory)",
+				"Your site's web root; files land under it (.well-known/, robots.txt, llms.txt) (default: current directory)",
 		},
 		force: {
 			type: "boolean",
@@ -309,7 +309,7 @@ function helpScreen(): string {
 		`    deep-journey ${d("<url>")}  ${d("Run a real agent at a site on a curated or free-text task")}`,
 		`    journey ${d("<intent>")}    ${d("Send a real agent at a site and watch it live (workspace)")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
-		`    generate-files ${d("<domain>")} ${d("Draft ard.json, ai-catalog.json and poppy.json for a domain")}`,
+		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -354,7 +354,7 @@ function helpScreen(): string {
 		`    ${d("no key needed · public caps: 100 runs/24h per target, 20 runs/24h per IP")}`,
 		"",
 		`  ${d("generate-files options:")}`,
-		`    --out <dir>      ${d("Directory your site serves from; writes <dir>/.well-known/* (default: .)")}`,
+		`    --out <dir>      ${d("Your site's web root: writes .well-known/*, robots.txt, llms.txt there (default: .)")}`,
 		`    --force          ${d("Overwrite files that already exist (otherwise nothing is written)")}`,
 		`    --json           ${d("Print ora's payload as JSON and write nothing")}`,
 		`    ${d("drafts from ora's last scan of the domain - review each file before you publish it")}`,

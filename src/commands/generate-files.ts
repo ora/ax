@@ -15,40 +15,76 @@ export interface GenerateFilesCommandInput {
 	baseUrl?: string;
 }
 
-/** The bytes written for one file: the JSON ora drafted, pretty-printed, newline-terminated. */
-export function serializeAgentFile(content: Record<string, unknown>): string {
-	return `${JSON.stringify(content, null, 2)}\n`;
+/** The bytes written for one file: ora's `body` when it sent one, else its JSON pretty-printed. */
+export function serializeAgentFile(file: {
+	content: Record<string, unknown>;
+	body?: string;
+}): string {
+	return typeof file.body === "string" ? file.body : `${JSON.stringify(file.content, null, 2)}\n`;
 }
 
 /**
- * The files ax writes, keyed by the path ora names. The value - a constant,
- * never the server's string - is what reaches the filesystem, so a response
- * cannot choose where on disk anything lands (on top of the client's path
- * check in ../api/agent-files). A file ora adds later is reported and skipped
- * until ax learns it: this package is a trust artifact.
+ * The files ax writes at fixed places, keyed by the path ora names. The value -
+ * constant segments, never the server's string - is what reaches the
+ * filesystem, so a response cannot choose where on disk anything lands (on top
+ * of the client's path check in ../api/agent-files).
  */
-const WRITABLE_FILES: ReadonlyMap<string, string> = new Map([
-	["/.well-known/ard.json", "ard.json"],
-	["/.well-known/ai-catalog.json", "ai-catalog.json"],
-	["/.well-known/poppy.json", "poppy.json"],
+const WRITABLE_FILES: ReadonlyMap<string, readonly string[]> = new Map([
+	["/.well-known/ard.json", [".well-known", "ard.json"]],
+	["/.well-known/ai-catalog.json", [".well-known", "ai-catalog.json"]],
+	["/.well-known/poppy.json", [".well-known", "poppy.json"]],
+	["/.well-known/api-catalog", [".well-known", "api-catalog"]],
+	["/llms.txt", ["llms.txt"]],
+	["/robots.txt", ["robots.txt"]],
 ]);
+
+/** An MCP server card: `<server path>/server-card`, segments already vetted by the client. */
+const CARD_SUFFIX = "/server-card";
 
 type BundleFile = AgentFilesBundle["files"][number];
 
-/** Where each known file of the bundle lands under `<out>/.well-known/`; unknown paths are skipped. */
-export function plannedWrites(
-	bundle: AgentFilesBundle,
-	out: string,
-): { writes: { target: string; file: BundleFile }[]; skipped: BundleFile[] } {
-	const dir = join(resolve(out), ".well-known");
-	const writes: { target: string; file: BundleFile }[] = [];
-	const skipped: BundleFile[] = [];
-	for (const file of bundle.files) {
-		const name = WRITABLE_FILES.get(file.path);
-		if (name) writes.push({ target: join(dir, name), file });
-		else skipped.push(file);
+export interface PlannedWrites {
+	writes: { target: string; file: BundleFile }[];
+	/** Files to serve from another host (an MCP server on a subdomain): not written, but named. */
+	elsewhere: BundleFile[];
+	/** Paths this ax does not know: not written; a newer ax may. */
+	unknown: BundleFile[];
+}
+
+/** True when the file belongs on the domain itself (a 1.30.0 server sends no url). */
+function onDomain(file: BundleFile, domain: string): boolean {
+	if (!file.url) return true;
+	try {
+		return new URL(file.url).hostname === domain;
+	} catch (err) {
+		if (err instanceof TypeError) return false;
+		throw err;
 	}
-	return { writes, skipped };
+}
+
+/** Where each file of the bundle lands under `out`. */
+export function plannedWrites(bundle: AgentFilesBundle, out: string): PlannedWrites {
+	const root = resolve(out);
+	const planned: PlannedWrites = { writes: [], elsewhere: [], unknown: [] };
+	for (const file of bundle.files) {
+		if (!onDomain(file, bundle.domain)) {
+			planned.elsewhere.push(file);
+			continue;
+		}
+		const fixed = WRITABLE_FILES.get(file.path);
+		if (fixed) {
+			planned.writes.push({ target: join(root, ...fixed), file });
+		} else if (file.path.endsWith(CARD_SUFFIX)) {
+			const target = join(root, ...file.path.slice(1).split("/"));
+			// Belt and braces on top of the client's segment check: never outside `out`.
+			if (relative(root, target).startsWith(".."))
+				throw new AgentFilesApiError(`refusing to write outside ${root}: ${file.path}`);
+			planned.writes.push({ target, file });
+		} else {
+			planned.unknown.push(file);
+		}
+	}
+	return planned;
 }
 
 /**
@@ -103,8 +139,8 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 	}
 
 	const out = input.out ?? ".";
-	const { writes, skipped } = plannedWrites(bundle, out);
-	for (const file of skipped) {
+	const { writes, elsewhere, unknown } = plannedWrites(bundle, out);
+	for (const file of unknown) {
 		console.error(
 			pc.yellow(
 				`skipped ${file.path}: this version of ax does not write it - upgrade with npm i -g ax@latest`,
@@ -123,8 +159,16 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 
 	for (const { target, file } of writes) {
 		mkdirSync(dirname(target), { recursive: true });
-		writeFileSync(target, serializeAgentFile(file.content));
+		writeFileSync(target, serializeAgentFile(file));
 	}
+
+	const printNotes = (notes: readonly string[]) => {
+		for (const note of notes) {
+			const [first, ...rest] = wrap(note, 74, "");
+			console.log(pc.dim(`    - ${first}`));
+			for (const row of rest) console.log(pc.dim(`      ${row}`));
+		}
+	};
 
 	console.log("");
 	console.log(
@@ -135,16 +179,27 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 		console.log(
 			`  ${pc.green("wrote")} ${displayPath(target)}  ${pc.dim(`${file.spec.name} ${file.spec.version}`)}`,
 		);
-		for (const note of file.notes) {
-			const [first, ...rest] = wrap(note, 74, "");
-			console.log(pc.dim(`    - ${first}`));
-			for (const row of rest) console.log(pc.dim(`      ${row}`));
-		}
+		printNotes(file.notes);
+		console.log("");
+	}
+	for (const file of elsewhere) {
+		console.log(
+			`  ${pc.yellow("not written")} ${file.url}  ${pc.dim(`${file.spec.name} ${file.spec.version}`)}`,
+		);
+		printNotes([
+			"This file is served from another host, so it is not written here. Run with --json to get its body.",
+			...file.notes,
+		]);
+		console.log("");
+	}
+	if (bundle.notes && bundle.notes.length > 0) {
+		console.log(`  ${pc.bold("Not drafted")}`);
+		printNotes(bundle.notes);
 		console.log("");
 	}
 	console.log(
 		pc.dim(
-			`  Publish them at https://${bundle.domain}/.well-known/ - these are drafts, review each before you ship it.`,
+			`  Publish them at https://${bundle.domain}/ from your web root - these are drafts, review each before you ship it.`,
 		),
 	);
 	console.log("");

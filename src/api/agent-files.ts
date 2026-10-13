@@ -2,7 +2,8 @@ import { errorBody } from "./shared";
 
 // Client for ora's agent files generator, GET /api/agent-files/{domain}: the
 // drafts of /.well-known/ard.json, ai-catalog.json and poppy.json a domain
-// publishes about itself. Thin client - ora decides every byte of every file
+// publishes about itself, plus (asked for with ?include=all) llms.txt, an edit
+// of its robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Thin client - ora decides every byte of every file
 // and every note; this module only fetches, and checks that each path it is
 // told to write is one it is willing to write.
 
@@ -10,16 +11,24 @@ const PUBLIC_BASE = "https://ora.ai";
 const TIMEOUT_MS = 30_000;
 
 // The wire shape of ora's AgentFilesBundle / AgentFile schemas (contract
-// 1.30.0). Written out here until `pnpm contract:gen` picks the schemas up from
+// 1.31.0). Written out here until `pnpm contract:gen` picks the schemas up from
 // the deployed spec; then these become aliases in src/contract like the rest.
+// The 1.31.0 fields are optional so a 1.30.0 server (three JSON files, no
+// body/url/notes) still works.
 export interface AgentFile {
-	/** Where the domain serves the file, e.g. "/.well-known/ard.json". */
+	/** Where the file is served, as a path on its host, e.g. "/.well-known/ard.json". */
 	path: string;
 	spec: { name: string; version: string; url: string };
-	/** The JSON document to publish at `path`. */
+	/** The JSON document to publish at `path`; `{}` for a text file (see `body`). */
 	content: Record<string, unknown>;
 	/** What to review or add before publishing. */
 	notes: string[];
+	/** Content-Type to serve the file with. */
+	mediaType?: string;
+	/** The exact bytes to publish. */
+	body?: string;
+	/** The full address the file is served at; a server card can live on a subdomain. */
+	url?: string;
 }
 
 export interface AgentFilesBundle {
@@ -28,6 +37,8 @@ export interface AgentFilesBundle {
 	/** When ora last scanned the domain; null when it never has. */
 	scannedAt: string | null;
 	files: AgentFile[];
+	/** Why an included file is absent, in plain sentences. */
+	notes?: string[];
 }
 
 /**
@@ -53,15 +64,23 @@ export interface AgentFilesOptions {
 }
 
 /**
- * The only paths a generated file may claim: one segment under /.well-known/,
- * ending in .json. Anything else (a `..`, a nested path, another directory) is
- * refused before it reaches the filesystem - this package is a trust artifact,
- * and a response must never choose where on disk it lands.
+ * The only paths a generated file may claim: one to six lowercase segments of
+ * `[a-z0-9._-]`, none of them `.` or `..`, e.g. `/robots.txt`,
+ * `/.well-known/ard.json` or `/mcp/server-card`. Anything else is refused
+ * before it reaches the filesystem - this package is a trust artifact, and a
+ * response must never choose where on disk it lands. The command applies its
+ * own allowlist on top (src/commands/generate-files.ts).
  */
-const SAFE_PATH = /^\/\.well-known\/[a-z0-9][a-z0-9._-]*\.json$/;
+const SAFE_SEGMENT = /^[a-z0-9._-]+$/;
 
 export function isSafeAgentFilePath(path: string): boolean {
-	return SAFE_PATH.test(path) && !path.includes("..");
+	if (!path.startsWith("/")) return false;
+	const segments = path.slice(1).split("/");
+	return (
+		segments.length >= 1 &&
+		segments.length <= 6 &&
+		segments.every((seg) => SAFE_SEGMENT.test(seg) && seg !== "." && seg !== "..")
+	);
 }
 
 /**
@@ -86,7 +105,7 @@ export async function fetchAgentFiles(
 	options: AgentFilesOptions = {},
 ): Promise<AgentFilesBundle> {
 	const base = trimTrailingSlashes(options.baseUrl ?? process.env.ORA_API_URL ?? PUBLIC_BASE);
-	const url = `${base}/api/agent-files/${encodeURIComponent(normalizeDomainInput(domain))}`;
+	const url = `${base}/api/agent-files/${encodeURIComponent(normalizeDomainInput(domain))}?include=all`;
 	let res: Response;
 	try {
 		res = await fetch(url, {

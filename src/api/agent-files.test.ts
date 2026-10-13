@@ -31,7 +31,9 @@ describe("fetchAgentFiles", () => {
 	it("asks ora for the bare domain and returns the bundle untouched", async () => {
 		const fetchMock = respond(BUNDLE);
 		const bundle = await fetchAgentFiles("https://stripe.com/", { baseUrl: "https://ora.test/" });
-		expect(fetchMock.mock.calls[0][0]).toBe("https://ora.test/api/agent-files/stripe.com");
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://ora.test/api/agent-files/stripe.com?include=all",
+		);
 		expect(bundle).toEqual(BUNDLE);
 	});
 
@@ -59,18 +61,30 @@ describe("fetchAgentFiles", () => {
 });
 
 describe("isSafeAgentFilePath", () => {
-	it("accepts the well-known JSON files ora drafts", () => {
+	it("accepts the paths ora drafts", () => {
 		for (const file of BUNDLE.files) expect(isSafeAgentFilePath(file.path)).toBe(true);
+		for (const path of [
+			"/robots.txt",
+			"/llms.txt",
+			"/.well-known/api-catalog",
+			"/mcp/server-card",
+		]) {
+			expect(isSafeAgentFilePath(path)).toBe(true);
+		}
 	});
 
-	it("rejects traversal, nesting and other directories", () => {
+	it("rejects traversal, empty or upper-case segments, and deep paths", () => {
 		for (const path of [
 			"/.well-known/../x.json",
-			"/.well-known/a/b.json",
-			"/etc/passwd",
+			"/../etc/passwd",
+			"/./robots.txt",
 			".well-known/ard.json",
-			"/.well-known/ard.txt",
-			"/.well-known/.json",
+			"/",
+			"//robots.txt",
+			"/a/b/c/d/e/f/g",
+			"/Robots.txt",
+			"/robots.txt\nx",
+			"/mcp\\server-card",
 		]) {
 			expect(isSafeAgentFilePath(path)).toBe(false);
 		}

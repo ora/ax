@@ -1,0 +1,113 @@
+{
+	"domain": "stripe.com",
+	"productName": "stripe.com",
+	"scannedAt": null,
+	"files": [
+		{
+			"path": "/.well-known/ard.json",
+			"spec": {
+				"name": "Agentic Resource Discovery",
+				"version": "1.0",
+				"url": "https://agenticresourcediscovery.org/"
+			},
+			"content": {
+				"specVersion": "1.0",
+				"host": {
+					"displayName": "stripe.com",
+					"documentationUrl": "https://stripe.com/"
+				},
+				"entries": [
+					{
+						"identifier": "urn:air:stripe.com:site:home",
+						"displayName": "stripe.com website",
+						"type": "text/html",
+						"url": "https://stripe.com/",
+						"description": "The stripe.com website.",
+						"tags": [
+							"website"
+						],
+						"trustManifest": {
+							"identity": "https://stripe.com",
+							"identityType": "https"
+						}
+					}
+				]
+			},
+			"notes": [
+				"Serve this file at https://stripe.com/.well-known/ard.json with Content-Type application/json.",
+				"Read every entry before you publish it, and remove anything you do not want agents to use.",
+				"Ora has not scanned stripe.com yet, so this catalog only lists your website. Scan it on ora.ai and generate again to add your MCP servers, APIs, docs and skills."
+			],
+			"mediaType": "application/json",
+			"body": "{\n  \"specVersion\": \"1.0\",\n  \"host\": {\n    \"displayName\": \"stripe.com\",\n    \"documentationUrl\": \"https://stripe.com/\"\n  },\n  \"entries\": [\n    {\n      \"identifier\": \"urn:air:stripe.com:site:home\",\n      \"displayName\": \"stripe.com website\",\n      \"type\": \"text/html\",\n      \"url\": \"https://stripe.com/\",\n      \"description\": \"The stripe.com website.\",\n      \"tags\": [\n        \"website\"\n      ],\n      \"trustManifest\": {\n        \"identity\": \"https://stripe.com\",\n        \"identityType\": \"https\"\n      }\n    }\n  ]\n}\n",
+			"url": "https://stripe.com/.well-known/ard.json"
+		},
+		{
+			"path": "/.well-known/ai-catalog.json",
+			"spec": {
+				"name": "AI Catalog Standard",
+				"version": "1.0",
+				"url": "https://ai-catalog.io/"
+			},
+			"content": {
+				"specVersion": "1.0",
+				"host": {
+					"displayName": "stripe.com",
+					"documentationUrl": "https://stripe.com/"
+				},
+				"entries": [
+					{
+						"identifier": "urn:air:stripe.com:site:home",
+						"displayName": "stripe.com website",
+						"type": "text/html",
+						"url": "https://stripe.com/",
+						"description": "The stripe.com website.",
+						"tags": [
+							"website"
+						],
+						"trustManifest": {
+							"identity": "https://stripe.com",
+							"identityType": "https"
+						}
+					}
+				]
+			},
+			"notes": [
+				"The same catalog as ard.json, at the path the AI Catalog Standard reads. Serve both: ARD crawlers read ard.json first, other agents read ai-catalog.json."
+			],
+			"mediaType": "application/json",
+			"body": "{\n  \"specVersion\": \"1.0\",\n  \"host\": {\n    \"displayName\": \"stripe.com\",\n    \"documentationUrl\": \"https://stripe.com/\"\n  },\n  \"entries\": [\n    {\n      \"identifier\": \"urn:air:stripe.com:site:home\",\n      \"displayName\": \"stripe.com website\",\n      \"type\": \"text/html\",\n      \"url\": \"https://stripe.com/\",\n      \"description\": \"The stripe.com website.\",\n      \"tags\": [\n        \"website\"\n      ],\n      \"trustManifest\": {\n        \"identity\": \"https://stripe.com\",\n        \"identityType\": \"https\"\n      }\n    }\n  ]\n}\n",
+			"url": "https://stripe.com/.well-known/ai-catalog.json"
+		},
+		{
+			"path": "/.well-known/poppy.json",
+			"spec": {
+				"name": "Personal Agent Protocol",
+				"version": "0.1",
+				"url": "https://personalagentprotocol.org/docs/spec"
+			},
+			"content": {
+				"protocol_version": "0.1",
+				"organization": {
+					"name": "stripe.com",
+					"domain": "stripe.com"
+				},
+				"web": {}
+			},
+			"notes": [
+				"Serve this file at https://stripe.com/.well-known/poppy.json. As written it is a valid Draft 0.1 document that lets personal agents browse stripe.com signed out.",
+				"To let personal agents sign in and use your APIs, add an auth block naming your OAuth issuer and list your APIs under apis, each with a type, url and description. Do this only once your issuer's RFC 8414 metadata lists this domain in poppy_domains, every listed API accepts Personal Agent Protocol session tokens (DPoP, or Bearer on MCP servers only), and each listed MCP server's protected resource metadata names your issuer in authorization_servers.",
+				"Ora has not scanned stripe.com yet, so it could not look for an issuer or APIs.",
+				"The Personal Agent Protocol is a first draft (0.1) and may change in ways that are not backward compatible."
+			],
+			"mediaType": "application/json",
+			"body": "{\n  \"protocol_version\": \"0.1\",\n  \"organization\": {\n    \"name\": \"stripe.com\",\n    \"domain\": \"stripe.com\"\n  },\n  \"web\": {}\n}\n",
+			"url": "https://stripe.com/.well-known/poppy.json"
+		}
+	],
+	"notes": [
+		"No llms.txt draft: Ora found no docs, API or agent endpoint on stripe.com to list. Scan it to fill one in.",
+		"No robots.txt draft: Ora could not read stripe.com's robots.txt because it has not scanned the domain, and it never replaces a file it has not seen.",
+		"No api-catalog draft: Ora found no OpenAPI description on stripe.com for it to point at."
+	]
+}
