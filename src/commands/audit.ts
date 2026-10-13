@@ -146,7 +146,7 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 				"  ax audit localhost:3000 --tunnel-cmd 'ora tunnel 3000 --access public'",
 				"  ax audit localhost:3000 --tunnel-cmd 'ngrok http 3000 --log stdout'",
 				"Any command that prints a public https URL works; the result is stored as",
-				"ephemeral (excluded from rankings, deleted after a few days).",
+				"ephemeral (excluded from rankings, deleted after 7 days).",
 			].join("\n"),
 		);
 		return EXIT.USAGE;

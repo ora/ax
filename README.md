@@ -18,13 +18,13 @@
 npx ax audit https://stripe.com
 ```
 
-**No account, no API key.** Everything below works out of the box — the one exception is [`journey`](#for-ora-partners), which drives ora's partner platform.
+**No account, no API key.** Everything below works out of the box. The exceptions are [`journey`](#for-ora-partners) and `audit --tunnel ora`, which need an ora platform key, and `deep-journey --task`, which needs a partner key.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ora/ax/main/.github/assets/demo.gif" width="880" alt="ax audit https://stripe.com — live progress, then the layered report and ora's ranked top fixes" />
 </p>
 
-Five commands:
+Six commands:
 
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
@@ -91,7 +91,7 @@ Exit codes are the contract:
 | `2` | usage error — bad flags, malformed URL, local target without a tunnel |
 | `3` | API unreachable, timeout, or rate limit exhausted |
 
-Budget notes: ora allows 30 scans + 6 `--force` scans per rolling 24h per IP (plus a 10/min burst limit). Results served from the freshness cache cost nothing, so a CI job that audits on every push stays well inside the budget — tune the window with `--max-age`, and reserve `--force` for verifying a fix you just deployed. High-volume callers can present an ora-issued scan API key (`--api-key` or `ORA_SCAN_API_KEY`), which exempts them from all of these limits; keys are issued manually by ora (no self-serve signup), and an unrecognized key silently falls back to the keyless limits rather than erroring. An auth-gated MCP target is not a failure: ora answers with an `MCP_AUTH_REQUIRED` error and no score; ax prints the notice (or the error object with `--json`), skips `--min-score`, and exits `0`.
+Budget notes: ora allows 30 scans + 6 `--force` scans per rolling 24h per IP (plus a 10/min burst limit). Results served from the freshness cache cost nothing, so a CI job that audits on every push stays well inside the budget — tune the window with `--max-age`, and reserve `--force` for verifying a fix you just deployed. High-volume callers can present an ora-issued scan API key (`--api-key` or `ORA_SCAN_API_KEY`), which exempts them from these limits (a key scoped to `pap:read` keeps a daily cap and cannot `--force`); keys are issued manually by ora (no self-serve signup), and an unrecognized key silently falls back to the keyless limits rather than erroring. An auth-gated MCP target is not a failure: ora answers with an `MCP_AUTH_REQUIRED` error and no score; ax prints the notice (or the error object with `--json`), skips `--min-score`, and exits `0`.
 
 ### Auditing localhost (`--tunnel ora`, `--tunnel-cmd`)
 
@@ -201,9 +201,10 @@ Anonymous use is rate-limited to 10/min and 20 per 24h per IP; an ora API key
 
 Any CI image with Chrome installed works; nothing to launch first.
 
-Exit codes match `audit`: `0` ok · `1` below `--min-score` · `2` usage (including no debuggable
-Chrome) · `3` API. The gate reads the score, not the grade — a withheld grade would otherwise let
-everything through.
+Exit codes follow `audit`: `0` ok · `1` below `--min-score` (a `not agent-ready` page counts as
+below) · `2` usage (no debuggable Chrome, the page did not load, or a capture ora would refuse) ·
+`3` API, a failed capture, or no score returned. The gate reads the score, not the grade — a
+withheld grade would otherwise let everything through.
 
 ## deep-journey
 
@@ -230,18 +231,18 @@ Runs a real AI agent at a site through ora's **public** journey API — no key, 
   For the 4-layer readiness audit, run: ax audit stripe.com
 ```
 
-Anonymous callers run curated intents (`pricing`, `signup`, `api-docs`, `integrate`, `support`, …) — list them with `GET https://ora.ai/api/journey/intents`, and the accepted agents with `GET https://ora.ai/api/journey/agents`. The public caps are 100 runs per rolling 24h per target and 20 runs per 24h per IP (plus a 20/min burst limit and a shared ceiling of 3,000 anonymous runs a day across all callers); a target at its cap answers with the most recent stored run (`rate_limited: true`) instead of an error, so repeat CI invocations are cheap. Verdict and step count come from ora's contract as-is — the CLI never re-judges a run.
+Anonymous callers run curated intents (`pricing`, `signup`, `api-docs`, `integrate`, `support`, …) — list them with `GET https://ora.ai/api/journey/intents`, and the publicly offered agents with `GET https://ora.ai/api/journey/agents`. The public caps are 100 runs per rolling 24h per target and task, and 20 runs per 24h per IP (plus a 20/min burst limit and a shared ceiling of 3,000 anonymous runs a day across all callers); a target at its cap answers with the most recent stored run (`rate_limited: true`) instead of an error, so repeat CI invocations are cheap. Verdict and step count come from ora's contract as-is — the CLI never re-judges a run.
 
 **Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks `--task` — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; `--task` without a recognized key is an error.
 
-The CLI always follows the run's stream to the end, `--no-stream` included, because ora saves a finished run from inside the stream. If the stream drops or goes quiet (no frames for 120s), the CLI reopens it, which resumes the same run without re-running the agent. A stream `429` is waited out (up to 60s) before reopening, and a `404` or auth error ends the command at once. Only after five failed reopens does it fall back to polling the run detail, within a 15-minute budget shared with the stream.
+The CLI always follows the run's stream to the end, `--no-stream` included, because ora saves a finished run from inside the stream. If the stream drops or goes quiet (no frames for 120s), the CLI reopens it, which resumes the same run without re-running the agent. A stream `429` is waited out (up to 60s) before reopening; any other HTTP error from the stream (a `404`, an auth error, a `5xx`) ends the command at once. Only after five failed reopens does it fall back to polling the run detail, within a 15-minute budget shared with the stream.
 
 | Flag | Effect |
 |---|---|
 | `--intent <id>` | Curated task id (server default when omitted) |
 | `--task <text>` | Free-text task — needs a partner API key; mutually exclusive with `--intent` |
 | `--api-key <k>` | ora partner API key; also read from `ORA_PARTNER_API_KEY` (then `ORA_SCAN_API_KEY`) |
-| `--agent <id>` | Agent from the public roster (default: ora's pick) |
+| `--agent <id>` | Agent from the public roster (default: `cas-haiku`, Claude Code on the Haiku model ora's roster lists) |
 | `--no-stream` | Hide the live trajectory view and print only the final result |
 | `--json` | Print the terminal run detail (verdict, step_count, result) as JSON |
 
@@ -258,7 +259,7 @@ ax skill agent-ready-website --install  # write .claude/skills/<name>/SKILL.md
 ax skill --json                         # the raw registry index
 ```
 
-Skills come from ora's public registry (`https://ora.ai/.well-known/agent-skills/`) and every byte is verified against the registry's sha256 digest before it is printed or installed. Skill content is never bundled into this package. `--dir <path>` overrides the install directory, and `--json` prints the registry index as JSON instead of the formatted list.
+Skills come from ora's public registry (`https://ora.ai/.well-known/agent-skills/`) and every skill whose index entry carries a sha256 digest is verified against it, byte for byte, before it is printed or installed. Skill content is never bundled into this package. `--dir <path>` overrides the install directory, and `--json` prints the registry index as JSON instead of the formatted list.
 
 ## generate-files
 
@@ -268,7 +269,7 @@ ax generate-files example.com --out public  # writes into public/ (your site's w
 ax generate-files example.com --json        # ora's payload, files + notes, nothing written
 ```
 
-Drafts the files agents look for on a site, filled in from ora's last scan of the domain (no new crawl), so run `ax audit` first for a domain ora has never scanned:
+Drafts the files agents look for on a site, filled in from ora's last scan of the domain (no new crawl). For a domain ora has never scanned you get only a website entry and a minimal `poppy.json`, so run `ax audit` first to fill in the rest:
 
 | File | Written to | What it is |
 |---|---|---|
@@ -277,9 +278,9 @@ Drafts the files agents look for on a site, filled in from ora's last scan of th
 | `llms.txt` | web root | An index of the docs, APIs and agent endpoints ora found; skipped when you already publish one |
 | `robots.txt` | web root | An edit of your current robots.txt: every line kept, a group added for AI search crawlers and user-requested agents your `User-agent: *` rules block (copying your other rules), and a `Sitemap:` line. Training crawlers and crawlers you block by name are never touched |
 | `api-catalog` | `.well-known/` | An [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) API catalog pointing at your OpenAPI description |
-| `server-card` | `<mcp path>/` | A draft MCP server card for each MCP server that has none. A card for a server on another host (`mcp.example.com`) is printed, not written |
+| `server-card` | `<mcp path>/` | A draft MCP server card for each MCP server that has none. A card for a server on another host (`mcp.example.com`) is listed with its URL, not written; `--json` carries its body |
 
-A file ora cannot draft honestly (you already publish it, or ora never read the original) is left out and explained under "Not drafted". These are drafts: read each file and its notes before you publish.
+A file ora cannot draft honestly (you already publish it, ora never read the original, or ora found nothing to put in it) is left out and explained under "Not drafted". These are drafts: read each file and its notes before you publish.
 
 Nothing is overwritten: if any target file exists - your `robots.txt` included - nothing is written and the command exits `2`. Pass `--force` to overwrite, or `--out <dir>` to write elsewhere and compare. Exit codes: `0` written, `2` usage (bad domain, files exist), `3` API. Same files as the web generator at [directory.ora.ai/generate](https://directory.ora.ai/generate) and `GET https://ora.ai/api/agent-files/{domain}?include=all`.
 
@@ -308,14 +309,14 @@ const { detail } = await deepJourney("stripe.com", {
 	harness: agent.harness,
 	model: agent.model,
 });
-console.log(detail.verdict, detail.step_count, detail.result?.insight.summary);
+console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 ```
 
 `detail` is the contract's `JourneyRunDetail`; `fetchJourneyIntents` lists the curated intents. The same public caps apply — a capped target resolves with the most recent stored run (`cached: true` on the outcome), not an error.
 
 ## For ora partners
 
-Everything above runs without an account. The commands and flags in this section are for teams working with ora directly: they need an ora-issued API key, and there is no self-serve signup — keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). A partner key also lifts the anonymous rate limits on `audit`, `webmcp-audit`, and `deep-journey` via their `--api-key` flags.
+Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). Two kinds of key exist. `journey` (and `audit --tunnel ora`) needs an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and `deep-journey`.
 
 ### journey
 
@@ -386,14 +387,15 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
-| `ORA_API_URL` | audit, deep-journey, skill, generate-files | `https://ora.ai` | Public API base (no auth) |
+| `ORA_API_URL` | audit, webmcp-audit, deep-journey, skill, generate-files | `https://ora.ai` | Public API base (no auth); also the ingest base for `webmcp-audit` |
 | `ORA_PLATFORM_URL` | journey, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_URL` | webmcp-audit | `https://ora.ai` | Also the ingest base for `webmcp-audit` |
 | `ORA_API_KEY` | journey, audit `--tunnel ora`, webmcp-audit | — (required for journey and `--tunnel ora`) | Secret key (`ora_sk_…`); journey and `--tunnel ora` exchange it for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes), webmcp-audit sends it to lift the ingest rate limits |
 | `ORA_SCAN_API_KEY` | audit, deep-journey | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). deep-journey accepts it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | deep-journey | — (optional) | ora-issued partner API key; unlocks `--task` and the 1000/24h keyed allowance |
+| `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |
+| `AX_WEBMCP_NO_SANDBOX` | webmcp-audit | — (unset) | `1` launches Chrome without its sandbox. Containers only: the audited page is untrusted and the sandbox contains it |
 
 ## Contract versioning
 
