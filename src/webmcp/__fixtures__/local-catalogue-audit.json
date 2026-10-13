@@ -1,0 +1,302 @@
+{
+	"_provenance": {
+		"note": "Generated from a real ax webmcp-audit capture (ax's own Chrome capture of scripts/smoke-webmcp.mjs's page) run through ora's real admission, engine and projection (ora scripts/webmcp-ingest-fixture.ts, capture source swapped). Never hand-edit; regenerate.",
+		"target": "http://localhost:8898/",
+		"chromeVersion": "141.0.7390.37",
+		"shimVersion": "3",
+		"modelHopsRan": false,
+		"caveat": "Generated without GOOGLE_VERTEX_PROJECT, so the four model-dependent checks are unmeasured and the coverage gate withholds the grade. Regenerate with credentials for a full-fidelity payload."
+	},
+	"audit": {
+		"contractVersion": "1.31.0",
+		"id": "wmc_dda68918aeb742ceabc9a9ff6ba2fe1f",
+		"domain": "localhost",
+		"url": "http://localhost:8898/",
+		"pageUrl": null,
+		"status": "ok",
+		"verdict": "testing-only",
+		"score": 73,
+		"grade": null,
+		"categoryScores": {
+			"shared-experience": 50,
+			"task-completion": 0,
+			"tool-quality": 80,
+			"trust": 100
+		},
+		"toolCount": 1,
+		"imperativeToolCount": 1,
+		"pageCount": 1,
+		"mode": "fast",
+		"source": "local",
+		"chromeVersion": "141.0.7390.37",
+		"shimVersion": "3",
+		"specSnapshot": "2026-08-26",
+		"durationMs": 4,
+		"error": null,
+		"createdAt": "2026-10-13T08:08:20.027Z",
+		"completedAt": "2026-10-13T08:08:20.031Z",
+		"availability": {
+			"status": "ready",
+			"reasons": [
+				{
+					"id": "tools-callable",
+					"detail": "Every recorded tool declares a handler. This browser did not expose the native WebMCP API, so availability depends on browser rollout or the page's own polyfill."
+				}
+			]
+		},
+		"applicableCategories": [
+			"shared-experience",
+			"tool-quality",
+			"trust"
+		],
+		"evidenceCoverage": 51,
+		"findings": [
+			{
+				"checkId": "registration-timing",
+				"category": "tool-quality",
+				"status": "pass",
+				"score": 1,
+				"details": "Every measured tool registered within 32ms of navigation.",
+				"toolName": "search_books",
+				"evidence": null
+			},
+			{
+				"checkId": "canonical-entry-point",
+				"category": "tool-quality",
+				"status": "pass",
+				"score": 1,
+				"details": "The one registered tool registers on the canonical document.modelContext entry point.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "schema-validity",
+				"category": "tool-quality",
+				"status": "pass",
+				"score": 1,
+				"details": "All 1 declared input schema is a structurally valid object schema.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "schema-quality",
+				"category": "tool-quality",
+				"status": "warning",
+				"score": 0,
+				"details": "1 of 1 tool schemas are harder for an agent to use than they need to be: search_books 1 parameter has no description (query).",
+				"toolName": "search_books",
+				"evidence": "search_books: 1 parameter has no description (query)"
+			},
+			{
+				"checkId": "naming-quality",
+				"category": "tool-quality",
+				"status": "pass",
+				"score": 1,
+				"details": "All 1 tool name is consistent, verb-led, and within Chrome's size guidance.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "stub-detection",
+				"category": "tool-quality",
+				"status": "pass",
+				"score": 1,
+				"details": "The one registered tool declares an execute handler.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "annotations-present",
+				"category": "trust",
+				"status": "pass",
+				"score": 1,
+				"details": "All 1 read-shaped tool declares readOnlyHint: true - the one declared claim that lets an agent treat a call as safe to make without asking.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "annotation-mismatch",
+				"category": "trust",
+				"status": "pass",
+				"score": 1,
+				"details": "No tool claims to be read-only while its own name or description says it writes (1 declared hint checked).",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "untrusted-content-hint",
+				"category": "trust",
+				"status": "na",
+				"score": 0,
+				"details": "No tool's contract suggests it returns text written by somebody other than the site, so there is nothing to flag as untrusted.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "registration-errors",
+				"category": "tool-quality",
+				"status": "pass",
+				"score": 1,
+				"details": "No tool registration threw during the capture.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "invoke-success-rate",
+				"category": "task-completion",
+				"status": "na",
+				"score": 0,
+				"details": "Not invoked on this run: this audit did not call any tool. Scheduled re-audits only read the registry; a live audit from the report page calls the tools that declare readOnlyHint: true.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "visible-effect",
+				"category": "shared-experience",
+				"status": "na",
+				"score": 0,
+				"details": "Not invoked on this run: this audit did not call any tool. Scheduled re-audits only read the registry; a live audit from the report page calls the tools that declare readOnlyHint: true.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "hint-vs-observed",
+				"category": "trust",
+				"status": "na",
+				"score": 0,
+				"details": "Not invoked on this run: this audit did not call any tool. Scheduled re-audits only read the registry; a live audit from the report page calls the tools that declare readOnlyHint: true.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "description-quality",
+				"category": "tool-quality",
+				"status": "unmeasured",
+				"score": 0,
+				"details": "The language model is not configured for this environment, so this check was not run.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "injection-surface",
+				"category": "trust",
+				"status": "unmeasured",
+				"score": 0,
+				"details": "The language model is not configured for this environment, so this check was not run.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "page-experience",
+				"category": "shared-experience",
+				"status": "unmeasured",
+				"score": 0,
+				"details": "The language model is not configured for this environment, so this check was not run.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "human-parity",
+				"category": "shared-experience",
+				"status": "warning",
+				"score": 0.5,
+				"details": "1 of 1 tools run through the JavaScript API with nothing on the page marking what the agent can do; the page itself was not graded on this run, so parity rests on the visible counterparts alone. A visible effect in your existing UI when a tool runs closes the gap.",
+				"toolName": "search_books",
+				"evidence": "search_books"
+			},
+			{
+				"checkId": "tool-selection",
+				"category": "task-completion",
+				"status": "unmeasured",
+				"score": 0,
+				"details": "The language model is not configured for this environment, so tool selection was not simulated.",
+				"toolName": null,
+				"evidence": null
+			},
+			{
+				"checkId": "coverage-vs-site-type",
+				"category": "task-completion",
+				"status": "na",
+				"score": 0,
+				"details": "This tool set does not place the site in a category with a known expected tool shape, so there is no coverage baseline to score it against.",
+				"toolName": null,
+				"evidence": null
+			}
+		],
+		"capture": {
+			"url": "http://localhost:8898/",
+			"pages": [
+				{
+					"url": "http://localhost:8898/",
+					"finalUrl": "http://localhost:8898/",
+					"verdict": "testing-only",
+					"status": "ok",
+					"tools": [
+						{
+							"name": "search_books",
+							"description": "Search the catalogue by title or author and return matches.",
+							"via": "imperative",
+							"entryPoint": "document",
+							"pageUrl": "http://localhost:8898/",
+							"inputSchema": {
+								"type": "object",
+								"properties": {
+									"query": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"query"
+								]
+							},
+							"annotations": {
+								"readOnlyHint": true
+							},
+							"hasExecute": true,
+							"registrationMs": 32.09999999997672
+						}
+					],
+					"declarativeFormCount": 0,
+					"consumer": {
+						"nativeApi": false,
+						"nativeToolCount": null,
+						"originTrial": null,
+						"permissionsPolicy": null,
+						"iframeAllow": null
+					},
+					"staticSignals": {
+						"imperative": {
+							"marker": "document.modelContext.registerTool",
+							"deprecatedAliasOnly": false,
+							"removedApiOnly": false
+						},
+						"polyfillPackages": [],
+						"keywordMention": false
+					},
+					"apiSurface": {
+						"toolchangeEvents": 0,
+						"provideContextCalls": 0,
+						"registrationErrors": []
+					},
+					"timing": {
+						"navMs": 499,
+						"quietMs": 2025,
+						"totalMs": 2849
+					},
+					"error": null
+				}
+			],
+			"chromeVersion": "141.0.7390.37",
+			"shimVersion": "3",
+			"capturedAt": "2026-10-13T08:07:45.340Z",
+			"durationMs": 2877
+		},
+		"simulation": {
+			"steps": [],
+			"accuracy": 0,
+			"model": "gemini-2.5-flash",
+			"skipped": true,
+			"skipReason": "The language model is not configured for this environment, so tool selection was not simulated."
+		}
+	}
+}

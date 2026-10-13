@@ -91,7 +91,7 @@ export async function resolveChrome(explicit?: string): Promise<ChromeResolution
  * A warning and not a hard stop, and deliberately a NARROW one. `nativeApi:
  * true` says the browser provided WebMCP; it does not say the score moved. A
  * page carrying a valid origin trial, or one whose tools are callable anyway,
- * clears the availability gate on its own merits and ora annotates nothing.
+ * is ready on its own merits and ora annotates nothing.
  * Predicting which applies would mean reimplementing a server-side condition
  * here - the exact drift `vendor/` exists to prevent - so this states the
  * browser fact and points at the availability reason ora writes, which the

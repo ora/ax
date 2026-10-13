@@ -70,6 +70,10 @@ const PAGE_BUDGET_MS = 30_000;
  * long, the page is done registering. */
 const QUIET_WINDOW_MS = 2_000;
 const QUIET_POLL_MS = 250;
+/** Before the first registration, silence is not a quiet window: hydration may
+ * not have reached the registering bundle yet. Wait this long for the first
+ * arrival, then apply the ordinary two-second quiet rule. */
+const INITIAL_REGISTRATION_WAIT_MS = { fast: 5_000, deep: 10_000 } as const;
 /** Ceiling on the quiet wait, per mode. `deep` buys a longer tail for sites
  * that register behind a slow hydration chain. */
 const MAX_QUIET_WAIT_MS = { fast: 12_000, deep: 20_000 } as const;
@@ -103,17 +107,8 @@ export type WebmcpCaptureMode = "fast" | "deep";
 // In-page expressions - copied from ora's capture-server.ts, verbatim
 // ---------------------------------------------------------------------------
 
-/**
- * Pass A only. Reads the NATIVE surface, which is why no shim may be installed
- * in this context.
- *
- * Note what shim v1 measures here: presence AFTER the page's scripts have run.
- * A page that ships its own `modelContext` polyfill therefore reads
- * `nativeApi: true`, and so does a browser that provides the API itself. The
- * two are not distinguished. ora's shim v2 splits them with a document-start
- * probe, but v2 is unmerged and the ingest endpoint rejects captures carrying
- * it, so this copy measures what the server expects.
- */
+/** Pass A only. Reads the NATIVE surface, which is why no shim may be
+ * installed in this context. */
 const PASS_A_PROBE = `(function () {
   var tokens = [];
   try {
@@ -127,11 +122,25 @@ const PASS_A_PROBE = `(function () {
   }
   var nativeApi = false;
   try {
-    nativeApi = ("modelContext" in navigator) || ("modelContext" in document);
+    nativeApi = Boolean(document.modelContext || navigator.modelContext);
   } catch (e) {
     // A hostile getter on either global; absence is the honest answer.
   }
   return { nativeApi: nativeApi, metaTokens: tokens };
+})()`;
+
+/** Native acceptance probe. API existence alone is not enough: getTools() is
+ * the page-visible registry defined by the current draft. The Promise result
+ * is returned directly so the evaluation waits for enumeration to settle. */
+const NATIVE_TOOL_COUNT_EXPRESSION = `(async function () {
+  try {
+    var modelContext = document.modelContext || navigator.modelContext;
+    if (!modelContext || typeof modelContext.getTools !== "function") return null;
+    var tools = await modelContext.getTools();
+    return tools && typeof tools.length === "number" ? tools.length : null;
+  } catch (e) {
+    return null;
+  }
 })()`;
 
 /** The shim's results global is non-writable and non-configurable, so a page
@@ -258,16 +267,16 @@ function buildRegistrationErrors(snapshot: WebmcpShimSnapshot | null): string[] 
 }
 
 /**
- * Whether the page's `Permissions-Policy` delegates a model-context feature to
- * embedded frames. `null` means the page declared nothing about it, which is a
- * different fact from declaring it closed.
+ * Whether the page's `Permissions-Policy` delegates the `tools` feature to
+ * embedded frames. `null` means the page declared nothing about it, which is
+ * a different fact from declaring it closed.
  */
 export function deriveIframeAllow(permissionsPolicy: string | null): boolean | null {
 	if (!permissionsPolicy) return null;
 	for (const directive of permissionsPolicy.split(",")) {
 		const match = /^\s*([a-z0-9-]+)\s*=\s*(.*)$/i.exec(directive);
 		if (!match) continue;
-		if (!match[1].toLowerCase().replace(/-/g, "").includes("modelcontext")) continue;
+		if (match[1].toLowerCase() !== "tools") continue;
 		const allowlist = match[2]
 			.trim()
 			.replace(/^\(|\)$/g, "")
@@ -291,6 +300,7 @@ interface PassAResult {
 	navMs: number;
 	blocked: boolean;
 	nativeApi: boolean;
+	nativeToolCount: number | null;
 	originTrialTokens: string[];
 	permissionsPolicy: string | null;
 	html: string;
@@ -316,6 +326,7 @@ interface PassBResult {
 async function runPassA(
 	browser: CdpBrowser,
 	url: string,
+	mode: WebmcpCaptureMode,
 	deadline: number,
 	wantScreenshot: boolean,
 ): Promise<PassAResult> {
@@ -325,6 +336,7 @@ async function runPassA(
 		navMs: 0,
 		blocked: false,
 		nativeApi: false,
+		nativeToolCount: null,
 		originTrialTokens: [],
 		permissionsPolicy: null,
 		html: "",
@@ -363,6 +375,10 @@ async function runPassA(
 		const probe = ((await page
 			.evaluate<{ nativeApi?: unknown; metaTokens?: unknown }>(PASS_A_PROBE)
 			.catch(() => null)) ?? {}) as { nativeApi?: unknown; metaTokens?: unknown };
+		const nativeApi = probe.nativeApi === true;
+		const nativeToolCount = nativeApi
+			? await waitForNativeToolRegistration(page, mode, deadline)
+			: null;
 
 		// Taken from THIS pass on purpose: no shim, so the picture is the page as
 		// a person's browser renders it, cookie banners and all.
@@ -372,7 +388,8 @@ async function runPassA(
 			finalUrl: page.url(),
 			navMs,
 			blocked: isSecurityChallenge(status, headers, html),
-			nativeApi: probe.nativeApi === true,
+			nativeApi,
+			nativeToolCount,
 			originTrialTokens: [
 				...parseOriginTrialHeader(headers["origin-trial"]),
 				...(Array.isArray(probe.metaTokens) ? (probe.metaTokens as string[]) : []),
@@ -447,11 +464,16 @@ async function waitForRegistrationQuiet(
 ): Promise<number> {
 	const startedAt = Date.now();
 	const maxWaitMs = Math.min(MAX_QUIET_WAIT_MS[mode], Math.max(0, deadline - startedAt));
+	const initialWaitMs = Math.min(INITIAL_REGISTRATION_WAIT_MS[mode], maxWaitMs);
 	let lastFingerprint: string | null = null;
 	let lastChangeAt = startedAt;
+	let hasRegistered = false;
 
 	while (Date.now() - startedAt < maxWaitMs) {
 		const fingerprint = await page.evaluate<string>(FINGERPRINT_EXPRESSION).catch(() => null);
+		if (typeof fingerprint === "string" && /^[1-9]\d*:/.test(fingerprint)) {
+			hasRegistered = true;
+		}
 		if (fingerprint !== lastFingerprint) {
 			lastFingerprint = typeof fingerprint === "string" ? fingerprint : null;
 			lastChangeAt = Date.now();
@@ -459,13 +481,67 @@ async function waitForRegistrationQuiet(
 			// streaming consumer can be shown tools DURING the quiet wait, which
 			// on a single-page audit is most of the capture's tail.
 			if (onTools) await emitRegisteredTools(page, onTools);
-		} else if (Date.now() - lastChangeAt >= QUIET_WINDOW_MS) {
+		}
+
+		const now = Date.now();
+		if (
+			registrationWaitComplete({
+				elapsedMs: now - startedAt,
+				quietMs: now - lastChangeAt,
+				hasRegistered,
+				initialWaitMs,
+				maxWaitMs,
+			})
+		) {
 			break;
 		}
 		await sleep(Math.min(QUIET_POLL_MS, Math.max(0, deadline - Date.now())));
 		if (Date.now() >= deadline) break;
 	}
 	return Date.now() - startedAt;
+}
+
+interface RegistrationWaitState {
+	elapsedMs: number;
+	quietMs: number;
+	hasRegistered: boolean;
+	initialWaitMs: number;
+	maxWaitMs: number;
+}
+
+/** Pure stopping rule, copied from ora with its regression tests. Before the
+ * first tool, only the initial-arrival window can end the wait; after it, two
+ * quiet seconds end it. The hard ceiling wins in either state. */
+export function registrationWaitComplete(state: RegistrationWaitState): boolean {
+	if (state.elapsedMs >= state.maxWaitMs) return true;
+	if (!state.hasRegistered) return state.elapsedMs >= state.initialWaitMs;
+	return state.quietMs >= QUIET_WINDOW_MS;
+}
+
+/** Poll the uninstrumented page's native registry. `null` means getTools was
+ * unavailable or rejected throughout the bounded window; `0` means it worked
+ * and stayed empty. Those are intentionally different verdict inputs. */
+async function waitForNativeToolRegistration(
+	page: CdpPage,
+	mode: WebmcpCaptureMode,
+	deadline: number,
+): Promise<number | null> {
+	const startedAt = Date.now();
+	const maxWaitMs = Math.min(INITIAL_REGISTRATION_WAIT_MS[mode], Math.max(0, deadline - startedAt));
+	let lastSuccessfulCount: number | null = null;
+
+	while (Date.now() - startedAt < maxWaitMs) {
+		const count = await page
+			.evaluate<number | null>(NATIVE_TOOL_COUNT_EXPRESSION)
+			.catch(() => null);
+		if (typeof count === "number" && Number.isSafeInteger(count) && count >= 0) {
+			lastSuccessfulCount = count;
+			if (count > 0) return count;
+		}
+		await sleep(Math.min(QUIET_POLL_MS, Math.max(0, deadline - Date.now())));
+		if (Date.now() >= deadline) break;
+	}
+	return lastSuccessfulCount;
 }
 
 /** Progress-only read of the shim's live tool list mid-quiet-wait. Any failure
@@ -502,7 +578,7 @@ async function capturePage(
 	const startedAt = Date.now();
 	const pageDeadline = startedAt + PAGE_BUDGET_MS;
 
-	const passA = await runPassA(browser, url, pageDeadline, wantScreenshot);
+	const passA = await runPassA(browser, url, mode, pageDeadline, wantScreenshot);
 
 	// A page we could not load, or one that sent us a bot wall, tells us nothing
 	// about its WebMCP support. Skip pass B rather than spend a second context
@@ -538,7 +614,7 @@ async function capturePage(
 		loadError,
 		blocked: passA.blocked,
 		nativeApi: passA.nativeApi,
-		originTrialValid: originTrial?.valid === true,
+		nativeToolCount: passA.nativeToolCount,
 		declarativeToolCount: declarativeTools.length,
 		toolCount: tools.length,
 		shimTakenOver: (snapshot?.takenOver.length ?? 0) > 0,
@@ -557,6 +633,7 @@ async function capturePage(
 			declarativeFormCount: declarativeTools.length,
 			consumer: {
 				nativeApi: passA.nativeApi,
+				nativeToolCount: passA.nativeToolCount,
 				originTrial,
 				permissionsPolicy: passA.permissionsPolicy,
 				iframeAllow: deriveIframeAllow(passA.permissionsPolicy),

@@ -269,7 +269,8 @@ const webmcpAudit = defineCommand({
 		},
 		"api-key": {
 			type: "string",
-			description: "ora API key that lifts the ingest rate limits; also read from ORA_API_KEY",
+			description:
+				"ora partner or scan API key that lifts the daily ingest limit; also read from ORA_PARTNER_API_KEY, then ORA_SCAN_API_KEY",
 		},
 		json: {
 			type: "boolean",
@@ -338,7 +339,7 @@ function helpScreen(): string {
 		`  ${d("webmcp-audit options:")}`,
 		`    --chrome-endpoint ${d("<e>  Drive a Chrome you started: ws:// URL, http origin, or host:port")}`,
 		`    --min-score <n>  ${d("Exit 1 when the score is below n (0-100); the CI gate")}`,
-		`    --api-key <k>    ${d("ora API key that lifts the ingest rate limits; also read from ORA_API_KEY")}`,
+		`    --api-key <k>    ${d("ora partner or scan API key that lifts the daily ingest limit; also read from ORA_PARTNER_API_KEY")}`,
 		`    --json           ${d("Print the raw ora audit payload as JSON")}`,
 		`    --show-passing   ${d("List each passing check (hidden by default)")}`,
 		`    ${d("starts a headless Chrome you already have installed; never downloads one")}`,

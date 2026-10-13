@@ -18,13 +18,14 @@
 // This one is the PUBLISHED shape, not the stored one: the ingest endpoint's
 // terminal `done` frame carries the projection, which differs from the internal
 // record in ways the report depends on - it adds `contractVersion` and the
-// derived `availability` gate, and its `evidenceCoverage` is never null.
+// derived, informational `availability` verdict, and its `evidenceCoverage` is never null.
 //
 import type {
   WebmcpAudit,
   WebmcpAuditStatus,
   WebmcpAvailability,
   WebmcpCaptureResult,
+  WebmcpCategory,
   WebmcpCategoryScores,
   WebmcpFinding,
   WebmcpSimulation,
@@ -43,15 +44,21 @@ export interface PublicWebmcpAudit {
   id: string;
   domain: string;
   url: string;
+  /** The normalized page key when this run audited one page rather than the
+   *  domain's entry page, `null` otherwise. */
+  pageUrl: string | null;
   status: WebmcpAuditStatus;
   verdict: WebmcpVerdict;
   score: number | null;
   grade: string | null;
   categoryScores: WebmcpCategoryScores;
-  /** The availability gate's verdict, derived from the capture at projection
-   * time (never stored). Full record only: a summary row has no capture to
-   * derive from. */
+  /** Informational readiness verdict, derived from the capture at projection
+   * time (never stored, never gates the score). Full record only: a summary
+   * row has no capture to derive from. */
   availability: WebmcpAvailability;
+  /** Which pillars this run measured - the disambiguator for a 0 in
+   * `categoryScores`. Full record only: derived from the findings. */
+  applicableCategories: WebmcpCategory[];
   /** The stored per-run coverage when the row carries one, else derived from
    * the findings at projection time. Full record only: a summary row has no
    * findings to fall back to. */
@@ -60,6 +67,7 @@ export interface PublicWebmcpAudit {
   capture: WebmcpCaptureResult | null;
   simulation: WebmcpSimulation | null;
   toolCount: number;
+  imperativeToolCount: number | null;
   pageCount: number;
   mode: WebmcpAudit["mode"];
   source: WebmcpAudit["source"];

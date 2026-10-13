@@ -134,7 +134,13 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 	let audit: Awaited<ReturnType<typeof ingestCapture>>;
 	try {
 		audit = await ingestCapture(target, payload, {
-			apiKey: input.apiKey ?? process.env.ORA_API_KEY,
+			// ora's ingest recognizes partner and scan keys only; a platform key
+			// (ORA_API_KEY) would silently fall back to the anonymous limits.
+			apiKey:
+				input.apiKey ||
+				process.env.ORA_PARTNER_API_KEY ||
+				process.env.ORA_SCAN_API_KEY ||
+				undefined,
 			onEvent: (event) => {
 				if (!input.json) spinner.update(progressLine(event));
 			},
@@ -172,18 +178,8 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 	if (parity) console.error(`\n${parity}`);
 
 	if (minScore.value !== undefined) {
-		// A page the availability gate turned away has no score, and that is a
-		// FAILED threshold rather than a broken call: exiting 3 would tell CI the
-		// API was unreachable when what actually happened is that the page is not
-		// agent-ready yet.
-		if (audit.availability.status !== "ready") {
-			if (!input.json) {
-				console.log(
-					`\n  Not agent-ready, so there is no score to compare against --min-score ${minScore.value}\n`,
-				);
-			}
-			return EXIT.BELOW_MIN_SCORE;
-		}
+		// Availability is informational and never gates the score, so a
+		// not-ready page is compared on its score like any other.
 		// Compared against the score, never the grade: below the coverage
 		// threshold the grade is withheld and a check keyed on it would pass
 		// everything.

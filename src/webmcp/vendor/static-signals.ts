@@ -42,6 +42,7 @@ import type { WebmcpStaticSignals } from "./types";
 export interface WebmcpScriptSignal {
   marker: string;
   deprecatedAliasOnly: boolean;
+  removedApiOnly: boolean;
 }
 
 export const WEBMCP_POLYFILL_PACKAGES = ["@mcp-b/global", "@mcp-b/react-webmcp", "usewebmcp"];
@@ -49,33 +50,99 @@ export const WEBMCP_POLYFILL_PACKAGES = ["@mcp-b/global", "@mcp-b/react-webmcp",
 /**
  * Scans JS source (inline script bodies or fetched bundles) for imperative
  * WebMCP usage: the `document.modelContext` entry point, the deprecated
- * `navigator.modelContext` alias, a bare `modelContext.registerTool()` /
- * `provideContext()` call shape (minifiers often hoist the entry point into a
- * variable), or an MCP-B polyfill package signature.
+ * `navigator.modelContext` alias, a bare `modelContext.registerTool()` call
+ * shape (minifiers often hoist the entry point into a variable), the removed
+ * `provideContext()` API, or an MCP-B polyfill package signature.
  */
 export function findWebmcpScriptSignal(source: string): WebmcpScriptSignal | null {
   const lower = source.toLowerCase();
   const hasDocumentEntry = /document\.modelcontext/.test(lower);
   const hasNavigatorEntry = /navigator\.modelcontext/.test(lower);
-  const hasCallShape = /modelcontext\??\.(registertool|providecontext)/.test(lower);
+  const hasRegisterCall =
+    /modelcontext\??\.registertool/.test(lower) ||
+    ((hasDocumentEntry || hasNavigatorEntry) && /\.registertool\s*\(/.test(lower));
+  const hasProvideContextCall = /modelcontext\??\.providecontext/.test(lower);
   const polyfill = WEBMCP_POLYFILL_PACKAGES.find((pkg) => lower.includes(pkg));
-  if (!hasDocumentEntry && !hasNavigatorEntry && !hasCallShape && !polyfill) return null;
-  const marker = hasDocumentEntry
-    ? "document.modelContext"
-    : hasNavigatorEntry
-      ? "navigator.modelContext"
-      : hasCallShape
-        ? "modelContext.registerTool/provideContext"
-        : `${polyfill} package`;
-  return { marker, deprecatedAliasOnly: hasNavigatorEntry && !hasDocumentEntry };
+  if (!hasRegisterCall && !hasProvideContextCall && !polyfill) return null;
+  const marker = hasRegisterCall
+    ? hasDocumentEntry
+      ? "document.modelContext.registerTool"
+      : hasNavigatorEntry
+        ? "navigator.modelContext.registerTool"
+        : "modelContext.registerTool"
+    : hasProvideContextCall
+      ? "modelContext.provideContext"
+      : `${polyfill} package`;
+  return {
+    marker,
+    deprecatedAliasOnly: hasRegisterCall && hasNavigatorEntry && !hasDocumentEntry,
+    removedApiOnly: !hasRegisterCall && hasProvideContextCall,
+  };
 }
 
-// REMOVED IN THE ax COPY: `sameOriginScriptUrls` and `countDeclarativeToolForms`
-// (with `MAX_WEBMCP_SCRIPT_FETCHES` and `SameOriginScriptUrls`, which serve only
-// the first of them). Both take a cheerio `CheerioAPI`, and neither is on the
-// capture path - ora calls them from surfaces this CLI does not run. Dropping
-// them is what keeps an HTML parser out of a zero-dependency binary. Nothing
-// below this point differs except `collectStaticSignals`' first parameter.
+// shortcut: scans at most the first 8 same-origin bundles at safeFetch's 1 MB
+// body cap, so a registration living only in a later/larger chunk is missed;
+// `totalCount` below records how many bundles existed before the cap, so a
+// consumer can tell "read everything" from "read a sample" instead of treating
+// a truncated read as a complete one.
+const MAX_WEBMCP_SCRIPT_FETCHES = 8;
+
+export interface SameOriginScriptUrls {
+  /** The URLs to fetch, deduped and capped at `MAX_WEBMCP_SCRIPT_FETCHES`. */
+  urls: string[];
+  /** How many distinct same-origin bundles the HTML links to, before the cap. */
+  totalCount: number;
+}
+
+export interface WebmcpScriptSource {
+  readonly url: string;
+  readonly body: string;
+}
+
+// REMOVED IN THE ax COPY: `sameOriginScriptUrls` and `countDeclarativeToolForms`.
+// Both take a cheerio `CheerioAPI`, and neither is on the capture path - ora
+// calls them from surfaces this CLI does not run. Dropping them is what keeps an
+// HTML parser out of a zero-dependency binary. Nothing else in this file
+// differs except `collectStaticSignals`' second parameter.
+
+// One-hop only: this closes the code-split registration gap without turning
+// static detection into a general dependency-graph crawler over hostile JS.
+const MAX_WEBMCP_DYNAMIC_SCRIPT_FETCHES = 4;
+const QUOTED_SCRIPT_REFERENCE = /(["'`])([^"'`\r\n]{1,1024})\1/g;
+
+export function sameOriginWebmcpChunkUrls(
+  sources: readonly WebmcpScriptSource[],
+  alreadySeenUrls: readonly string[] = [],
+): SameOriginScriptUrls {
+  const seen = new Set(alreadySeenUrls);
+  const urls: string[] = [];
+  for (const source of sources) {
+    let base: URL;
+    try {
+      base = new URL(source.url);
+    } catch {
+      continue;
+    }
+    for (const match of source.body.matchAll(QUOTED_SCRIPT_REFERENCE)) {
+      const reference = match[2];
+      if (!reference || !reference.toLowerCase().includes("webmcp") || reference.includes("${")) continue;
+      try {
+        const resolved = new URL(reference, base);
+        const isWebmcpScript =
+          resolved.pathname.toLowerCase().includes("webmcp") && /\.m?js$/i.test(resolved.pathname);
+        if (resolved.origin !== base.origin || !isWebmcpScript || seen.has(resolved.toString())) continue;
+        seen.add(resolved.toString());
+        urls.push(resolved.toString());
+      } catch {
+        // Unparseable string literal - not fetchable, skip it.
+      }
+    }
+  }
+  return {
+    urls: urls.slice(0, MAX_WEBMCP_DYNAMIC_SCRIPT_FETCHES),
+    totalCount: urls.length,
+  };
+}
 
 const WEBMCP_KEYWORD_PATTERNS = ["webmcp", "web model context protocol"];
 
@@ -103,8 +170,9 @@ function mentionsWebmcpKeyword(text: string): boolean {
 export function collectStaticSignals(
   html: string,
   inlineJs: string,
-  sameOriginScripts: Array<{ url: string; body: string }>,
+  sameOriginScripts: readonly WebmcpScriptSource[],
 ): WebmcpStaticSignals {
+
   const scriptSources = [inlineJs, ...sameOriginScripts.map((s) => s.body)];
 
   // The marker is derived over ALL sources at once, not the first source with

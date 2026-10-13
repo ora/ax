@@ -161,6 +161,20 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
     } catch (e) {
       // A hostile performance getter cannot be pinned; the Date fallback holds.
     }
+    // The serialized origin getTools() reports on every RegisteredTool.
+    // Pinned at install like the natives: location is unforgeable in a
+    // browser and this script runs before any page script, so the value read
+    // here is the document's real origin. Empty on any failure (the vm test
+    // sandbox has no location; an exotic environment may throw) - a degraded
+    // origin must never break the page.
+    var pinnedOrigin = "";
+    try {
+      if (W.location && typeof W.location.origin === "string") {
+        pinnedOrigin = W.location.origin;
+      }
+    } catch (e) {
+      // Expected: an exotic location getter. The "" default stands.
+    }
 
     var entries = [];
     var byKey = nativeObjectCreate(null);
@@ -439,6 +453,88 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
       return nativePromise ? nativePromise.resolve() : undefined;
     }
 
+    // A stored inputSchema/annotations value as getTools() may hand it to
+    // page code. Absence is undefined (the draft: "undefined if none was
+    // registered"), and so are this shim's own {__truncated} and
+    // {__unserializable} markers - they are instrument internals, and handing
+    // a page an object it never wrote would leak how the capture works. A
+    // real stored value is re-copied on EVERY call: snapshot() shares the
+    // stored references, so returning them here would let the page mutate the
+    // registry record and rewrite what a later snapshot reports.
+    function projectStoredValue(value) {
+      if (value === null || value === undefined) return undefined;
+      if (value.__truncated === true || value.__unserializable === true) {
+        return undefined;
+      }
+      return safeCopy(value, MAX_SCHEMA_CHARS);
+    }
+
+    // The draft's RegisteredTool list (section 4.5): the CURRENT tool map,
+    // sorted ascending by name in code-unit order. Unregistered records are
+    // audit evidence, not live tools, so they are filtered; a name live under
+    // both sources is returned twice rather than deduped (the real map could
+    // never hold both, but picking a winner here would invent one). title
+    // is "" because the shim does not record it yet (Stage 2, with the
+    // title-present check) and "" is what Chrome currently reports for a
+    // missing title (spec issue 224 is unresolved).
+    function getToolsList() {
+      var list = [];
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        if (entry.unregistered) continue;
+        list.push({
+          name: entry.name,
+          title: "",
+          description: entry.description,
+          inputSchema: projectStoredValue(entry.inputSchema),
+          annotations: projectStoredValue(entry.annotations),
+          window: W,
+          origin: pinnedOrigin
+        });
+      }
+      // String < / > IS code-unit comparison, which is the draft's order.
+      // sort is deliberately not pinned: pinning protects capture integrity,
+      // and a page sabotaging its own getTools() result harms only itself -
+      // the same reasoning as the unpinned push/indexOf/splice above.
+      list.sort(function (a, b) {
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+      });
+      return list;
+    }
+
+    // The read half of the draft's API, and the reason it exists here is a
+    // bug this shim caused: a page's own polyfill correctly stands down when
+    // document.modelContext already exists (this shim IS that object), and a
+    // page that then awaits getTools() before registering threw on the
+    // missing method, killing its whole registration path while the audit
+    // blamed the site. Observed on the Le Petit Bistro demo in Google's
+    // webmcp-tools repo: its DEFAULT surface is the declarative form, and its
+    // imperative path (behind the imperative query param) awaits
+    // document.modelContext.getTools() before registerTool - the shape that
+    // died under capture.
+    //
+    // Divergences from the draft, each deliberate: options.fromOrigins is
+    // accepted and ignored (this registry only ever holds same-document
+    // tools, so the cross-origin filter has nothing to do), and none of the
+    // draft's error conditions (InvalidStateError, NotAllowedError,
+    // SecurityError) are raised - the shim cannot evaluate permissions
+    // policy, and its prime directive is to never break the page, so this
+    // function must never throw.
+    function getTools() {
+      var list;
+      try {
+        list = getToolsList();
+      } catch (e) {
+        list = [];
+      }
+      // The provideContext fallback convention, not registerTool's: that
+      // bare-object shape exists to carry .unregister, and getTools carries
+      // nothing. A page that awaits necessarily runs where Promise existed
+      // at install, so the sync-array arm only ever serves callers that
+      // treat the return value as data.
+      return nativePromise ? nativePromise.resolve(list) : list;
+    }
+
     function addEventListener(type, listener) {
       if (typeof listener !== "function") return;
       var key = safeText(type, "");
@@ -481,6 +577,14 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
     // Two distinct delegate objects over one registry, so we can tell which
     // global the page reached for.
     function createDelegate(entryPoint) {
+      // executeTool is deliberately ABSENT, not stubbed: the live tool
+      // objects and their execute handlers are structurally dropped (the
+      // audit's no-invoke property), so any stub would be a permanent
+      // rejector - and a page feature-detecting executeTool would then build
+      // its agent path on infrastructure that always fails, which is worse
+      // than honest absence. Stage 2's invoke work owns the real thing.
+      // Stage 2 also: count getTools calls as an in-page-agent signal (needs
+      // snapshot-shape, capture-server and consumer updates).
       return {
         registerTool: function (tool, options) {
           return registerTool(tool, options, entryPoint);
@@ -488,6 +592,7 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
         provideContext: function (context) {
           return provideContext(context, entryPoint);
         },
+        getTools: getTools,
         addEventListener: addEventListener,
         removeEventListener: removeEventListener,
         dispatchEvent: dispatchEvent
@@ -617,16 +722,17 @@ export const DECLARATIVE_SCAN_SNIPPET = `(function () {
   var MAX_FORMS = ${WEBMCP_MAX_DECLARATIVE_FORMS};
   var MAX_DESCRIPTION_CHARS = ${WEBMCP_MAX_DESCRIPTION_CHARS};
   var forms = [];
-  var nodes = document.querySelectorAll("form[toolname], [toolname]");
+  var nodes = document.querySelectorAll("form[toolname]");
   for (var i = 0; i < nodes.length && forms.length < MAX_FORMS; i++) {
     var node = nodes[i];
-    var isForm = node.tagName === "FORM";
     var description = node.getAttribute("tooldescription") || "";
+    var toolName = node.getAttribute("toolname") || "";
+    if (!toolName.trim()) continue;
     forms.push({
-      toolName: node.getAttribute("toolname") || "",
+      toolName: toolName,
       toolDescription: description.slice(0, MAX_DESCRIPTION_CHARS),
-      action: isForm ? node.getAttribute("action") || "" : "",
-      method: isForm ? (node.getAttribute("method") || "get").toLowerCase() : "",
+      action: node.getAttribute("action") || "",
+      method: (node.getAttribute("method") || "get").toLowerCase(),
       fieldCount: node.querySelectorAll("input, select, textarea").length
     });
   }

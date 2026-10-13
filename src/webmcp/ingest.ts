@@ -235,7 +235,7 @@ async function httpError(res: Response): Promise<WebmcpIngestError> {
 			(Number.isFinite(headerSeconds) && headerSeconds > 0 ? headerSeconds * 1000 : null);
 		const wait = retryAfterMs ? ` — retry in ${Math.ceil(retryAfterMs / 1000)}s` : "";
 		return new WebmcpIngestError(
-			`ora rate limit exceeded${wait} (10/min and 20 per 24h per IP). An ora API key lifts these limits: set ORA_API_KEY or pass --api-key.`,
+			`ora rate limit exceeded${wait} (10/min and 20 per 24h per IP). An ora partner or scan API key lifts the daily limit: set ORA_PARTNER_API_KEY or pass --api-key.`,
 			{ code: code ?? "RATE_LIMITED", retryAfterMs },
 		);
 	}
@@ -303,7 +303,7 @@ async function consumeIngestStream(
 					// The union types this as the stored record; the endpoint sends the
 					// projection, which is a superset (contractVersion, availability, a
 					// non-null evidenceCoverage). Narrowing here is what lets the report
-					// read the gate without re-deriving it.
+					// read availability without re-deriving it.
 					audit = event.audit as unknown as PublicWebmcpAudit;
 					break streaming;
 				}

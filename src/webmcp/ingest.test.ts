@@ -4,17 +4,17 @@ import { ingestCapture, preflightCapture, prepareForIngest, WebmcpIngestError } 
 import type { PublicWebmcpAudit } from "./vendor/projection";
 import type { WebmcpAuditEvent, WebmcpCaptureResult } from "./vendor/types";
 
-// Both fixtures are ora's, committed on the ingest branch and copied here
-// unchanged: ora.ai captured through the real worker on Chromium 148, then run
-// through the real admission, engine and projection. Per this repo's rule,
-// fixtures come from real responses - variations below are explicit deltas off
-// these, never hand-rolled payloads.
+// Both fixtures are real: this CLI's own capture of the smoke page
+// (scripts/smoke-webmcp.mjs) on Chromium 141, run through ora's real admission,
+// engine and projection (shim 3). Per this repo's rule, fixtures come from real
+// responses - variations below are explicit deltas off these, never
+// hand-rolled payloads.
 const CAPTURE = JSON.parse(
-	readFileSync(new URL("./__fixtures__/ora-ai-capture.json", import.meta.url), "utf8"),
+	readFileSync(new URL("./__fixtures__/local-catalogue-capture.json", import.meta.url), "utf8"),
 ) as WebmcpCaptureResult;
 const AUDIT = (
 	JSON.parse(
-		readFileSync(new URL("./__fixtures__/ora-ai-audit.json", import.meta.url), "utf8"),
+		readFileSync(new URL("./__fixtures__/local-catalogue-audit.json", import.meta.url), "utf8"),
 	) as { audit: PublicWebmcpAudit }
 ).audit;
 
@@ -131,14 +131,14 @@ describe("ingestCapture", () => {
 		const audit = await ingestCapture("http://localhost:3000", CAPTURE, {
 			onEvent: (e) => seen.push(e.type),
 		});
-		expect(audit.score).toBe(77);
+		expect(audit.score).toBe(73);
 		// A withheld grade beside a real score is a normal state, not an error:
-		// coverage 49 sits under the threshold because four model-dependent
+		// coverage 51 sits under the threshold because four model-dependent
 		// checks went unmeasured.
 		expect(audit.grade).toBeNull();
-		expect(audit.evidenceCoverage).toBe(49);
-		// The gate is what decides a score exists at all, and it is on the
-		// published shape only - the stored record does not carry it.
+		expect(audit.evidenceCoverage).toBe(51);
+		// Availability is on the published shape only - the stored record does
+		// not carry it.
 		expect(audit.availability.status).toBe("ready");
 		expect(audit.source).toBe("local");
 		expect(seen).toEqual(["phase", "tool-discovered", "done"]);

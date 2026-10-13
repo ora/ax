@@ -10,10 +10,10 @@
 //                                   progress, then a terminal `done` frame
 //
 // The audit it answers with is the checked-in real payload at
-// src/webmcp/__fixtures__/ora-ai-audit.json - ora.ai captured through the real
-// worker, then run through the real admission, engine and projection. It is a
-// FIXED response: the capture you post is validated for shim version and size,
-// but the score you get back describes ora.ai, not your page.
+// src/webmcp/__fixtures__/local-catalogue-audit.json - this CLI's own capture of
+// the smoke page, run through ora's real admission, engine and projection. It is
+// a FIXED response: the capture you post is validated for shim version and size,
+// but the score you get back describes that page, not yours.
 //
 // Failure paths, to exercise the CLI's branches. Pass the mode as the second
 // argument - NOT as a query string on ORA_API_URL, which the client treats as
@@ -33,11 +33,14 @@ const PORT = Number(process.argv[2] ?? 8798);
 /** Failure mode for every request this instance serves; empty means succeed. */
 const FAIL_MODE = process.argv[3] ?? "";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const EXPECTED_SHIM = "1";
+const EXPECTED_SHIM = "3";
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 function loadAudit() {
-	const raw = readFileSync(join(ROOT, "src/webmcp/__fixtures__/ora-ai-audit.json"), "utf8");
+	const raw = readFileSync(
+		join(ROOT, "src/webmcp/__fixtures__/local-catalogue-audit.json"),
+		"utf8",
+	);
 	return JSON.parse(raw).audit;
 }
 

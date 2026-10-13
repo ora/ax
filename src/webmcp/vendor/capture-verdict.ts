@@ -49,11 +49,11 @@ import type {
  *   bytes 65..68  payload length, uint32 big-endian
  *   bytes 69..    the JSON payload
  *
- * We do NOT verify the signature: that needs Chrome's trial public key, which
- * we do not ship, and a forged token would still not make the API appear in a
- * real user's browser. What we can honestly answer from the token alone is
- * "does this page carry a well-formed, unexpired WebMCP trial token whose
- * origin covers this page", which is what `WebmcpOriginTrial.valid` means.
+ * We do NOT verify the signature: browser observation, not this parser, decides
+ * whether the token activated WebMCP. `payloadEligible` means only that the
+ * payload is structurally eligible: well-formed, unexpired, for
+ * the WebMCP feature, and scoped to this page origin. It must never be used as
+ * proof that a browser accepted the token.
  */
 const OT_HEADER_BYTES = 69;
 const OT_SIGNATURE_BYTES = 64;
@@ -132,15 +132,14 @@ export function parseOriginTrialToken(raw: string): ParsedOriginTrialToken | nul
 /**
  * Does this trial's feature name grant the WebMCP surface?
  *
- * The trial has no published, pinned feature string yet, so this matches the
- * `modelcontext` stem rather than one literal. It reads a STRUCTURED field of
- * a token the page had to mint, not free page text, so the keyword-gate
- * ceiling for page corpora does not apply - but it is deliberately narrow, and
- * `WebmcpOriginTrial.feature` always carries the real spelling so a consumer
- * can see what actually matched.
+ * Chrome's current trial uses `WebMCP`; older trial material used names with a
+ * `modelcontext` stem. Both are browser deployment identifiers rather than
+ * names defined by the WebMCP specification, so the observed spelling is kept
+ * in `WebmcpOriginTrial.feature`.
  */
 export function isWebmcpTrialFeature(feature: string): boolean {
-  return feature.toLowerCase().replace(/[^a-z]/g, "").includes("modelcontext");
+  const normalized = feature.toLowerCase().replace(/[^a-z]/g, "");
+  return normalized === "webmcp" || normalized.includes("modelcontext");
 }
 
 /** Does a token issued for `tokenOrigin` cover a page served from `pageOrigin`? */
@@ -153,7 +152,7 @@ function originCovers(tokenOrigin: string, pageOrigin: string, isSubdomain: bool
   } catch {
     return false;
   }
-  if (token.protocol !== page.protocol) return false;
+  if (token.protocol !== page.protocol || token.port !== page.port) return false;
   const tokenHost = token.hostname.toLowerCase();
   const pageHost = page.hostname.toLowerCase();
   if (tokenHost === pageHost) return true;
@@ -164,11 +163,10 @@ function originCovers(tokenOrigin: string, pageOrigin: string, isSubdomain: bool
  * Fold every origin-trial token found on the page into the one
  * `WebmcpOriginTrial` the contract carries.
  *
- * `present` is the literal fact that the page ships a trial token at all;
- * `valid` is the narrower "a real browser would turn WebMCP on here because of
- * it". A page carrying an unrelated trial reports `present: true`,
- * `valid: false`, and names the feature it did carry, so the difference is
- * never invisible.
+ * `present` is the literal fact that the page ships a trial token at all.
+ * `payloadEligible` checks the unsigned payload's structure, expiry, feature,
+ * and origin. Browser observation separately proves whether Chrome accepted
+ * the signature and exposed the API.
  */
 export function evaluateOriginTrial(
   tokens: string[],
@@ -178,26 +176,26 @@ export function evaluateOriginTrial(
   const candidates = tokens.map((t) => t.trim()).filter((t) => t.length > 0);
   if (candidates.length === 0) return null;
 
-  let best: { parsed: ParsedOriginTrialToken; valid: boolean; rank: number } | null = null;
+  let best: { parsed: ParsedOriginTrialToken; eligible: boolean; rank: number } | null = null;
   for (const candidate of candidates) {
     const parsed = parseOriginTrialToken(candidate);
     if (!parsed) continue;
     const webmcp = isWebmcpTrialFeature(parsed.feature);
     const unexpired = parsed.expiry * 1000 > now.getTime();
     const covers = originCovers(parsed.origin, pageOrigin, parsed.isSubdomain);
-    const valid = webmcp && unexpired && covers;
+    const eligible = webmcp && unexpired && covers;
     // Rank so the reported token is the most relevant one on the page: a token
     // that actually grants WebMCP beats a WebMCP token that does not, which
     // beats an unrelated trial.
-    const rank = valid ? 3 : webmcp ? 2 : 1;
-    if (!best || rank > best.rank) best = { parsed, valid, rank };
+    const rank = eligible ? 3 : webmcp ? 2 : 1;
+    if (!best || rank > best.rank) best = { parsed, eligible, rank };
   }
 
-  if (!best) return { present: true, valid: false };
+  if (!best) return { present: true, payloadEligible: false };
 
   return {
     present: true,
-    valid: best.valid,
+    payloadEligible: best.eligible,
     origin: best.parsed.origin,
     feature: best.parsed.feature,
     expiresAt: new Date(best.parsed.expiry * 1000).toISOString(),
@@ -239,10 +237,12 @@ export interface WebmcpPageFacts {
   loadError: string | null;
   /** Pass A response looked like a bot wall or WAF challenge. */
   blocked: boolean;
-  /** Pass A (no shim) saw a real `modelContext` on `navigator` or `document`. */
+  /** Pass A (no shim) saw a real `modelContext` on `document` or its legacy
+   * `navigator` fallback. */
   nativeApi: boolean;
-  /** Pass A carried a trial token that would switch the API on for real users. */
-  originTrialValid: boolean;
+  /** Number of tools the native getTools() surface returned. `null` means the
+   * API could not enumerate tools, which is unverified rather than empty. */
+  nativeToolCount: number | null;
   /** Declarative `[toolname]` tools found in the DOM. */
   declarativeToolCount: number;
   /** Live tools in the capture, declarative and imperative together. */
@@ -271,15 +271,18 @@ export function deriveVerdict(facts: WebmcpPageFacts): WebmcpVerdict {
   if (facts.blocked) return "blocked";
   if (facts.loadError) return "load-error";
 
-  if (facts.toolCount > 0) {
-    const realBrowserEligible =
-      facts.nativeApi || facts.originTrialValid || facts.declarativeToolCount > 0;
-    return realBrowserEligible ? "active" : "testing-only";
-  }
+  if (facts.nativeToolCount !== null && facts.nativeToolCount > 0) return "active";
+
+  if (facts.toolCount > 0) return "testing-only";
 
   // A native API that registered nothing is a different failure from a site
   // that never had one.
-  if (facts.nativeApi) return "api-empty";
+  if (facts.nativeToolCount === 0) return "api-empty";
+
+  // API existence with an unavailable/rejected getTools() result is not proof
+  // that the page registered zero tools. Keep it in the declared bucket rather
+  // than converting an instrument limitation into a site failure.
+  if (facts.nativeApi) return "declared-inactive";
 
   // A takeover means the page ships its own `modelContext` implementation.
   // That is a declaration of WebMCP usage even though our capture came back

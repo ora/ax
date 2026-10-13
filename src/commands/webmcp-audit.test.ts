@@ -22,11 +22,17 @@ import { ingestCapture } from "../webmcp/ingest";
 import { EXIT, webmcpAuditCommand } from "./webmcp-audit";
 
 const CAPTURE = JSON.parse(
-	readFileSync(new URL("../webmcp/__fixtures__/ora-ai-capture.json", import.meta.url), "utf8"),
+	readFileSync(
+		new URL("../webmcp/__fixtures__/local-catalogue-capture.json", import.meta.url),
+		"utf8",
+	),
 ) as WebmcpCaptureResult;
 const AUDIT = (
 	JSON.parse(
-		readFileSync(new URL("../webmcp/__fixtures__/ora-ai-audit.json", import.meta.url), "utf8"),
+		readFileSync(
+			new URL("../webmcp/__fixtures__/local-catalogue-audit.json", import.meta.url),
+			"utf8",
+		),
 	) as { audit: PublicWebmcpAudit }
 ).audit;
 
@@ -95,29 +101,34 @@ describe("exit codes", () => {
 		expect(ingestCapture).not.toHaveBeenCalled();
 	});
 
-	it("1, not 3, when the gate turned the page away and --min-score is set", async () => {
-		// No score exists for a not-ready page. Reporting that as an API error
-		// would tell CI the call failed, when the call worked and the answer is
-		// that the page is not agent-ready.
+	it("compares a not-agent-ready page on its score, like any other", async () => {
+		// Availability is informational on ora and never gates the score, so a
+		// not-ready page keeps its number and --min-score reads it.
 		vi.mocked(ingestCapture).mockResolvedValue({
 			...AUDIT,
-			score: null,
-			grade: null,
-			availability: { status: "not-ready", reasons: [{ id: "no-tools", detail: "No tools." }] },
+			availability: {
+				status: "not-ready",
+				reasons: [{ id: "stub-tools", detail: "No handlers." }],
+			},
 		});
-		expect(await webmcpAuditCommand({ ...BASE, minScore: "70" })).toBe(EXIT.BELOW_MIN_SCORE);
+		expect(await webmcpAuditCommand({ ...BASE, minScore: "70" })).toBe(EXIT.OK);
+		expect(await webmcpAuditCommand({ ...BASE, minScore: "80" })).toBe(EXIT.BELOW_MIN_SCORE);
 	});
 
-	it("0 for a not-ready page when no threshold was asked for", async () => {
-		// The audit ran and answered; without --min-score there is nothing to
-		// fail against.
+	it("0 for a not-agent-ready page when no threshold was asked for", async () => {
 		vi.mocked(ingestCapture).mockResolvedValue({
 			...AUDIT,
-			score: null,
-			grade: null,
-			availability: { status: "not-ready", reasons: [{ id: "no-tools", detail: "No tools." }] },
+			availability: {
+				status: "not-ready",
+				reasons: [{ id: "stub-tools", detail: "No handlers." }],
+			},
 		});
 		expect(await webmcpAuditCommand({ ...BASE })).toBe(EXIT.OK);
+	});
+
+	it("3 when ora returns no score and --min-score is set", async () => {
+		vi.mocked(ingestCapture).mockResolvedValue({ ...AUDIT, score: null, grade: null });
+		expect(await webmcpAuditCommand({ ...BASE, minScore: "70" })).toBe(EXIT.API);
 	});
 
 	it("3 when ora refuses or cannot be reached", async () => {
@@ -140,7 +151,25 @@ describe("what reaches ora", () => {
 		// A bare host:port is read as http, not https: this command drives a dev
 		// server, and defaulting to https would fail every plain-http one.
 		expect(url).toBe("http://localhost:3000/");
-		expect(capture.shimVersion).toBe("1");
+		expect(capture.shimVersion).toBe("3");
+	});
+
+	it("sends a partner or scan key from the environment, never the platform key", async () => {
+		// ora's ingest recognizes partner and scan keys only. A platform key in
+		// ORA_API_KEY would be ignored there, so it is not sent at all.
+		vi.stubEnv("ORA_API_KEY", "ora_sk_platform");
+		vi.stubEnv("ORA_PARTNER_API_KEY", "");
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		await webmcpAuditCommand({ ...BASE });
+		expect(vi.mocked(ingestCapture).mock.calls[0][2]?.apiKey).toBeUndefined();
+
+		vi.stubEnv("ORA_PARTNER_API_KEY", "sk_ora_partner");
+		await webmcpAuditCommand({ ...BASE });
+		expect(vi.mocked(ingestCapture).mock.calls[1][2]?.apiKey).toBe("sk_ora_partner");
+
+		await webmcpAuditCommand({ ...BASE, apiKey: "sk_ora_flag" });
+		expect(vi.mocked(ingestCapture).mock.calls[2][2]?.apiKey).toBe("sk_ora_flag");
+		vi.unstubAllEnvs();
 	});
 
 	it("prints the payload exactly as ora served it under --json", async () => {

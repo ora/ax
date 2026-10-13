@@ -15,11 +15,12 @@
  * browser register a tool. Every value the audit is graded on still comes from
  * a real capture of it.
  *
- * Note what this asserts about pass A. Shim v1 reads `nativeApi` AFTER the
- * page's scripts have run, so it is true when the browser provides WebMCP and
- * ALSO when the page installs a polyfill. The target page below does neither,
- * so on a stock Chrome it must be false - the same answer ora's capture browser
- * gives. A Chrome started with `--enable-features=WebMCPTesting` answers true
+ * Note what this asserts about pass A. It reads `nativeApi` AFTER the page's
+ * scripts have run, so it is true when the browser provides WebMCP and ALSO
+ * when the page installs a polyfill; only then does it ask the native
+ * `getTools()` how many tools it accepted. The target page below does neither,
+ * so on a stock Chrome `nativeApi` must be false and `nativeToolCount` null -
+ * the same answer ora's capture browser gives. A Chrome started with `--enable-features=WebMCPTesting` answers true
  * and flips the page verdict from `testing-only` to `active`, which is the
  * local-vs-published divergence `webmcpParityWarning` exists to catch, so this
  * test failing on `nativeApi` most likely means the wrong Chrome is on the port.
@@ -101,11 +102,11 @@ describe.skipIf(!LIVE)("captureLocally against a real Chrome", () => {
 	it("finds the tool the page registers, and reports the browser honestly", async () => {
 		const capture = await captureLocally({ url, endpoint });
 
-		// Pinned deliberately, not read from the constant: "1" is the wire
+		// Pinned deliberately, not read from the constant: "3" is the wire
 		// contract, and the ingest endpoint rejects anything else with 400
 		// SHIM_VERSION_MISMATCH. Re-vendoring a different shim should fail here
 		// loudly rather than at the first user's request.
-		expect(capture.shimVersion).toBe("1");
+		expect(capture.shimVersion).toBe("3");
 		// Bare build number, the spelling ora's own captures carry (Playwright's
 		// `browser.version()`); `/json/version` prefixes it with "Chrome/" and the
 		// CDP client strips that, so the two corpora agree.
@@ -129,13 +130,15 @@ describe.skipIf(!LIVE)("captureLocally against a real Chrome", () => {
 		// Pass A: no shim and no polyfill on the page, so this is the browser's
 		// own answer. False here means the capturing Chrome matches ora's.
 		expect(page.consumer.nativeApi).toBe(false);
+		expect(page.consumer.nativeToolCount).toBeNull();
 		expect(page.verdict).toBe("testing-only");
 
 		// Pass C: the inline module reaches document.modelContext, read off the
 		// live DOM rather than through cheerio.
 		expect(page.staticSignals.imperative).toEqual({
-			marker: "document.modelContext",
+			marker: "document.modelContext.registerTool",
 			deprecatedAliasOnly: false,
+			removedApiOnly: false,
 		});
 
 		// The entry-page screenshot, at the viewport ora captures at. Without it

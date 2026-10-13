@@ -144,7 +144,7 @@ or bundles a browser. Set `CHROME_PATH` if yours lives somewhere unusual.
 To drive a browser you started yourself, pass `--chrome-endpoint` (a `ws://` URL, an http origin,
 or `host:port`) and start it with `--remote-debugging-port`. The command never attaches to a
 browser you did not name — including anything already on port 9222 — because silently borrowing a
-Chrome with the WebMCP flags on would score your page higher here than it scores on ora.
+Chrome with the WebMCP flags on would make your page read differently here than it does on ora.
 
 **Do not enable the WebMCP flags on a Chrome you point it at.** The audit asks whether a real
 browser gives an agent WebMCP on your page. A Chrome started with `--enable-features=WebMCPTesting`
@@ -158,15 +158,19 @@ present in order to call your tools.
 passes and the same probe code ora's worker runs, plus a viewport screenshot at ora's 1280×720. As
 ora does, it loads the page with images, media and webfonts refused — stylesheets still apply — so
 the screenshot the grader sees is the one ora would have taken. That capture is
-posted to ora, which runs the 16 checks, two model hops and the tool-selection simulation, and
-streams back a score. The CLI scores nothing itself (design decision #1) — grade, findings,
+posted to ora, which runs its 19 checks, two model hops and the tool-selection simulation, and
+streams back a score. The CLI never calls your tools, so the three checks that need a tool call
+(`invoke-success-rate`, `visible-effect`, `hint-vs-observed`) read `Not applicable` on a local
+audit. The CLI scores nothing itself (design decision #1) — grade, findings,
 category scores and the simulation are all rendered as ora sent them.
 
-**Availability is a gate, not a score.** Before anything is graded, ora decides whether an
-in-browser agent can use the page at all. A page that cannot comes back `not agent-ready` with the
-reasons why, and no score or grade — the reasons are the answer.
+**Availability is reported, not scored.** ora says whether an in-browser agent can use the page
+(`agent-ready`, `not agent-ready`, or unknown) and why, and the report leads with it. It never
+changes the score: a `not agent-ready` page still gets its score and pillars. The one exception is
+a page whose only tools are declarative forms: its pillars are scored, and its grade is withheld,
+because ora finds those tools in the markup and cannot watch a browser register them.
 
-Past that gate the score is four pillars — `shared-experience` (30), `task-completion` (25),
+The score is four pillars — `shared-experience` (30), `task-completion` (25),
 `tool-quality` (25), `trust` (20). It is **not** the 0–100 agent-readiness score from `ax audit`:
 different inputs, different rubric, never comparable.
 
@@ -190,8 +194,9 @@ the leaderboard, the badge, or your public scorecard — to appear there, publis
 on webmcp.ora.ai. Pass `--json` and pipe it to a file if you want to see exactly what was sent
 back; the capture itself is what the report's header describes.
 
-Anonymous use is rate-limited to 10/min and 20 per 24h per IP; an ora API key
-(`--api-key` / `ORA_API_KEY`) lifts that.
+Anonymous use is rate-limited to 10/min and 20 per 24h per IP. An ora-issued partner or scan API
+key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY`) lifts the daily limit; the
+per-minute limit still applies.
 
 ### CI gate
 
@@ -201,10 +206,10 @@ Anonymous use is rate-limited to 10/min and 20 per 24h per IP; an ora API key
 
 Any CI image with Chrome installed works; nothing to launch first.
 
-Exit codes follow `audit`: `0` ok · `1` below `--min-score` (a `not agent-ready` page counts as
-below) · `2` usage (no debuggable Chrome, the page did not load, or a capture ora would refuse) ·
-`3` API, a failed capture, or no score returned. The gate reads the score, not the grade — a
-withheld grade would otherwise let everything through.
+Exit codes follow `audit`: `0` ok · `1` below `--min-score` · `2` usage (no debuggable Chrome, the
+page did not load, or a capture ora would refuse) · `3` API, a failed capture, or no score
+returned. The gate reads the score, not the grade — a withheld grade would otherwise let
+everything through.
 
 ## deep-journey
 
@@ -316,7 +321,7 @@ console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 
 ## For ora partners
 
-Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). Two kinds of key exist. `journey` (and `audit --tunnel ora`) needs an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and `deep-journey`.
+Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). Two kinds of key exist. `journey` (and `audit --tunnel ora`) needs an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and `deep-journey`, and the daily limit on `webmcp-audit`.
 
 ### journey
 
@@ -391,9 +396,9 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | `ORA_PLATFORM_URL` | journey, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_KEY` | journey, audit `--tunnel ora`, webmcp-audit | — (required for journey and `--tunnel ora`) | Secret key (`ora_sk_…`); journey and `--tunnel ora` exchange it for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes), webmcp-audit sends it to lift the ingest rate limits |
-| `ORA_SCAN_API_KEY` | audit, deep-journey | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). deep-journey accepts it as a partner-key fallback |
-| `ORA_PARTNER_API_KEY` | deep-journey | — (optional) | ora-issued partner API key; unlocks `--task` and the 1000/24h keyed allowance |
+| `ORA_API_KEY` | journey, audit `--tunnel ora` | — (required for both) | ora platform key (`ora_sk_…`); exchanged for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes) |
+| `ORA_SCAN_API_KEY` | audit, deep-journey, webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). deep-journey and webmcp-audit accept it as a partner-key fallback |
+| `ORA_PARTNER_API_KEY` | deep-journey, webmcp-audit | — (optional) | ora-issued partner API key; unlocks `--task` and the 1000/24h keyed allowance on deep-journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |
 | `AX_WEBMCP_NO_SANDBOX` | webmcp-audit | — (unset) | `1` launches Chrome without its sandbox. Containers only: the audited page is untrusted and the sandbox contains it |
 

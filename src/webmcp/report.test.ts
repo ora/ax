@@ -5,7 +5,7 @@ import type { PublicWebmcpAudit } from "./vendor/projection";
 
 const AUDIT = (
 	JSON.parse(
-		readFileSync(new URL("./__fixtures__/ora-ai-audit.json", import.meta.url), "utf8"),
+		readFileSync(new URL("./__fixtures__/local-catalogue-audit.json", import.meta.url), "utf8"),
 	) as { audit: PublicWebmcpAudit }
 ).audit;
 
@@ -30,47 +30,72 @@ const despatch = (value: string) => value.replace(ESC, " ");
 
 describe("renderWebmcpReport", () => {
 	it("keeps a withheld grade beside a real score, and says why", () => {
-		// The fixture's own state: coverage 49 sits under the threshold, so ora
+		// The fixture's own state: coverage 51 sits under the threshold, so ora
 		// reports the score and withholds the letter. Rendering that as a blank,
 		// or as an error, would misreport a normal outcome.
 		const out = flat(renderWebmcpReport(AUDIT));
-		expect(out).toContain("77/100");
+		expect(out).toContain("73/100");
 		expect(out).toContain("grade withheld");
-		expect(out).toMatch(/only 49% of the applicable check weight/);
+		expect(out).toMatch(/only 51% of the applicable check weight/);
 	});
 
-	it("leads with the availability gate and renders its reasons verbatim", () => {
-		// Availability decides whether a score exists at all, and its `detail` is
-		// where the server puts the note about a native-API claim that came from
-		// the developer's own browser. Paraphrasing it would drop that.
+	it("leads with the availability verdict and renders its reasons verbatim", () => {
+		// Its `detail` is where the server puts the note about a native-API claim
+		// that came from the developer's own browser, and why a declarative-only
+		// page's grade is withheld. Paraphrasing it would drop both.
 		const out = flat(renderWebmcpReport(AUDIT));
 		expect(out).toContain("agent-ready");
 		expect(out).toContain(AUDIT.availability.reasons[0].detail.slice(0, 60));
 	});
 
-	it("shows no score at all for a page the gate turned away", () => {
-		// `not-ready` carries score and grade null. An empty scorecard beside the
-		// reasons would bury the part the developer has to act on.
-		const blocked = {
+	it("keeps the score and pillars for a page that is not agent-ready", () => {
+		// Availability is informational on ora: it never gates the score. A
+		// not-ready page is reported with its reasons AND its scorecard.
+		const notReady = {
 			...AUDIT,
-			score: null,
-			grade: null,
 			availability: {
 				status: "not-ready" as const,
-				reasons: [{ id: "no-tools" as const, detail: "This page registers no tools." }],
+				reasons: [
+					{
+						id: "stub-tools" as const,
+						detail: "None of the registered tools declares an execute handler.",
+					},
+				],
 			},
 		};
-		const out = flat(renderWebmcpReport(blocked));
+		const out = flat(renderWebmcpReport(notReady));
 		expect(out).toContain("not agent-ready");
-		expect(out).toContain("This page registers no tools.");
-		expect(out).not.toContain("/100");
-		expect(out).not.toContain("Pillars");
+		expect(out).toContain("None of the registered tools declares an execute handler.");
+		expect(out).toContain("73/100");
+		expect(out).toContain("Pillars");
+		expect(out).not.toMatch(/No score is reported/);
+	});
+
+	it("lets the declarative-only reason explain a withheld grade", () => {
+		// ora withholds the grade of a declarative-only page whatever its
+		// coverage, and says why in the availability reason. The coverage
+		// sentence would give the wrong cause.
+		const detail = "This page exposes only declarative form tools.";
+		const declarativeOnly = {
+			...AUDIT,
+			grade: null,
+			evidenceCoverage: 90,
+			availability: {
+				status: "not-ready" as const,
+				reasons: [{ id: "declarative-only" as const, detail }],
+			},
+		};
+		const out = flat(renderWebmcpReport(declarativeOnly));
+		expect(out).toContain(detail);
+		expect(out).toContain("73/100");
+		expect(out).toContain("grade withheld");
+		expect(out).not.toMatch(/of the applicable check weight/);
 	});
 
 	it("marks a pillar that reads 0 because nothing in it was measured", () => {
-		// task-completion is 0 in this fixture only because tool-selection went
-		// unmeasured. That is not a measured zero, and the payload cannot tell
-		// the two apart - so this reads the findings instead of the number.
+		// task-completion is 0 in this fixture because nothing in it was measured
+		// (tool-selection unmeasured, the invoke checks not applicable). That is
+		// not a measured zero; ora says so in `applicableCategories`.
 		const out = flat(renderWebmcpReport(AUDIT));
 		expect(out).toMatch(/Task completion .*nothing measured/);
 		expect(out).toMatch(/Trust .*weight 20/);

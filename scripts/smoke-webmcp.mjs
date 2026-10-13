@@ -113,7 +113,7 @@ async function main() {
 		report.code === 0,
 		`exit ${report.code}\n${report.stderr.slice(0, 400)}`,
 	);
-	check("renders the availability gate", /agent-ready/.test(flat(report.stdout)));
+	check("renders the availability verdict", /agent-ready/.test(flat(report.stdout)));
 	check("renders the pillars", /Pillars/.test(flat(report.stdout)));
 	// Collapsed AND stripped of colour: the footer is wrapped prose, so a phrase
 	// can straddle a line, and the report colours whole lines - picocolors emits
@@ -134,7 +134,7 @@ async function main() {
 	}
 	check("--json emits the payload and nothing else", payload !== null);
 	check(
-		"--json payload carries the availability gate",
+		"--json payload carries the availability verdict",
 		payload?.availability?.status !== undefined,
 	);
 
@@ -147,7 +147,7 @@ async function main() {
 		/pages=1 tools=1 \[search_books\]/.test(mockLog),
 		mockLog.slice(0, 300),
 	);
-	check("it pinned the shim version the endpoint expects", /shim=1\b/.test(mockLog));
+	check("it pinned the shim version the endpoint expects", /shim=3\b/.test(mockLog));
 	check("it sent the screenshot page-experience needs", /screenshot=yes/.test(mockLog));
 
 	const gate = await run(["webmcp-audit", target, "--min-score", "101"], env);

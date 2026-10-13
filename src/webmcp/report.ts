@@ -2,17 +2,19 @@
  * The terminal report for `ax webmcp-audit`.
  *
  * Thin client (design decision #1): every judgement here arrived decided. The
- * availability gate, grade, score, pillar scores, evidence coverage, each
+ * availability verdict, grade, score, pillar scores, evidence coverage, each
  * finding's status and `details`, and the whole simulation come from the server
  * payload and are rendered as given. Nothing in this file re-derives a number
  * or rewrites a sentence.
  *
  * Three distinctions the rendering must not collapse:
  *
- *  - **Availability is a gate, not a pillar.** Whether an agent can use the
- *    page at all is decided before anything is scored. A `not-ready` page has
- *    no score and no grade, and its reasons are the whole answer - printing an
- *    empty scorecard beside them would bury the part that matters.
+ *  - **Availability is a verdict, not a gate.** Whether an agent can use the
+ *    page is reported first, with ora's reasons, and never changes the score:
+ *    a `not-ready` page still gets its score and pillars. The one case ora
+ *    withholds anything is a page with only declarative form tools, whose
+ *    grade is withheld beside a numeric score - and its availability reason
+ *    already says why.
  *  - **`na` vs `unmeasured`.** `na` means the check had nothing to measure and
  *    the site is not charged for it. `unmeasured` means it applied and was not
  *    measured, and it counts against evidence coverage. Showing both as
@@ -23,9 +25,8 @@
  *
  * A pillar reading 0 is ambiguous in the same way: it can mean "measured,
  * earned nothing" or "had nothing to measure". `categoryScores` does not
- * distinguish them, so this file does not guess - it marks a pillar whose
- * findings are all `na`/`unmeasured`, which is a fact about the findings rather
- * than a re-derivation of the score.
+ * distinguish them, so the report reads `applicableCategories`, which ora
+ * publishes for exactly this, and marks a pillar it did not measure.
  *
  * A local audit is scored and returned and then forgotten. It is not stored,
  * published, ranked, or reachable by anyone else, and no copy here may suggest
@@ -92,15 +93,15 @@ export function renderWebmcpReport(
 	view: WebmcpReportView = {},
 ): string[] {
 	const width = stdoutWidth(80, 120);
-	const ready = audit.availability.status === "ready";
 	return [
 		"",
 		...header(audit, width),
 		"",
 		...availabilityBlock(audit.availability, width),
-		// A page the gate turned away has no score and no pillars to show; the
-		// reasons above are the entire answer.
-		...(ready ? ["", ...scoreBlock(audit, width), "", ...pillarBlock(audit)] : []),
+		"",
+		...scoreBlock(audit, width),
+		"",
+		...pillarBlock(audit),
 		"",
 		...findingsBlock(audit.findings, width, view.showPassing === true),
 		...simulationBlock(audit.simulation, width),
@@ -137,11 +138,13 @@ function verdictLabel(verdict: PublicWebmcpAudit["verdict"]): string {
 }
 
 /**
- * The gate, first and always.
+ * The availability verdict, first and always. Informational: it never changes
+ * the score below it.
  *
  * `reasons[].detail` is rendered verbatim - it is where the server puts the
  * note about a capture whose native-API claim came from the developer's own
- * browser, and paraphrasing it would drop that.
+ * browser, and the reason a declarative-only page's grade is withheld, and
+ * paraphrasing it would drop both.
  */
 function availabilityBlock(availability: WebmcpAvailability, width: number): string[] {
 	const [label, paint] =
@@ -155,14 +158,6 @@ function availabilityBlock(availability: WebmcpAvailability, width: number): str
 	for (const reason of availability.reasons) {
 		lines.push(...flow(plain(reason.detail), width - 4).map((row) => `  ${pc.dim(row)}`));
 	}
-	if (availability.status === "not-ready") {
-		lines.push(
-			...flow(
-				"No score is reported for a page an agent cannot use yet: the reasons above are what to fix first.",
-				width - 4,
-			).map((row) => `  ${pc.dim(row)}`),
-		);
-	}
 	return lines;
 }
 
@@ -170,7 +165,10 @@ function scoreBlock(audit: PublicWebmcpAudit, width: number): string[] {
 	const score = audit.score === null ? "—" : String(audit.score);
 	const lines = [`  ${pc.bold(`${score}/100`)}  ${gradeLabel(audit)}`];
 
-	if (audit.grade === null && audit.score !== null) {
+	// A declarative-only page has its grade withheld whatever the coverage; the
+	// availability reason above already says why, so nothing is added here.
+	const declarativeOnly = audit.availability.reasons.some((r) => r.id === "declarative-only");
+	if (audit.grade === null && audit.score !== null && !declarativeOnly) {
 		// Explain rather than show a blank: the reason is a property of this
 		// run, and a developer who adds the missing evidence gets the letter.
 		lines.push(
@@ -194,14 +192,9 @@ function pillarBlock(audit: PublicWebmcpAudit): string[] {
 		const value = audit.categoryScores[pillar] ?? 0;
 		const weight = WEBMCP_CATEGORY_WEIGHTS[pillar];
 		// A pillar can read 0 because it earned nothing, or because nothing in it
-		// could be measured. The payload cannot tell them apart, so this reads
-		// the findings rather than guessing from the number.
-		const measured = audit.findings.some(
-			(f) =>
-				WEBMCP_CHECKS[f.checkId]?.category === pillar &&
-				f.status !== "na" &&
-				f.status !== "unmeasured",
-		);
+		// could be measured. ora publishes which pillars it measured, so this
+		// reads that rather than guessing from the number.
+		const measured = audit.applicableCategories.includes(pillar);
 		const meter = measured ? bar(value) : pc.dim("░".repeat(BAR_CELLS));
 		const note = measured ? `weight ${weight}` : `weight ${weight} · nothing measured`;
 		lines.push(
