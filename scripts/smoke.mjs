@@ -54,8 +54,17 @@ check("--version matches package.json", () => {
 
 check("--help exits 0 and lists every command", () => {
 	const help = ax(["--help"]);
-	for (const command of ["audit", "webmcp-audit", "deep-journey", "journey", "skill"]) {
+	for (const command of ["audit", "webmcp-audit", "deep-journey", "journey", "skill", "generate-files"]) {
 		if (!help.includes(command)) throw new Error(`help omits "${command}"`);
+	}
+});
+
+check("--help and -h show the curated screen, the same one as bare ax", () => {
+	const bare = ax([]);
+	for (const flag of ["--help", "-h"]) {
+		const help = ax([flag]);
+		if (help !== bare) throw new Error(`${flag} differs from bare ax`);
+		if (!help.includes("Examples:")) throw new Error(`${flag} is not the curated screen`);
 	}
 });
 

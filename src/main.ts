@@ -1,4 +1,4 @@
-import { defineCommand, runMain } from "citty";
+import { defineCommand, runMain, showUsage } from "citty";
 import pc from "picocolors";
 import pkg from "../package.json";
 import { auditCommand } from "./commands/audit";
@@ -393,10 +393,9 @@ const root = defineCommand({
 		"generate-files": generateFiles,
 	},
 	setup() {
-		// Bare invocation and top-level --help get the curated screen; subcommand
-		// --help stays with citty's generated usage.
-		const first = process.argv[2];
-		if (!first || first === "--help" || first === "-h") {
+		// Bare invocation gets the curated screen. Top-level --help is handled in
+		// runMain below: citty answers --help before any setup() runs.
+		if (!process.argv[2]) {
 			console.log(helpScreen());
 			process.exit(0);
 		}
@@ -407,4 +406,12 @@ const root = defineCommand({
 // at call time, so the file has to be in place first.
 loadLocalEnv();
 
-runMain(root);
+// citty intercepts --help itself and prints its generated usage, so the root
+// command's help is routed to the curated screen here. Subcommand --help
+// (`ax audit --help`) keeps citty's per-command usage.
+runMain(root, {
+	showUsage: async (cmd, parent) => {
+		if (cmd === root) console.log(helpScreen());
+		else await showUsage(cmd, parent);
+	},
+});
