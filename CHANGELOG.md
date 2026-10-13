@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/ora/ax/compare/v0.9.1...v0.10.0) (2026-10-13)
+
+
+### Features
+
+* **generate-files:** write llms.txt, the robots.txt edit, api-catalog and MCP server cards ([#74](https://github.com/ora/ax/issues/74)) ([e7ba88d](https://github.com/ora/ax/commit/e7ba88dd31ae88d1068e8708bd3cfef7ca0a2ecb))
+
 ## [0.9.1](https://github.com/ora/ax/compare/v0.9.0...v0.9.1) (2026-10-12)
 
 
