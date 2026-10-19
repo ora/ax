@@ -12,6 +12,18 @@ type XOR<T, U> = (T | U) extends object ? (Without<T, U> & U) | (Without<U, T> &
 type OneOf<T extends any[]> = T extends [infer Only] ? Only : T extends [infer A, infer B, ...infer Rest] ? OneOf<[XOR<A, B>, ...Rest]> : never;
 
 export interface paths {
+  "/ask": {
+    /**
+     * Retrieve published website evidence
+     * @description Ora GET convenience adapter for NLWeb list retrieval. Use POST for the canonical envelope and context. JSON is the default.
+     */
+    get: operations["askPublishedWebsiteGet"];
+    /**
+     * Retrieve published website evidence
+     * @description NLWeb v0.55 synchronous list/conversational_search profile. JSON by default; prefer.streaming, or an Accept header preferring text/event-stream when prefer.streaming is absent, selects named SSE events. Unsupported modes/formats return HTTP 200 failure envelopes. No promises or await.
+     */
+    post: operations["askPublishedWebsitePost"];
+  };
   "/api/scan": {
     /**
      * Scan a domain, MCP server URL, or MCP App URL for agent-readiness
@@ -207,6 +219,102 @@ export type webhooks = Record<string, never>;
 
 export interface components {
   schemas: {
+    NlwebAskRequest: {
+      query: {
+        text: string;
+        site?: string;
+        [key: string]: unknown;
+      };
+      context?: {
+        "@type"?: string;
+        prev?: string[];
+        text?: string;
+        memory?: string;
+        [key: string]: unknown;
+      };
+      prefer?: {
+        streaming?: boolean;
+        response_format?: string;
+        mode?: string;
+        "accept-language"?: string;
+        "user-agent"?: string;
+        limit?: number;
+        [key: string]: unknown;
+      };
+      meta?: {
+        version?: string;
+        session_context?: {
+          [key: string]: unknown;
+        };
+        user?: string | {
+          [key: string]: unknown;
+        };
+        remember?: boolean;
+        request_id?: string;
+        [key: string]: unknown;
+      };
+      [key: string]: unknown;
+    };
+    NlwebAskResponse: ({
+      _meta: {
+        /** @constant */
+        version: "0.55";
+        request_id?: string;
+        /** @constant */
+        response_type: "answer";
+        /** @constant */
+        response_format: "conversational_search";
+        release: {
+          id: string;
+        };
+        [key: string]: unknown;
+      };
+      results: ({
+          /** @constant */
+          "@type": "WebPage";
+          /** Format: uri */
+          url: string;
+          name: string;
+          site: string;
+          score: number;
+          description: string;
+          grounding: {
+            evidence: ({
+                id: string;
+                documentId: string;
+                /** Format: uri */
+                url: string;
+                text: string;
+                start: number;
+                end: number;
+                /** @enum {string} */
+                view: "origin" | "published";
+                context?: {
+                  /** @constant */
+                  profile: "adjacent-passages-v1";
+                  anchorStart: number;
+                  anchorEnd: number;
+                  passageIds: string[];
+                };
+              })[];
+          };
+        })[];
+    }) | {
+      _meta: {
+        /** @constant */
+        version: "0.55";
+        request_id?: string;
+        /** @constant */
+        response_type: "failure";
+        [key: string]: unknown;
+      };
+      error: {
+        code: string;
+        message: string;
+        status?: number;
+        retry_after?: number;
+      };
+    };
     AuditCheck: {
       /** @description Stable check identifier (e.g. 'api-error-model'). Route fixes and dedupe by this - names are for display, ids are stable. */
       id: string;
@@ -436,7 +544,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.31.0";
+      contractVersion: "1.32.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -639,7 +747,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.31.0";
+      contractVersion: "1.32.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
@@ -687,7 +795,7 @@ export interface components {
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.31.0";
+      contractVersion: "1.32.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -786,7 +894,7 @@ export interface components {
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.31.0";
+      contractVersion: "1.32.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -2333,6 +2441,115 @@ export type external = Record<string, never>;
 
 export interface operations {
 
+  /**
+   * Retrieve published website evidence
+   * @description Ora GET convenience adapter for NLWeb list retrieval. Use POST for the canonical envelope and context. JSON is the default.
+   */
+  askPublishedWebsiteGet: {
+    parameters: {
+      query: {
+        query: string;
+        site?: string;
+        mode?: string;
+        streaming?: boolean;
+        limit?: number;
+        query_id?: string;
+      };
+    };
+    responses: {
+      /** @description NLWeb answer with retrieved evidence and source provenance, or application failure. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["NlwebAskResponse"];
+          "text/event-stream": string;
+        };
+      };
+      /** @description Malformed NLWeb request. */
+      400: {
+        content: never;
+      };
+      /** @description Request Origin is not this website. */
+      403: {
+        content: never;
+      };
+      /** @description Domain querying is disabled or no eligible publication exists. */
+      404: {
+        content: never;
+      };
+      /** @description Accept does not allow the requested response transport. */
+      406: {
+        content: never;
+      };
+      /** @description Shared query allowance exhausted. */
+      429: {
+        headers: {
+          /** @description Seconds until retry. */
+          "Retry-After"?: number;
+        };
+        content: never;
+      };
+      /** @description Query service or admission unavailable. */
+      503: {
+        content: never;
+      };
+      /** @description Query deadline exceeded. */
+      504: {
+        content: never;
+      };
+    };
+  };
+  /**
+   * Retrieve published website evidence
+   * @description NLWeb v0.55 synchronous list/conversational_search profile. JSON by default; prefer.streaming, or an Accept header preferring text/event-stream when prefer.streaming is absent, selects named SSE events. Unsupported modes/formats return HTTP 200 failure envelopes. No promises or await.
+   */
+  askPublishedWebsitePost: {
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["NlwebAskRequest"];
+      };
+    };
+    responses: {
+      /** @description NLWeb answer with retrieved evidence and source provenance, or application failure. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["NlwebAskResponse"];
+          "text/event-stream": string;
+        };
+      };
+      /** @description Malformed NLWeb request. */
+      400: {
+        content: never;
+      };
+      /** @description Request Origin is not this website. */
+      403: {
+        content: never;
+      };
+      /** @description Domain querying is disabled or no eligible publication exists. */
+      404: {
+        content: never;
+      };
+      /** @description Accept does not allow the requested response transport. */
+      406: {
+        content: never;
+      };
+      /** @description Shared query allowance exhausted. */
+      429: {
+        headers: {
+          /** @description Seconds until retry. */
+          "Retry-After"?: number;
+        };
+        content: never;
+      };
+      /** @description Query service or admission unavailable. */
+      503: {
+        content: never;
+      };
+      /** @description Query deadline exceeded. */
+      504: {
+        content: never;
+      };
+    };
+  };
   /**
    * Scan a domain, MCP server URL, or MCP App URL for agent-readiness
    * @description Runs a full agent-readiness scan on the given URL. Accepts a domain, MCP server URL, or MCP App URL (server that supports the MCP Apps extension `io.modelcontextprotocol/ui`) - the server auto-detects which kind of input was provided and selects the appropriate check set. Catalog-style listing pages are folded into the `mcp` kind by classifying the first validated embedded MCP URL. Returns score, grade, and detailed layer breakdown. The response includes an optional `urlKind` field indicating the detected kind ('domain', 'mcp', or 'mcp-app'). Scoring completes within the request, but deeper analysis can continue asynchronously afterwards: when the returned analysisStatus is 'partial', the response is a 202 Accepted with a Location header pointing at the polling endpoint for the remaining work; a 200 means analysis is already complete. For real-time progress updates, use GET /api/scan/stream which serves a text/event-stream. A complete stored result younger than the freshness window is returned as-is (servedFromCache, resultAgeSeconds, Age header) without running or persisting a scan - pass force: true, or widen/narrow maxAgeSeconds, to control that. Rate limited two ways: 10 requests per minute per IP (burst) and a durable daily scan budget shared with the other scan entry points - both return 429 with a Retry-After header.
