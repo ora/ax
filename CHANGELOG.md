@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.2](https://github.com/ora/ax/compare/v0.10.1...v0.10.2) (2026-10-19)
+
+
+### Bug Fixes
+
+* **cli:** show the curated help screen for ax --help and -h ([#79](https://github.com/ora/ax/issues/79)) ([3d3a691](https://github.com/ora/ax/commit/3d3a691f08020f7f95f67f6930341331ec628b8d))
+
 ## [0.10.1](https://github.com/ora/ax/compare/v0.10.0...v0.10.1) (2026-10-13)
 
 
