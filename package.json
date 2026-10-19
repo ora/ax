@@ -47,7 +47,7 @@
 		"citty": "^0.2.2",
 		"openapi-typescript": "^6.7.6",
 		"picocolors": "^1",
-		"tsup": "^8",
+		"tsup": "^9",
 		"typescript": "^7.0.2",
 		"vitest": "^4"
 	},
