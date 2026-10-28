@@ -246,6 +246,36 @@ describe("performAudit", () => {
 		await expect(performAudit("example.com")).rejects.toThrow(/ORA_SCAN_API_KEY/);
 	});
 
+	it("names the key's monthly usage limit on a usage_limit_reached 429, not the keyless caps", async () => {
+		// The body ora sends once a key has used its monthly scan limit (contract 1.37.0).
+		const denial = {
+			error: "usage_limit_reached",
+			kind: "scans",
+			period: "month",
+			used: 5000,
+			limit: 5000,
+			resets_at: "2026-11-01T00:00:00.000Z",
+			retry_after_ms: 259_200_000,
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify(denial), {
+						status: 429,
+						headers: { "retry-after": "259200" },
+					}),
+			),
+		);
+		const failure = performAudit("example.com", { apiKey: "k" });
+		await expect(failure).rejects.toThrow(
+			/scans limit for the month \(5000 of 5000\).*2026-11-01T00:00:00.000Z/,
+		);
+		await expect(performAudit("example.com", { apiKey: "k" })).rejects.not.toThrow(
+			/ORA_SCAN_API_KEY/,
+		);
+	});
+
 	describe("scan API key", () => {
 		// The key lifts ora's scan rate limits (keyed exemption, contract 1.10.0).
 		// The server tolerates any bearer token — unrecognized degrades to keyless —

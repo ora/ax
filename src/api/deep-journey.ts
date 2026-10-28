@@ -6,7 +6,7 @@ import type {
 } from "../contract";
 import { warnOnNewerContract } from "../contract";
 import { decodeEventBlock } from "./platform";
-import { errorBodyText, pause, watchdog } from "./shared";
+import { errorBodyText, pause, usageLimitMessage, watchdog } from "./shared";
 
 // Client for ora's public deep-journey API (/api/journey/*): a real AI agent
 // attempts a curated task against a domain while ora records the trajectory.
@@ -236,6 +236,8 @@ async function triggerRun(
 		);
 	}
 	if (res.status === 429) {
+		const usage = await usageLimitMessage(res);
+		if (usage) throw new DeepJourneyApiError(`ora usage limit reached: ${usage}`);
 		const wait = res.headers.get("retry-after");
 		const caps = options.apiKey
 			? "keyed allowance: 1000 runs per 24h per key"
