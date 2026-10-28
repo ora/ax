@@ -211,6 +211,30 @@ describe("performDeepJourney", () => {
 		await expect(performDeepJourney("vercel.com", OPTIONS)).rejects.toThrow(DeepJourneyApiError);
 	});
 
+	it("names the key's monthly journey limit on a usage_limit_reached 429", async () => {
+		vi.stubGlobal(
+			"fetch",
+			journeyMock({
+				trigger: asJson(
+					{
+						error: "usage_limit_reached",
+						kind: "journeys",
+						period: "month",
+						used: 200,
+						limit: 200,
+						resets_at: "2026-11-01T00:00:00.000Z",
+						retry_after_ms: 259_200_000,
+					},
+					429,
+					{ "retry-after": "259200" },
+				),
+			}),
+		);
+
+		const failure = performDeepJourney("vercel.com", { ...OPTIONS, apiKey: "k" });
+		await expect(failure).rejects.toThrow(/journeys limit for the month \(200 of 200\)/);
+	});
+
 	it("refuses to treat a never-settling run as terminal (truncated stream)", async () => {
 		// The stream closes cleanly with no result/error frame (e.g. the serving
 		// function's 800s ceiling) and the detail never leaves "running".

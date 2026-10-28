@@ -61,6 +61,39 @@ export async function errorBody(
 	};
 }
 
+/**
+ * The key-wide 429 a partner key gets once it has used its monthly usage
+ * limit (contract 1.37.0): `error: "usage_limit_reached"` with `kind`,
+ * `period`, `used`, `limit` and `resets_at`. Its Retry-After counts to the
+ * next 1st of the month, so it must not be read as the per-minute or daily
+ * limits the other 429s describe. Returns the message to show, or null for
+ * any other 429. Reads a clone, so the caller can still consume the body.
+ */
+export async function usageLimitMessage(res: Response): Promise<string | null> {
+	type Denial = {
+		error?: string;
+		kind?: string;
+		period?: string;
+		used?: number;
+		limit?: number;
+		resets_at?: string;
+	};
+	let body: Denial | null = null;
+	try {
+		body = (await res.clone().json()) as Denial;
+	} catch {
+		// Not JSON: an ordinary rate limit, which carries no such body.
+		return null;
+	}
+	if (body?.error !== "usage_limit_reached") return null;
+	const used =
+		body.used !== undefined && body.limit !== undefined ? ` (${body.used} of ${body.limit})` : "";
+	const resets = body.resets_at ? ` It resets at ${body.resets_at}.` : "";
+	const scope = body.kind ? `${body.kind} limit` : "usage limit";
+	const period = body.period ? ` for the ${body.period}` : "";
+	return `this API key has used its ${scope}${period}${used}.${resets} GET /api/usage shows the numbers; ask ora to raise the limit.`;
+}
+
 /** Best-effort human message from an error response body. */
 export async function errorBodyText(res: Response): Promise<string> {
 	return (await errorBody(res)).message;
