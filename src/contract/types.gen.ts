@@ -181,7 +181,7 @@ export interface paths {
   "/api/journey/domains/{host}": {
     /**
      * Get or create a domain's agent journey
-     * @description Returns the agent journey for a domain, running one only if there is not one already. Send only the domain and no body: ora selects the intent and the agent. Requires an ora-issued partner API key ('Authorization: Bearer <key>', issued manually - contact ora); without one, 401 PARTNER_KEY_REQUIRED. 200 means nothing was dispatched and an existing run answered, either finished (carrying its `result`) or still running (open `stream_url` to watch it). 201 means a new run was dispatched. Branch on `dispatched`. Two response views (see the `view` parameter): `graph` (JourneyDomainRunGraph, the default - `result` narrowed to what drawing the journey needs) and `full` (JourneyDomainRun, the complete projection, on `?view=full`). A finished run is served indefinitely; `run_age_seconds` gives its age. There is no per-caller rate limit on this endpoint. Each domain is capped at 100 runs per rolling 24h, and one domain cannot start two runs at once - both are per-domain, neither limits how many domains you may ask for or how fast.
+     * @description Returns the agent journey for a domain, running one only if there is not one already. Send only the domain and no body: ora selects the intent and the agent. Requires an ora-issued partner API key ('Authorization: Bearer <key>', issued manually - contact ora); without one, 401 PARTNER_KEY_REQUIRED. 200 means nothing was dispatched and an existing run answered, either finished (carrying its `result`) or still running (open `stream_url` to watch it). 201 means a new run was dispatched. Branch on `dispatched`. Two response views (see the `view` parameter): `graph` (JourneyDomainRunGraph, the default - `result` narrowed to what drawing the journey needs) and `full` (JourneyDomainRun, the complete projection, on `?view=full`). A finished run is served indefinitely; `run_age_seconds` gives its age. There is no per-caller rate limit on this endpoint, except a monthly journey usage limit when the key carries one. Each domain is capped at 100 runs per rolling 24h, and one domain cannot start two runs at once - both are per-domain, neither limits how many domains you may ask for or how fast.
      */
     post: operations["getOrCreateDomainJourney"];
   };
@@ -205,6 +205,13 @@ export interface paths {
      * @description The agents an anonymous POST /api/journey/runs accepts - every listed (harness, model) pair is publicly runnable. Entries carry display metadata (label, variant, brand, blurb) plus the wire fields `harness` and `model`. Cached statically.
      */
     get: operations["listJourneyAgents"];
+  };
+  "/api/usage": {
+    /**
+     * Read your partner API key's usage and usage limits
+     * @description Returns the calling key's own usage for the current period, per kind (scans, journeys) and per period (only month today, the calendar month in UTC): how many new dispatches the key started since period_start, its limit, what remains, and when the count resets. Cached and stored answers are not counted. limit and remaining are null when the key has no limit for that kind; a key with no limit is never refused for usage. Requires an ora-issued partner API key ('Authorization: Bearer <key>', issued manually - contact ora); the key is read from the token, so a caller can only see its own numbers. Every response carries Cache-Control: no-store. Rate limited to 60 requests per minute per key.
+     */
+    get: operations["getKeyUsage"];
   };
   "/api/feedback/{domain}": {
     /**
@@ -544,7 +551,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.36.0";
+      contractVersion: "1.38.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -747,7 +754,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.36.0";
+      contractVersion: "1.38.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
@@ -795,7 +802,7 @@ export interface components {
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.36.0";
+      contractVersion: "1.38.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -894,7 +901,7 @@ export interface components {
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.36.0";
+      contractVersion: "1.38.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -2289,6 +2296,61 @@ export interface components {
       /** @description Optional recovery hint (e.g. /api/scan on NOT_FOUND). */
       next?: string;
     };
+    /**
+     * @description A partner key's usage per kind, returned by GET /api/usage. Each kind holds one entry per period; month is the only period today, and a future period is a sibling key next to it.
+     * @example {
+     *   "key": "acme",
+     *   "scans": {
+     *     "month": {
+     *       "used": 1250,
+     *       "limit": 5000,
+     *       "remaining": 3750,
+     *       "period_start": "2026-10-01T00:00:00.000Z",
+     *       "resets_at": "2026-11-01T00:00:00.000Z"
+     *     }
+     *   },
+     *   "journeys": {
+     *     "month": {
+     *       "used": 12,
+     *       "limit": null,
+     *       "remaining": null,
+     *       "period_start": "2026-10-01T00:00:00.000Z",
+     *       "resets_at": "2026-11-01T00:00:00.000Z"
+     *     }
+     *   }
+     * }
+     */
+    KeyUsage: {
+      /** @description The name of the key that made the request. */
+      key: string;
+      /** @description Scan dispatches: POST /api/scan, GET /api/scan/stream, POST /api/scan/checks, POST /api/v2/scan and the MCP scan_domain and run_checks tools. */
+      scans: {
+        month: components["schemas"]["KeyUsagePeriod"];
+      };
+      /** @description Journey dispatches: POST /api/journey/runs and POST /api/journey/domains/{host}. */
+      journeys: {
+        month: components["schemas"]["KeyUsagePeriod"];
+      };
+    };
+    /** @description One kind's usage in one period. */
+    KeyUsagePeriod: {
+      /** @description New dispatches the key started since period_start. */
+      used: number;
+      /** @description The key's limit for this kind and period; null when it has none. */
+      limit: number | null;
+      /** @description limit minus used, never below 0; null when there is no limit. At 0 the endpoints that dispatch this kind answer 429 usage_limit_reached until resets_at. */
+      remaining: number | null;
+      /**
+       * Format: date-time
+       * @description Start of the current period (the 1st of the month, 00:00 UTC).
+       */
+      period_start: string;
+      /**
+       * Format: date-time
+       * @description When the count resets (the 1st of next month, 00:00 UTC).
+       */
+      resets_at: string;
+    };
     /** @description Draft agent discovery files for one domain, returned by GET /api/agent-files/{domain}. */
     AgentFilesBundle: {
       /** @description The domain the files speak for (leading www. dropped). */
@@ -2638,7 +2700,7 @@ export interface operations {
           "application/json": components["schemas"]["McpAuthRequiredResponse"];
         };
       };
-      /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP; 6 per day for force=true). Cache-served responses never count against the daily quota. The response includes a Retry-After header indicating seconds until the next request is allowed, and a JSON body with error and retry_after_ms. */
+      /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP; 6 per day for force=true). Cache-served responses never count against the daily quota. The response includes a Retry-After header indicating seconds until the next request is allowed, and a JSON body with error and retry_after_ms. A keyed caller whose key has used its monthly scan limit gets 429 with error `usage_limit_reached` and `kind`, `period`, `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to the next 1st of the month (UTC). That refusal is key-wide; GET /api/usage shows the numbers. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
@@ -2716,7 +2778,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP), which this endpoint spends from the same budget as the v1 scan routes so a caller cannot drain it twice by switching endpoints. The response carries a Retry-After header; a durable deny also carries retry_after_ms in the body. */
+      /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP), which this endpoint spends from the same budget as the v1 scan routes so a caller cannot drain it twice by switching endpoints. The response carries a Retry-After header; a durable deny also carries retry_after_ms in the body. A keyed caller whose key has used its monthly scan limit gets 429 with error `usage_limit_reached` and `kind`, `period`, `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to the next 1st of the month (UTC). That refusal is key-wide; GET /api/usage shows the numbers. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
@@ -2776,7 +2838,7 @@ export interface operations {
       400: {
         content: never;
       };
-      /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP; 6 per day for force=1). The response carries a Retry-After header with the seconds until the caller's window frees up. */
+      /** @description Rate limit exceeded - either the 10-per-minute burst cap or the durable daily quota (30 scans per rolling 24h per IP; 6 per day for force=1). The response carries a Retry-After header with the seconds until the caller's window frees up. A keyed caller whose key has used its monthly scan limit gets 429 with error `usage_limit_reached` and `kind`, `period`, `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to the next 1st of the month (UTC). That refusal is key-wide; GET /api/usage shows the numbers. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
@@ -2809,7 +2871,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description Rate limit exceeded - either the 10-per-minute burst cap (body `{ error }`) or the durable daily scan budget shared with POST /api/scan (body also carries `retry_after_ms`). Both carry a Retry-After header with the seconds until the caller's window frees up. */
+      /** @description Rate limit exceeded - either the 10-per-minute burst cap (body `{ error }`) or the durable daily scan budget shared with POST /api/scan (body also carries `retry_after_ms`). Both carry a Retry-After header with the seconds until the caller's window frees up. A keyed caller whose key has used its monthly scan limit gets 429 with error `usage_limit_reached` and `kind`, `period`, `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to the next 1st of the month (UTC). That refusal is key-wide; GET /api/usage shows the numbers. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
@@ -3496,7 +3558,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description Caller limit exceeded - the 20-per-minute burst cap (anonymous callers only; a keyed caller skips it), or the durable per-caller budget (20 runs per rolling 24h per IP anonymous, plus 3000 per rolling 24h shared by all anonymous callers, 1000 per rolling 24h per key; body carries `retry_after_ms`). Per-TARGET saturation is the 200 above, not this. */
+      /** @description Caller limit exceeded - the 20-per-minute burst cap (anonymous callers only; a keyed caller skips it), or the durable per-caller budget (20 runs per rolling 24h per IP anonymous, plus 3000 per rolling 24h shared by all anonymous callers, 1000 per rolling 24h per key; body carries `retry_after_ms`). Per-TARGET saturation is the 200 above, not this. A keyed caller whose key has used its monthly journey limit gets 429 with error `usage_limit_reached` and `kind`, `period`, `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to the next 1st of the month (UTC). That refusal is key-wide; GET /api/usage shows the numbers. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
@@ -3540,7 +3602,7 @@ export interface operations {
   };
   /**
    * Get or create a domain's agent journey
-   * @description Returns the agent journey for a domain, running one only if there is not one already. Send only the domain and no body: ora selects the intent and the agent. Requires an ora-issued partner API key ('Authorization: Bearer <key>', issued manually - contact ora); without one, 401 PARTNER_KEY_REQUIRED. 200 means nothing was dispatched and an existing run answered, either finished (carrying its `result`) or still running (open `stream_url` to watch it). 201 means a new run was dispatched. Branch on `dispatched`. Two response views (see the `view` parameter): `graph` (JourneyDomainRunGraph, the default - `result` narrowed to what drawing the journey needs) and `full` (JourneyDomainRun, the complete projection, on `?view=full`). A finished run is served indefinitely; `run_age_seconds` gives its age. There is no per-caller rate limit on this endpoint. Each domain is capped at 100 runs per rolling 24h, and one domain cannot start two runs at once - both are per-domain, neither limits how many domains you may ask for or how fast.
+   * @description Returns the agent journey for a domain, running one only if there is not one already. Send only the domain and no body: ora selects the intent and the agent. Requires an ora-issued partner API key ('Authorization: Bearer <key>', issued manually - contact ora); without one, 401 PARTNER_KEY_REQUIRED. 200 means nothing was dispatched and an existing run answered, either finished (carrying its `result`) or still running (open `stream_url` to watch it). 201 means a new run was dispatched. Branch on `dispatched`. Two response views (see the `view` parameter): `graph` (JourneyDomainRunGraph, the default - `result` narrowed to what drawing the journey needs) and `full` (JourneyDomainRun, the complete projection, on `?view=full`). A finished run is served indefinitely; `run_age_seconds` gives its age. There is no per-caller rate limit on this endpoint, except a monthly journey usage limit when the key carries one. Each domain is capped at 100 runs per rolling 24h, and one domain cannot start two runs at once - both are per-domain, neither limits how many domains you may ask for or how fast.
    */
   getOrCreateDomainJourney: {
     parameters: {
@@ -3578,7 +3640,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorResponse"];
         };
       };
-      /** @description Back off and retry the SAME DOMAIN; the body carries `retry_after_ms` and a `Retry-After` header. All three codes here are per-domain, never key-wide, so do not throttle your other traffic. `POLL_TOO_FAST`: more than 3 requests for this domain inside 2 seconds; back off by this response's `retry_after_ms`. The in-flight `200` also carries `retry_after_ms`, and a poller that honours it never sees this code. `DISPATCH_IN_PROGRESS`: another request is already starting this domain. `TARGET_CAPPED`: this domain is over its 100-per-24h cap. */
+      /** @description Back off and retry the SAME DOMAIN; the body carries `retry_after_ms` and a `Retry-After` header. All three codes here are per-domain, never key-wide, so do not throttle your other traffic. `POLL_TOO_FAST`: more than 3 requests for this domain inside 2 seconds; back off by this response's `retry_after_ms`. The in-flight `200` also carries `retry_after_ms`, and a poller that honours it never sees this code. `DISPATCH_IN_PROGRESS`: another request is already starting this domain. `TARGET_CAPPED`: this domain is over its 100-per-24h cap. One refusal here is key-wide instead: `error: "usage_limit_reached"` (no `code`) means the key has used its monthly journey limit, with `kind`, `period`, `used`, `limit`, `resets_at` and `retry_after_ms` in the body and a Retry-After that counts to the next 1st of the month (UTC); stop dispatching journeys until `resets_at`. GET /api/usage shows the numbers. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
@@ -3684,6 +3746,42 @@ export interface operations {
               }[];
             defaultId?: string;
           };
+        };
+      };
+    };
+  };
+  /**
+   * Read your partner API key's usage and usage limits
+   * @description Returns the calling key's own usage for the current period, per kind (scans, journeys) and per period (only month today, the calendar month in UTC): how many new dispatches the key started since period_start, its limit, what remains, and when the count resets. Cached and stored answers are not counted. limit and remaining are null when the key has no limit for that kind; a key with no limit is never refused for usage. Requires an ora-issued partner API key ('Authorization: Bearer <key>', issued manually - contact ora); the key is read from the token, so a caller can only see its own numbers. Every response carries Cache-Control: no-store. Rate limited to 60 requests per minute per key.
+   */
+  getKeyUsage: {
+    responses: {
+      /** @description The key's usage, limits and reset time. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["KeyUsage"];
+        };
+      };
+      /** @description `code: "PARTNER_KEY_REQUIRED"` - no recognized partner API key. An absent, malformed and unrecognized key all answer the same way. */
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description `code: "RATE_LIMITED"` - more than 60 requests in a minute from this address, or for this key. */
+      429: {
+        headers: {
+          /** @description Seconds until next allowed request */
+          "Retry-After"?: number;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
+        };
+      };
+      /** @description `code: "USAGE_UNAVAILABLE"` - usage could not be read right now. Retry shortly; the route never answers a guessed zero. */
+      503: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse"];
         };
       };
     };
