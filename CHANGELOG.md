@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/ora/ax/compare/v0.10.2...v0.10.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **api:** explain a partner key's monthly usage limit and regenerate contract 1.38.0 ([#87](https://github.com/ora/ax/issues/87)) ([ec0ba7f](https://github.com/ora/ax/commit/ec0ba7f3206d868207217d11f8674c3017d65f81))
+
 ## [0.10.2](https://github.com/ora/ax/compare/v0.10.1...v0.10.2) (2026-10-19)
 
 
