@@ -279,7 +279,7 @@ Drafts the files agents look for on a site, filled in from ora's last scan of th
 | File | Written to | What it is |
 |---|---|---|
 | `ard.json`, `ai-catalog.json` | `.well-known/` | An [Agentic Resource Discovery](https://agenticresourcediscovery.org/) catalog (the same document at the [AI Catalog Standard](https://ai-catalog.io/)'s path). Every entry is anchored to your domain, not to ora |
-| `poppy.json` | `.well-known/` | A [Personal Agent Protocol](https://personalagentprotocol.org/docs/spec) file for signed-out browsing; the OAuth issuer and APIs ora saw are printed as notes, because naming them is only correct once they implement the protocol |
+| `poppy.json` | `.well-known/` | A [Personal Agent Protocol](https://personalagentprotocol.org/docs/0.2/spec) file for signed-out browsing; the OAuth issuer and APIs ora saw are printed as notes, because naming them is only correct once they implement the protocol |
 | `llms.txt` | web root | An index of the docs, APIs and agent endpoints ora found; skipped when you already publish one |
 | `robots.txt` | web root | An edit of your current robots.txt: every line kept, a group added for AI search crawlers and user-requested agents your `User-agent: *` rules block (copying your other rules), and a `Sitemap:` line. Training crawlers and crawlers you block by name are never touched |
 | `api-catalog` | `.well-known/` | An [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) API catalog pointing at your OpenAPI description |
