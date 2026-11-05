@@ -19,7 +19,6 @@ describe("loadLocalEnv", () => {
 		// process.env stringifies whatever it is given, so biome's suggested
 		// `= undefined` stores the literal "undefined" and the next test reads it
 		// back as a key. delete is the only way to genuinely unset the variable.
-		// biome-ignore lint/performance/noDelete: assignment would store "undefined" as a string
 		if (originalKey === undefined) delete process.env.ORA_API_KEY;
 		else process.env.ORA_API_KEY = originalKey;
 	});
