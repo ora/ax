@@ -171,9 +171,10 @@ describe("generateFilesCommand with the 1.31.0 files", () => {
 
 	it("writes a 1.30.0 server's files, which carry no body or url, from their JSON content", async () => {
 		expect(await run()).toBe(EXIT.OK);
-		const poppy = BUNDLE.files.find((f) => f.path === "/.well-known/poppy.json")!;
+		const poppy = BUNDLE.files.find((f) => f.path === "/.well-known/poppy.json");
+		expect(poppy).toBeDefined();
 		expect(readFileSync(join(out, ".well-known", "poppy.json"), "utf8")).toBe(
-			`${JSON.stringify(poppy.content, null, 2)}\n`,
+			`${JSON.stringify(poppy?.content, null, 2)}\n`,
 		);
 	});
 });
