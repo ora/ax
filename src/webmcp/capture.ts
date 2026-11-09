@@ -41,15 +41,17 @@ import {
 	type WebmcpPageFacts,
 } from "./vendor/capture-verdict";
 import { WEBMCP_SHIM_VERSION } from "./vendor/checks";
+import { declarativeInputSchemas } from "./vendor/declarative-schema";
 import { isSecurityChallenge } from "./vendor/security-challenge";
 import {
 	DECLARATIVE_SCAN_SNIPPET,
 	WEBMCP_CAPTURE_SHIM,
+	WEBMCP_MAX_DECLARATIVE_FORMS,
 	type WebmcpShimDeclarativeScan,
 	type WebmcpShimSnapshot,
 	type WebmcpShimToolRecord,
 } from "./vendor/shim";
-import { collectStaticSignals } from "./vendor/static-signals";
+import { collectStaticSignals, isJavaScriptScriptType } from "./vendor/static-signals";
 import type {
 	WebmcpCaptureResult,
 	WebmcpPageCapture,
@@ -81,8 +83,8 @@ const MAX_QUIET_WAIT_MS = { fast: 12_000, deep: 20_000 } as const;
 const MAX_HTML_CHARS = 2 * 1024 * 1024;
 /** Tool names are page-controlled and reach the payload verbatim. */
 const MAX_TOOL_NAME_CHARS = 512;
-/** Shim v1 carries a tool's human label only inside `annotations`; there is no
- * `title` on the tool itself. Same ceiling ora's capture service applies. */
+/** Ceiling on a tool's `title`, top-level and inside `annotations` alike. Same
+ * ceiling ora's capture service applies. */
 const MAX_ANNOTATION_TITLE_CHARS = 512;
 
 const SCREENSHOT_JPEG_QUALITY = 60;
@@ -178,11 +180,13 @@ const FINGERPRINT_EXPRESSION = `(function () {
  * dropping it, but `WebmcpTool` has no slot for that state, and listing a
  * retired tool as registered would misreport what an agent would find.
  */
-function mapShimTools(records: WebmcpShimToolRecord[], pageUrl: string): WebmcpTool[] {
+export function mapShimTools(records: WebmcpShimToolRecord[], pageUrl: string): WebmcpTool[] {
 	return records
 		.filter((record) => !record.unregistered)
 		.map((record) => ({
 			name: record.name.slice(0, MAX_TOOL_NAME_CHARS),
+			title:
+				typeof record.title === "string" ? record.title.slice(0, MAX_ANNOTATION_TITLE_CHARS) : null,
 			description: record.description,
 			via: "imperative" as const,
 			// The contract's four-value entry point is the pair the shim records:
@@ -192,26 +196,28 @@ function mapShimTools(records: WebmcpShimToolRecord[], pageUrl: string): WebmcpT
 				record.source === "provideContext" ? ("provideContext" as const) : record.entryPoint,
 			pageUrl,
 			inputSchema: record.inputSchema,
+			...(record.outputSchema === null || record.outputSchema === undefined
+				? {}
+				: { outputSchema: record.outputSchema }),
 			annotations: mapAnnotations(record.annotations),
 			hasExecute: record.hasExecute,
 			registrationMs: record.registrationMs,
 		}));
 }
 
-function mapDeclarativeTools(
+export function mapDeclarativeTools(
 	forms: WebmcpShimDeclarativeScan["forms"],
 	pageUrl: string,
 ): WebmcpTool[] {
-	return forms.map((form) => ({
+	const capped = forms.slice(0, WEBMCP_MAX_DECLARATIVE_FORMS);
+	const schemas = declarativeInputSchemas(capped);
+	return capped.map((form, index) => ({
 		name: form.toolName.slice(0, MAX_TOOL_NAME_CHARS),
 		description: form.toolDescription,
 		via: "declarative" as const,
 		entryPoint: "form" as const,
 		pageUrl,
-		// A declarative tool declares no JSON Schema; its inputs are the form's
-		// own fields. Reporting `null` keeps the schema checks from grading a
-		// schema the page never claimed to have.
-		inputSchema: null,
+		inputSchema: schemas[index],
 		annotations: {},
 		// Declarative execution is the browser submitting the element, not a JS
 		// callback, so there is no stub axis here to fail.
@@ -224,7 +230,7 @@ function mapDeclarativeTools(
 
 /** Page-supplied annotations, narrowed to the contract's keys. Untrusted
  * metadata: copied by shape, never trusted as a claim about behaviour. */
-function mapAnnotations(raw: unknown): WebmcpToolAnnotations {
+export function mapAnnotations(raw: unknown): WebmcpToolAnnotations {
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
 	const record = raw as Record<string, unknown>;
 	const out: WebmcpToolAnnotations = {};
@@ -234,6 +240,8 @@ function mapAnnotations(raw: unknown): WebmcpToolAnnotations {
 		"idempotentHint",
 		"openWorldHint",
 		"untrustedContentHint",
+		"consequentialHint",
+		"debugging",
 	] as const) {
 		if (typeof record[key] === "boolean") out[key] = record[key] as boolean;
 	}
@@ -369,8 +377,12 @@ async function runPassA(
 		const status = response?.status ?? 0;
 		const html = (await page.content()).slice(0, MAX_HTML_CHARS);
 		// ora derives this with cheerio inside collectStaticSignals; we read the
-		// same selector off the live DOM. See vendor/static-signals.ts.
-		const inlineJs = await page.inlineScripts();
+		// same selector off the live DOM and apply the same vendored type filter.
+		// See vendor/static-signals.ts.
+		const inlineJs = (await page.inlineScripts())
+			.filter((script) => isJavaScriptScriptType(script.type))
+			.map((script) => script.text)
+			.join("\n");
 
 		const probe = ((await page
 			.evaluate<{ nativeApi?: unknown; metaTokens?: unknown }>(PASS_A_PROBE)
@@ -616,7 +628,10 @@ async function capturePage(
 		nativeApi: passA.nativeApi,
 		nativeToolCount: passA.nativeToolCount,
 		declarativeToolCount: declarativeTools.length,
-		toolCount: tools.length,
+		// Imperative only: declarative forms are recorded on the page as
+		// observations, but the spec does not define them, so they never make a
+		// page `active` or `testing-only`.
+		toolCount: imperativeTools.length,
 		shimTakenOver: (snapshot?.takenOver.length ?? 0) > 0,
 		staticSignals,
 	};

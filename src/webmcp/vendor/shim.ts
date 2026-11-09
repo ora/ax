@@ -48,6 +48,8 @@ export const WEBMCP_MAX_TOOLS = 100;
 /** Descriptions longer than this are stored truncated with
  * `descriptionTruncated: true`. */
 export const WEBMCP_MAX_DESCRIPTION_CHARS = 4096;
+/** A tool's top-level `title` longer than this is stored truncated. */
+export const WEBMCP_MAX_TITLE_CHARS = 512;
 /** A tool's `inputSchema` (or `annotations`) whose JSON form exceeds this is
  * stored as `{ __truncated: true }` instead. */
 export const WEBMCP_MAX_SCHEMA_CHARS = 32768;
@@ -56,6 +58,13 @@ export const WEBMCP_MAX_SCHEMA_CHARS = 32768;
 export const WEBMCP_MAX_REGISTRATION_ERRORS = 50;
 /** Cap on `[toolname]` elements reported by `DECLARATIVE_SCAN_SNIPPET`. */
 export const WEBMCP_MAX_DECLARATIVE_FORMS = 200;
+/** Controls read per declarative form, and per page across all of them; past either the form is marked `fieldsTruncated`. */
+export const WEBMCP_MAX_DECLARATIVE_FIELDS = 128;
+export const WEBMCP_MAX_DECLARATIVE_PAGE_FIELDS = 1000;
+/** `<option>` elements read per page across every declarative form. */
+export const WEBMCP_MAX_DECLARATIVE_PAGE_OPTIONS = 4000;
+/** Longest description, label or `pattern` read from one control. */
+export const WEBMCP_MAX_DECLARATIVE_TEXT = 1024;
 
 /** Global the shim installs its results on, inside the captured page. */
 export const WEBMCP_CAPTURE_GLOBAL = "__oraWebmcpCapture";
@@ -66,9 +75,15 @@ export interface WebmcpShimToolRecord {
   name: string;
   description: string;
   descriptionTruncated: boolean;
+  /** The spec's top-level `title` (a USVString on ModelContextTool, not an
+   * annotation), capped; `null` when the page declared none. Absent on
+   * snapshots from shims that predate 2026-10-19. */
+  title?: string | null;
   /** JSON-safe deep copy, or `{ __truncated: true }` past the size cap, or
    * `{ __unserializable: true }` when the page's value could not be copied. */
   inputSchema: unknown;
+  /** Copied like `inputSchema`; absent on snapshots from shims that predate 2026-11-04. */
+  outputSchema?: unknown;
   annotations: unknown;
   hasExecute: boolean;
   entryPoint: "navigator" | "document";
@@ -102,6 +117,27 @@ export interface WebmcpShimSnapshot {
   takenOver: Array<"navigator" | "document">;
 }
 
+/** One form control as `DECLARATIVE_SCAN_SNIPPET` reads it; `declarativeInputSchema` derives the tool's schema from these. */
+export interface WebmcpShimDeclarativeField {
+  tag: "input" | "select" | "textarea";
+  type: string;
+  name: string;
+  disabled: boolean;
+  readOnly: boolean;
+  required: boolean;
+  multiple: boolean;
+  paramDescription: string | null;
+  labels: string[];
+  ariaDescription: string | null;
+  min: string | null;
+  max: string | null;
+  step: string | null;
+  value: string | null;
+  pattern: string | null;
+  checkedValue: string | null;
+  options: Array<{ value: string; text: string }>;
+}
+
 /** One declarative `[toolname]` element as `DECLARATIVE_SCAN_SNIPPET` reports it. */
 export interface WebmcpShimDeclarativeForm {
   toolName: string;
@@ -109,6 +145,9 @@ export interface WebmcpShimDeclarativeForm {
   action: string;
   method: string;
   fieldCount: number;
+  fields: WebmcpShimDeclarativeField[];
+  /** A cap cut the read short, or a control could not be read, so `fields` does not describe the whole form. */
+  fieldsTruncated: boolean;
 }
 
 export interface WebmcpShimDeclarativeScan {
@@ -130,6 +169,7 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
     var SHIM_VERSION = ${JSON.stringify(WEBMCP_SHIM_VERSION)};
     var MAX_TOOLS = ${WEBMCP_MAX_TOOLS};
     var MAX_DESCRIPTION_CHARS = ${WEBMCP_MAX_DESCRIPTION_CHARS};
+    var MAX_TITLE_CHARS = ${WEBMCP_MAX_TITLE_CHARS};
     var MAX_SCHEMA_CHARS = ${WEBMCP_MAX_SCHEMA_CHARS};
     var MAX_ERRORS = ${WEBMCP_MAX_REGISTRATION_ERRORS};
     // Internal bound only: a page looping on addEventListener must not grow
@@ -338,7 +378,10 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
 
       record.description = description;
       record.descriptionTruncated = descriptionTruncated;
+      var rawTitle = readProp(tool, "title");
+      record.title = typeof rawTitle === "string" ? rawTitle.slice(0, MAX_TITLE_CHARS) : null;
       record.inputSchema = safeCopy(readProp(tool, "inputSchema"), MAX_SCHEMA_CHARS);
+      record.outputSchema = safeCopy(readProp(tool, "outputSchema"), MAX_SCHEMA_CHARS);
       record.annotations = safeCopy(readProp(tool, "annotations"), MAX_SCHEMA_CHARS);
       record.hasExecute = hasExecute(tool);
       record.entryPoint = entryPoint;
@@ -469,14 +512,13 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
       return safeCopy(value, MAX_SCHEMA_CHARS);
     }
 
-    // The draft's RegisteredTool list (section 4.5): the CURRENT tool map,
+    // The draft's RegisteredTool list (section 4.2.6): the CURRENT tool map,
     // sorted ascending by name in code-unit order. Unregistered records are
     // audit evidence, not live tools, so they are filtered; a name live under
     // both sources is returned twice rather than deduped (the real map could
-    // never hold both, but picking a winner here would invent one). title
-    // is "" because the shim does not record it yet (Stage 2, with the
-    // title-present check) and "" is what Chrome currently reports for a
-    // missing title (spec issue 224 is unresolved).
+    // never hold both, but picking a winner here would invent one). A
+    // missing title is "", what the draft's getTools() currently reports
+    // (spec issue 224 is unresolved).
     function getToolsList() {
       var list = [];
       for (var i = 0; i < entries.length; i++) {
@@ -484,9 +526,10 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
         if (entry.unregistered) continue;
         list.push({
           name: entry.name,
-          title: "",
+          title: typeof entry.title === "string" ? entry.title : "",
           description: entry.description,
           inputSchema: projectStoredValue(entry.inputSchema),
+          outputSchema: projectStoredValue(entry.outputSchema),
           annotations: projectStoredValue(entry.annotations),
           window: W,
           origin: pinnedOrigin
@@ -666,7 +709,9 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
           name: e.name,
           description: e.description,
           descriptionTruncated: e.descriptionTruncated,
+          title: e.title === undefined ? null : e.title,
           inputSchema: e.inputSchema,
+          outputSchema: e.outputSchema,
           annotations: e.annotations,
           hasExecute: e.hasExecute,
           entryPoint: e.entryPoint,
@@ -721,6 +766,126 @@ export const WEBMCP_CAPTURE_SHIM = `(function () {
 export const DECLARATIVE_SCAN_SNIPPET = `(function () {
   var MAX_FORMS = ${WEBMCP_MAX_DECLARATIVE_FORMS};
   var MAX_DESCRIPTION_CHARS = ${WEBMCP_MAX_DESCRIPTION_CHARS};
+  var MAX_FIELDS = ${WEBMCP_MAX_DECLARATIVE_FIELDS};
+  var pageFieldsLeft = ${WEBMCP_MAX_DECLARATIVE_PAGE_FIELDS};
+  var pageOptionsLeft = ${WEBMCP_MAX_DECLARATIVE_PAGE_OPTIONS};
+  var MAX_TEXT = ${WEBMCP_MAX_DECLARATIVE_TEXT};
+  var MAX_NAME = 256;
+  var MAX_NUMBER = 64;
+  var MAX_OPTION = 256;
+  var MAX_LABELS = 8;
+  var MAX_LABEL_NODES = 4096;
+  var CONTROL = { INPUT: 1, SELECT: 1, TEXTAREA: 1 };
+  var LABELABLE = { BUTTON: 1, INPUT: 1, METER: 1, OUTPUT: 1, PROGRESS: 1, SELECT: 1, TEXTAREA: 1 };
+
+  function capped(value, cap, state, identity) {
+    if (value === null || value === undefined) return null;
+    var text = String(value);
+    if (text.length <= cap) return text;
+    if (identity) state.truncated = true;
+    return text.slice(0, cap);
+  }
+
+  function labelText(label) {
+    var out = "";
+    var visited = 0;
+    var node = label.firstChild;
+    while (node && visited < MAX_LABEL_NODES && out.length <= MAX_TEXT) {
+      visited++;
+      if (node.nodeType === 3) out += node.nodeValue;
+      if (node.nodeType === 1 && !LABELABLE[node.tagName] && node.firstChild) {
+        node = node.firstChild;
+        continue;
+      }
+      while (node && node !== label && !node.nextSibling) node = node.parentNode;
+      node = !node || node === label ? null : node.nextSibling;
+    }
+    return out.trim().slice(0, MAX_TEXT);
+  }
+
+  function labelsOf(el) {
+    var texts = [];
+    var labels = el.labels || [];
+    for (var i = 0; i < labels.length && texts.length < MAX_LABELS; i++) {
+      if (labels[i].control && labels[i].control !== el) continue;
+      var text = labelText(labels[i]);
+      if (text) texts.push(text);
+    }
+    return texts;
+  }
+
+  function disabledByFieldset(el) {
+    var child = el;
+    for (var node = el.parentNode; node && node.nodeType === 1; node = node.parentNode) {
+      if (node.tagName === "FIELDSET" && node.hasAttribute("disabled")) {
+        var legend = null;
+        for (var c = node.firstElementChild; c && !legend; c = c.nextElementSibling) {
+          if (c.tagName === "LEGEND") legend = c;
+        }
+        if (child !== legend) return true;
+      }
+      child = node;
+    }
+    return false;
+  }
+
+  function readField(el, state) {
+    var tag = el.tagName.toLowerCase();
+    var type = tag === "input" ? String(el.type || "text").toLowerCase() : tag;
+    var numeric = type === "number" || type === "range";
+    var choice = type === "checkbox" || type === "radio";
+    var field = {
+      tag: tag,
+      type: type,
+      name: capped(el.getAttribute("name") || "", MAX_NAME, state, true),
+      disabled: !!el.disabled || disabledByFieldset(el),
+      readOnly: !!el.readOnly,
+      required: el.hasAttribute("required"),
+      multiple: el.hasAttribute("multiple"),
+      paramDescription: capped(el.getAttribute("toolparamdescription"), MAX_TEXT, state, false),
+      labels: labelsOf(el),
+      ariaDescription: capped(el.getAttribute("aria-description"), MAX_TEXT, state, false),
+      min: numeric ? capped(el.getAttribute("min"), MAX_NUMBER, state, true) : null,
+      max: numeric ? capped(el.getAttribute("max"), MAX_NUMBER, state, true) : null,
+      step: numeric ? capped(el.getAttribute("step"), MAX_NUMBER, state, true) : null,
+      value: numeric ? capped(el.getAttribute("value"), MAX_NUMBER, state, true) : null,
+      pattern: tag === "input" ? capped(el.getAttribute("pattern"), MAX_TEXT, state, true) : null,
+      checkedValue: choice ? capped(el.value, MAX_OPTION, state, true) : null,
+      options: []
+    };
+    if (tag === "select") {
+      var options = el.options || [];
+      for (var j = 0; j < options.length; j++) {
+        if (pageOptionsLeft <= 0) {
+          state.truncated = true;
+          break;
+        }
+        pageOptionsLeft--;
+        field.options.push({
+          value: capped(options[j].value, MAX_OPTION, state, true),
+          text: capped(options[j].textContent, MAX_OPTION, state, false)
+        });
+      }
+    }
+    return field;
+  }
+
+  function readFields(form, state) {
+    var fields = [];
+    var elements = form.elements || [];
+    for (var k = 0; k < elements.length; k++) {
+      var el = elements[k];
+      if (!CONTROL[el.tagName]) continue;
+      if (fields.length >= MAX_FIELDS || pageFieldsLeft <= 0) {
+        state.truncated = true;
+        break;
+      }
+      pageFieldsLeft--;
+      fields.push(readField(el, state));
+    }
+    return fields;
+  }
+
   var forms = [];
   var nodes = document.querySelectorAll("form[toolname]");
   for (var i = 0; i < nodes.length && forms.length < MAX_FORMS; i++) {
@@ -728,12 +893,21 @@ export const DECLARATIVE_SCAN_SNIPPET = `(function () {
     var description = node.getAttribute("tooldescription") || "";
     var toolName = node.getAttribute("toolname") || "";
     if (!toolName.trim()) continue;
+    var state = { truncated: false };
+    var fields = [];
+    try {
+      fields = readFields(node, state);
+    } catch (fieldReadError) {
+      state.truncated = true;
+    }
     forms.push({
       toolName: toolName,
       toolDescription: description.slice(0, MAX_DESCRIPTION_CHARS),
       action: node.getAttribute("action") || "",
       method: (node.getAttribute("method") || "get").toLowerCase(),
-      fieldCount: node.querySelectorAll("input, select, textarea").length
+      fieldCount: node.querySelectorAll("input, select, textarea").length,
+      fields: fields,
+      fieldsTruncated: state.truncated
     });
   }
   return { forms: forms };
