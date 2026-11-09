@@ -59,6 +59,13 @@ export interface paths {
      */
     get: operations["getScore"];
   };
+  "/api/deep-checks/{domain}": {
+    /**
+     * Poll deep checks for a scan
+     * @description Returns checks and completion state for the caller's assigned scan. Pass the scanId from the original response to keep reading that scan after an assignment changes. With scanId, domain can be the URL-encoded exact MCP endpoint. Responses are never cached.
+     */
+    get: operations["getDeepChecks"];
+  };
   "/api/badge/{domain}": {
     /**
      * Get SVG badge for a domain
@@ -66,10 +73,17 @@ export interface paths {
      */
     get: operations["getBadge"];
   };
+  "/api/ranker/releases/{version}/rules": {
+    /**
+     * Read the rules for a published scoring version
+     * @description Returns the scored checks, layer weights, grade thresholds and score formula for the requested version. A frozen version returns exactly the rules it was frozen with. Before managed publication, the current default and explicitly available legacy scoring versions are readable with publishedAt set to null. After managed publication, unpublished candidates are not public. No authentication required; responses use Cache-Control: no-store and Access-Control-Allow-Origin: *.
+     */
+    get: operations["getScoringRules"];
+  };
   "/api/checks": {
     /**
      * Get the complete catalog of scanner checks
-     * @description Returns every check the ora scanner can run - stable id, scored layer, max score, applicability, eligible scan kinds, tier, maturity, and fix guidance per check, plus the four scored layers with their weights. Check ids are stable: gate CI on an explicit id list, not on tiers (the required set can grow on a minor version). Ids are also what POST /api/scan/checks takes, and every check carries a `beta` boolean for building check pickers - a beta check runs but cannot affect any score. The document is static and byte-stable between check-set changes, so diffing it detects catalog updates. One optional parameter: `?include=essentials` adds `essentialsTier`, `essentialsBonusOnly`, and `essentialsExcluded` (the essentials-model classification; excluded checks are ignored by that model outright) to every check; without it the body is byte-identical to previous releases. Sends Access-Control-Allow-Origin: * and is CDN-cached for 1 hour. Rate limited to 60 requests per minute per IP - returns 429 with a Retry-After header if exceeded.
+     * @description Returns every check the ora scanner can run - stable id, scored layer, max score, applicability, eligible scan kinds, tier, maturity, and fix guidance per check, plus the four scored layers with their weights. Check ids are stable: gate CI on an explicit id list, not on tiers (the required set can grow on a minor version). Ids are also what POST /api/scan/checks takes, and every check carries a `beta` boolean for building check pickers - a beta check runs but cannot affect any score. The catalog follows the public scoring version or the partner API key's assigned version; scoringVersion and rulesUrl identify its rules. One optional parameter: `?include=essentials` adds `essentialsTier`, `essentialsBonusOnly`, and `essentialsExcluded` (the essentials-model classification; excluded checks are ignored by that model outright) to every check; without it those fields are omitted. Sends Access-Control-Allow-Origin: *. Keyed or managed-release responses use private, no-store; anonymous legacy responses are CDN-cached for 1 hour. Rate limited to 60 requests per minute per IP - returns 429 with a Retry-After header if exceeded.
      */
     get: operations["listChecks"];
   };
@@ -353,6 +367,11 @@ export interface components {
       recommendation?: string;
       /** @description Why this check does not apply to this product - it is skipped, not a deduction */
       naReason?: string;
+      /**
+       * @description Present only on 'na' checks that DO apply but could not be checked: 'unverified' means a bot shield answered instead of the site, the server requires authentication, our request got no answer, or a source we query (such as web search) did not reply. Skipped, not deducted, like any 'na'. Absent on an 'na' means the check does not apply to this product.
+       * @enum {string}
+       */
+      naKind?: "unverified";
     };
     AuditLayer: {
       /** @description Layer id: discovery | accessibility | usability | payments (historical scans may carry retired ids) */
@@ -391,9 +410,25 @@ export interface components {
           recommendation?: string;
           /** @description Why this check does not apply to this product - it is skipped, not a deduction */
           naReason?: string;
+          /**
+           * @description Present only on 'na' checks that DO apply but could not be checked: 'unverified' means a bot shield answered instead of the site, the server requires authentication, our request got no answer, or a source we query (such as web search) did not reply. Skipped, not deducted, like any 'na'. Absent on an 'na' means the check does not apply to this product.
+           * @enum {string}
+           */
+          naKind?: "unverified";
         })[];
     };
     AuditScanResult: {
+      /** @description Stable managed scan ID. Pass it when polling to keep reading this scan after release assignments change. */
+      scanId?: number;
+      /** @description Scoring rules version used for this result, independent of contractVersion. Absent when an older result has no recorded version. */
+      scoringVersion?: number;
+      /**
+       * Format: uri
+       * @description Machine-readable rules for scoringVersion. Absent when the scoring version is unknown.
+       */
+      rulesUrl?: string;
+      /** @description Revision of the shared check code under scoringVersion: a result reads as scoringVersion.scoringRevision. A higher revision means a shared check fix that can move scores under the same rules. Absent when unknown, including results stored before release management. */
+      scoringRevision?: number;
       domain: string;
       name: string;
       score: number;
@@ -521,6 +556,11 @@ export interface components {
               recommendation?: string;
               /** @description Why this check does not apply to this product - it is skipped, not a deduction */
               naReason?: string;
+              /**
+               * @description Present only on 'na' checks that DO apply but could not be checked: 'unverified' means a bot shield answered instead of the site, the server requires authentication, our request got no answer, or a source we query (such as web search) did not reply. Skipped, not deducted, like any 'na'. Absent on an 'na' means the check does not apply to this product.
+               * @enum {string}
+               */
+              naKind?: "unverified";
             })[];
         })[];
       /** @description Actionable (fail/warning) checks ranked by ora: non-bonus first, then estimated uplift descending, capped at 6. Render verbatim - do not re-rank. */
@@ -551,7 +591,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.38.0";
+      contractVersion: "1.40.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -599,6 +639,17 @@ export interface components {
       } | null;
     };
     AuditScoreResult: {
+      /** @description Stable managed scan ID. Pass it when polling to keep reading this scan after release assignments change. */
+      scanId?: number;
+      /** @description Scoring rules version used for this result, independent of contractVersion. Absent when an older result has no recorded version. */
+      scoringVersion?: number;
+      /**
+       * Format: uri
+       * @description Machine-readable rules for scoringVersion. Absent when the scoring version is unknown.
+       */
+      rulesUrl?: string;
+      /** @description Revision of the shared check code under scoringVersion: a result reads as scoringVersion.scoringRevision. A higher revision means a shared check fix that can move scores under the same rules. Absent when unknown, including results stored before release management. */
+      scoringRevision?: number;
       domain: string;
       name: string;
       score: number;
@@ -724,6 +775,11 @@ export interface components {
               recommendation?: string;
               /** @description Why this check does not apply to this product - it is skipped, not a deduction */
               naReason?: string;
+              /**
+               * @description Present only on 'na' checks that DO apply but could not be checked: 'unverified' means a bot shield answered instead of the site, the server requires authentication, our request got no answer, or a source we query (such as web search) did not reply. Skipped, not deducted, like any 'na'. Absent on an 'na' means the check does not apply to this product.
+               * @enum {string}
+               */
+              naKind?: "unverified";
             })[];
         })[];
       /** @description Actionable (fail/warning) checks ranked by ora: non-bonus first, then estimated uplift descending, capped at 6. Render verbatim - do not re-rank. */
@@ -754,7 +810,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.38.0";
+      contractVersion: "1.40.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
@@ -798,11 +854,20 @@ export interface components {
     };
     /** @description The complete catalog of scanner checks. Stability classes: every field's shape and presence rule is stable within a major version; layer ids are envelope identity, so removing or renaming one is a major version change; check ids never change meaning while they exist, but catalog membership may change on a minor, with a contract changelog entry and a deprecation window; every other value (scores, weights, layer assignments, applicability, tiers, maturity, prose) is advisory and may change on a minor version, with score-relevant changes recorded in the contract changelog. Gate CI on an explicit list of check ids. */
     CheckCatalog: {
+      /** @description Scoring rules version used for this result, independent of contractVersion. Absent when an older result has no recorded version. */
+      scoringVersion?: number;
+      /**
+       * Format: uri
+       * @description Machine-readable rules for scoringVersion. Absent when the scoring version is unknown.
+       */
+      rulesUrl?: string;
+      /** @description Revision of the shared check code under scoringVersion: a result reads as scoringVersion.scoringRevision. A higher revision means a shared check fix that can move scores under the same rules. Absent when unknown, including results stored before release management. */
+      scoringRevision?: number;
       /**
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.38.0";
+      contractVersion: "1.40.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -894,14 +959,27 @@ export interface components {
       checkIds: string[];
       /** @description Optional URL of the target's MCP server, matching the same field on POST /api/scan. It pins the MCP endpoint; a failed handshake never substitutes a discovered server. When omitted, ora auto-discovers MCP endpoints. An empty string is treated as absent. */
       mcpUrl?: unknown;
+      /** @description Optional. The published scoring version to use for this request. Omitted, the request uses the version pinned to your API key, else the public version. An unpublished or unknown version is refused, and the error lists the published versions. */
+      scoringVersion?: number;
     };
     /** @description The outcome of a selective check run. The run always executes - results are never served from a cache. The response carries no aggregate score of any kind: per-check score and maxScore only, with GET /api/score/{domain} as the score surface. Results carry no tier or layer fields - join with GET /api/checks by id to group or rank them. */
     RunChecksResponse: {
+      /** @description Scoring rules version used for this result, independent of contractVersion. Absent when an older result has no recorded version. */
+      scoringVersion?: number;
+      /**
+       * Format: uri
+       * @description Machine-readable rules for scoringVersion. Absent when the scoring version is unknown.
+       */
+      rulesUrl?: string;
+      /** @description Revision of the shared check code under scoringVersion: a result reads as scoringVersion.scoringRevision. A higher revision means a shared check fix that can move scores under the same rules. Absent when unknown, including results stored before release management. */
+      scoringRevision?: number;
+      /** @description Stable managed scan ID. Pass it when polling to keep reading this scan after release assignments change. */
+      scanId?: number;
       /**
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.38.0";
+      contractVersion: "1.40.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -936,6 +1014,11 @@ export interface components {
       recommendation?: string;
       /** @description Why the check did not apply. Present on 'na' results, including requested ids that cannot apply to the detected kind. */
       naReason?: string;
+      /**
+       * @description Present only on 'na' results that DO apply but could not be checked: 'unverified' means a bot shield answered instead of the site, the server requires authentication, ora's request got no answer, or a source ora queries (such as web search) did not reply. Absent on an 'na' result means the check does not apply.
+       * @enum {string}
+       */
+      naKind?: "unverified";
       /**
        * @description The classification of the MCP surface this entry scored against - one of: product | docs | other | app. Present on MCP fan-out entries.
        * @enum {string}
@@ -2071,8 +2154,96 @@ export interface components {
       /** @description text steps only: the narrative the agent emitted between actions. Advisory - raw model prose. */
       text?: string;
     };
+    ScoringRules: {
+      scoringVersion: number;
+      /** Format: uri */
+      rulesUrl: string;
+      /** @description The current revision of the shared check code. Results scored now read as scoringVersion.scoringRevision. */
+      scoringRevision?: number;
+      /** @description Content hash of the scoring rules. */
+      rulesHash: string;
+      /** @description Publication timestamp, or null for an available legacy version before managed publication. */
+      publishedAt: string | null;
+      rules: components["schemas"]["ScoringManifest"];
+    };
+    ScoringManifest: {
+      version: number;
+      /** @description Identity of the check evaluation rules. */
+      evaluationRules: string;
+      /** @description Scored checks only. Use the assigned check catalog for unscored checks and fix guidance. */
+      checks: {
+          id: string;
+          layer: string;
+          maxScore: number;
+          bonus: boolean;
+        }[];
+      layers: {
+          id: string;
+          weight: number;
+        }[];
+      formula: {
+        aggregation: string;
+        notApplicable: string;
+        emerging: string;
+        bonus: string;
+        emptyLayerWeight: string;
+        normalization: string;
+        emptyScore: number;
+        rounding: string;
+        checkRescaling: string;
+      };
+      rules: {
+        scoreGate: {
+          checkIds: string[];
+          cap: number;
+        } | null;
+        useLayerMinMaxScore: number;
+      };
+      /** @description Scoring behavior switches enabled for this version. */
+      switches: {
+        paymentScoring?: string;
+        [key: string]: (boolean | string) | undefined;
+      };
+    };
+    DeepCheckResponse: {
+      scanId?: number;
+      scoringVersion?: number;
+      /** Format: uri */
+      rulesUrl?: string;
+      /** @description Revision of the shared check code the scan ran with. Absent when unknown. */
+      scoringRevision?: number;
+      allComplete: boolean;
+      allReady: boolean;
+      agenticSummary?: string;
+      checks: {
+          checkId: string;
+          status: string;
+          score: number;
+          maxScore: number;
+          details: string;
+          recommendation?: string;
+          naReason?: string;
+          mcpKind?: string;
+          mcpUrl?: string;
+          progress?: Record<string, never>[];
+          data?: {
+            [key: string]: unknown;
+          };
+        }[];
+    };
     /** @description The default response body of POST /api/scan and GET /api/score/{domain}. Fields not listed below may be present: they are ora internals, are not part of the contract, and may change or disappear in any release without a major version bump. Pass `?format=audit` for the versioned, fully documented shape (AuditScanResult / AuditScoreResult). */
     ScanResult: {
+      /** @description Stable managed scan ID. Preserve it when polling this result. */
+      scanId?: number;
+      /** @description The checks and scoring rules used for this result. Absent when the stored version is unknown. */
+      scoringVersion?: number;
+      /**
+       * Format: uri
+       * @description The machine-readable rules for scoringVersion. Absent when the stored version is unknown.
+       */
+      rulesUrl?: string;
+      /** @description Revision of the shared check code under scoringVersion: the result reads as scoringVersion.scoringRevision. A higher revision means a shared check fix that can move scores under the same rules. Absent when unknown, including results stored before release management. */
+      scoringRevision?: number;
       /** @description The scanned domain (pre-redirect). Compare with new URL(finalUrl).hostname to detect cross-domain redirects. */
       domain?: string;
       /** @description The normalized URL */
@@ -2176,6 +2347,11 @@ export interface components {
       tier?: "required" | "recommended" | "emerging";
       /** @description Optional. Why the check does not apply to this product. Present on 'na' rows; the check is skipped, not deducted. */
       naReason?: string;
+      /**
+       * @description Optional. Present only on 'na' rows that DO apply but could not be checked: 'unverified' means a bot shield answered instead of the site, the server requires authentication, ora's request got no answer, or a source ora queries (such as web search) did not reply. Skipped, not deducted, like any 'na'. Absent on an 'na' row means the check does not apply to this product.
+       * @enum {string}
+       */
+      naKind?: "unverified";
       /** @description Optional. Estimated points fully fixing this check would add to the overall 0-100 score, already normalized to the layer weight. Present on actionable (fail/warning) checks only; an estimate, not exact. This is the uplift signal - do not read maxScore minus score as score uplift. */
       estScoreGain?: number;
     };
@@ -2656,6 +2832,8 @@ export interface operations {
           siteType?: "content" | "business" | "app" | "store";
           /** @description Optional, defaults to false. A few checks confirm that an endpoint the site declares for agents enforces what it declares by sending it a request that must be refused (for example an unauthenticated POST). Pass true to send those requests for this scan; without it the affected checks reuse the domain's previous result where one exists. */
           activeProbes?: boolean;
+          /** @description Optional. The published scoring version to use for this request. Omitted, the request uses the version pinned to your API key, else the public version. An unpublished or unknown version answers 400 `scoring_version_unavailable` listing the published versions; a value that is not a positive integer answers 400 `invalid_scoring_version`. Until release management is active, a request can name 3 (the same opt-in as the older `rankerVersion: 3`) or the version it would run anyway; any other version answers 400. A version other than the one a domain was last scanned under has no stored result yet, so the first scan of a domain under it runs live. */
+          scoringVersion?: number;
         };
       };
     };
@@ -2678,7 +2856,7 @@ export interface operations {
       /** @description Scan accepted and scored, but analysis is still in progress (analysisStatus is 'partial'). The body is the same shape as a 200 (including `competitors` when `?competitors=1` was passed, and `#/components/schemas/AuditScanResult` when `?format=audit` was passed). Poll the Location header URL (GET /api/score/{domain}) until analysisStatus is 'complete' and pendingChecks is empty. */
       202: {
         headers: {
-          /** @description URL of the scan result resource to poll, e.g. /api/score/stripe.com */
+          /** @description URL of the scan result resource to poll. Managed scans include scanId; preserve the complete Location URL. */
           Location?: string;
         };
         content: {
@@ -2819,6 +2997,8 @@ export interface operations {
         ephemeral?: "1";
         /** @description Pass 1 to send the requests a few checks send to endpoints the site declares for agents - the query spelling of `activeProbes: true` on POST /api/scan. Absent, they are not sent. */
         activeProbes?: "1";
+        /** @description Optional. The published scoring version to use for this request. Omitted, the request uses the version pinned to your API key, else the public version. An unpublished or unknown version answers 400 `scoring_version_unavailable` listing the published versions; a value that is not a positive integer answers 400 `invalid_scoring_version`. Until release management is active, a request can name 3 (the same opt-in as the older `rankerVersion: 3`) or the version it would run anyway; any other version answers 400. A version other than the one a domain was last scanned under has no stored result yet, so the first scan of a domain under it runs live. */
+        scoringVersion?: number;
         /** @description Pass `audit` to receive the versioned, allowlisted audit shape (AuditScanResult / AuditScoreResult) instead of the default body: every field is documented, carries a `contractVersion`, and internal fields are dropped. Omit it and the response is unchanged from previous releases. On GET /api/scan/stream, only the `scan_complete` event's `result` is projected - all other events are identical to the default stream. */
         format?: "audit";
         /** @description Opt-in expansion list (comma-separated). Experimental: the audit schemas declare `siteType` only as a loose object, so its inner fields may change without a version bump, and pinning the contract major does not freeze them. `siteType` adds one response key, `siteType`: the same scan scored against what the site is (`content`, `business`, `app`, or `store`). It carries `type`, `source` (`declared`, `self-declared`, `classified`, `default`, `blocked`, or `unavailable`), `confidence` (`high` or `low`), `basis`, `score` (0-100 or null), per-layer `layers` (`id`, `score`, `maxScore`), per-check `states` (`req`, `bonus`, `gated`, or `emerging`), and `gatedOut` (each excluded check id with the gate that excluded it). A site-type score uses a different rubric from the canonical `score` and can land above or below it: never compare the two, only another `siteType.score` of the same `type`. When no type resolves, the key is `{ type: null, source: "unavailable", confidence: "low", score: null, layers: [] }` with a `basis` saying why. On the stream the key rides the `scan_complete` event beside `result`, never inside it. */
@@ -2828,7 +3008,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Server-Sent Events stream of scan progress. If MCP authentication is required, the stream ends with an error event carrying code MCP_AUTH_REQUIRED, mcpAuthRequired: true, mcpUrl and urlKind, without scan_complete or a score. With `?format=audit`, the `scan_complete` event's `result` is `#/components/schemas/AuditScanResult`; every other event is unchanged. When a stored result inside the freshness window answers the request, the stream is a `kind_detected` frame followed by a terminal `scan_complete` event carrying `servedFromCache: true` and `resultAgeSeconds`, and the response carries an `Age` header. After `scan_complete`, a live scan may emit two correction events before the stream closes, both optional: `relevance_assessed` (`{ naCheckIds, reasons, score, grade }`, only when some checks are judged not applicable for this product) carries the corrected `score` and `grade`, and `summary_ready` (`{ agenticSummary }`) carries the summary. Consume events until the stream closes. Closing does not mean the analysis is final: when deep checks are still pending, the stream closes early and a background worker finishes relevance and summary later. Read GET /api/score/{domain} after the stream closes and poll it while `analysisStatus` is `partial`. A freshness-window hit is already final and emits neither event. Event types (the `type` field), in emission order: `kind_detecting` - reachability passed and URL-kind detection is running (no payload); `kind_detected` - detection resolved: `{ kind: 'domain' | 'mcp' | 'mcp-app', mcpUrl?, embeddedMcpUrls?, hint? }`, exactly once, before any `check_start`; `discovery_phase` (optional) - a context-gathering step, or after `scan_complete` a post-scan finalize step: `{ step, label?, stepIndex?, totalSteps? }`, zero or more times; `scan_init` - the check plan: `{ layerMaxScores, totalChecks?, checkRoster?, staticOnly? }`; may be sent twice, the later one is authoritative; `check_start` - one check slot started: `{ layerId, layerName, checkId, checkName, mcpKind?, mcpUrl? }`; `check_complete` - one check slot finished: `{ layerId, layerName, checkId, checkName, status, score, maxScore, details?, bonus?, maturity?, mcpKind?, mcpUrl? }`; `layer_complete` - every check in a layer finished: `{ layerId, layerName }`; `scan_complete` - the scored result, not the last frame: `{ result }` (AuditScanResult under `?format=audit`), plus `siteType` with `?include=siteType` and `servedFromCache` / `resultAgeSeconds` on a freshness hit; `relevance_assessed` (optional) - after `scan_complete`, only when checks were judged not applicable: `{ naCheckIds, reasons, score, grade }` with the corrected score and grade; `summary_ready` (optional) - after `scan_complete`: `{ agenticSummary }`; `error` (terminal, optional) - the scan failed and no `scan_complete` follows: `{ message }`, plus `code: 'MCP_AUTH_REQUIRED'`, `mcpAuthRequired`, `mcpUrl` and `urlKind` when an MCP server requires authentication. Read until the stream closes; only a terminal event is guaranteed to be the last frame. */
+      /** @description Server-Sent Events stream of scan progress. If MCP authentication is required, the stream ends with an error event carrying code MCP_AUTH_REQUIRED, mcpAuthRequired: true, mcpUrl and urlKind, without scan_complete or a score. With `?format=audit`, the `scan_complete` event's `result` is `#/components/schemas/AuditScanResult`; every other event is unchanged. When a stored result inside the freshness window answers the request, the stream is a `kind_detected` frame followed by a terminal `scan_complete` event carrying `servedFromCache: true` and `resultAgeSeconds`, and the response carries an `Age` header. After `scan_complete`, a live scan may emit two correction events before the stream closes, both optional: `relevance_assessed` (`{ naCheckIds, reasons, score, grade }`, only when some checks are judged not applicable for this product) carries the corrected `score` and `grade`, and `summary_ready` (`{ agenticSummary }`) carries the summary. Consume events until the stream closes. Closing does not mean the analysis is final: when deep checks are still pending, the stream closes early and a background worker finishes relevance and summary later. Read GET /api/score/{domain} after the stream closes and poll it while `analysisStatus` is `partial`. When present, preserve `result.scanId` as the scanId query parameter. Managed live progress frames carry the same optional scanId after allocation, so early deep-check polling can use it. A freshness-window hit is already final and emits neither event. Event types (the `type` field), in emission order: `kind_detecting` - reachability passed and URL-kind detection is running (no payload); `kind_detected` - detection resolved: `{ kind: 'domain' | 'mcp' | 'mcp-app', mcpUrl?, embeddedMcpUrls?, hint? }`, exactly once, before any `check_start`; `discovery_phase` (optional) - a context-gathering step, or after `scan_complete` a post-scan finalize step: `{ step, label?, stepIndex?, totalSteps? }`, zero or more times; `scan_init` - the check plan: `{ layerMaxScores, totalChecks?, checkRoster?, staticOnly? }`; may be sent twice, the later one is authoritative; `check_start` - one check slot started: `{ layerId, layerName, checkId, checkName, mcpKind?, mcpUrl? }`; `check_complete` - one check slot finished: `{ layerId, layerName, checkId, checkName, status, score, maxScore, details?, bonus?, naKind?, maturity?, mcpKind?, mcpUrl? }`; `layer_complete` - every check in a layer finished: `{ layerId, layerName }`; `scan_complete` - the scored result, not the last frame: `{ result }` (AuditScanResult under `?format=audit`), plus `siteType` with `?include=siteType` and `servedFromCache` / `resultAgeSeconds` on a freshness hit; `relevance_assessed` (optional) - after `scan_complete`, only when checks were judged not applicable: `{ naCheckIds, reasons, score, grade }` with the corrected score and grade; `summary_ready` (optional) - after `scan_complete`: `{ agenticSummary }`; `error` (terminal, optional) - the scan failed and no `scan_complete` follows: `{ message }`, plus `code: 'MCP_AUTH_REQUIRED'`, `mcpAuthRequired`, `mcpUrl` and `urlKind` when an MCP server requires authentication. Read until the stream closes; only a terminal event is guaranteed to be the last frame. */
       200: {
         content: {
           "text/event-stream": string;
@@ -2894,6 +3074,10 @@ export interface operations {
   getScore: {
     parameters: {
       query?: {
+        /** @description Read the exact managed scan returned by a scan response. Keep the original target and scanId when polling after a release or partner assignment changes. Only published standard or preparation scans are readable; previews are hidden. A missing or mismatched ID never falls back to the current scan. */
+        scanId?: number;
+        /** @description Optional. The published scoring version to use for this request. Omitted, the request uses the version pinned to your API key, else the public version. An unpublished or unknown version answers 400 `scoring_version_unavailable` listing the published versions; a value that is not a positive integer answers 400 `invalid_scoring_version`. Until release management is active, a request can name 3 (the same opt-in as the older `rankerVersion: 3`) or the version it would run anyway; any other version answers 400. A version other than the one a domain was last scanned under has no stored result yet, so the first scan of a domain under it runs live. */
+        scoringVersion?: number;
         /** @description Pass 1 to include a `competitors` object in the response: the category top-5 leaders plus the neighbor window (2 above / self / 2 below) drawn from the leaderboard. Returned only for domains with a market category - unclassified domains (Community, or no leaderboard row) get `competitors: null`. Omitted by default so the plain response stays lean. */
         competitors?: "1";
         /** @description Pass `audit` to receive the versioned, allowlisted audit shape (AuditScanResult / AuditScoreResult) instead of the default body: every field is documented, carries a `contractVersion`, and internal fields are dropped. Omit it and the response is unchanged from previous releases. On GET /api/scan/stream, only the `scan_complete` event's `result` is projected - all other events are identical to the default stream. */
@@ -2904,7 +3088,7 @@ export interface operations {
         siteType?: "content" | "business" | "app" | "store";
       };
       path: {
-        /** @description The domain to look up (e.g. stripe.com). URL-encoded full URLs are normalized to their hostname. */
+        /** @description The domain to look up (e.g. stripe.com). Without scanId, URL-encoded full URLs are normalized to their hostname. With scanId, use the exact scanned target; MCP endpoints retain their full URL, including a meaningful trailing slash. */
         domain: string;
       };
     };
@@ -2925,10 +3109,14 @@ export interface operations {
           };
         };
       };
-      /** @description No cached score for this domain. Body includes `code: "DOMAIN_NOT_SCANNED"` and a `next_action` pointing at `POST /api/scan` (`nextAction`, camelCase, under `?format=audit`). */
+      /** @description The scanId is not a positive integer. */
+      400: {
+        content: never;
+      };
+      /** @description Without scanId, no cached score for this domain. With scanId, code scan_not_found means the target/ID is missing or not public; scan_result_pending means that exact scan has not written a result yet. Neither falls back to the current row. The domain miss body includes `code: "DOMAIN_NOT_SCANNED"` and a `next_action` pointing at `POST /api/scan` (`nextAction`, camelCase, under `?format=audit`). */
       404: {
         content: {
-          "application/json": components["schemas"]["NotScannedResponse"];
+          "application/json": components["schemas"]["NotScannedResponse"] | components["schemas"]["ErrorResponse"];
         };
       };
       /** @description MCP authentication is required. No score or grade was produced. The failed attempt does not overwrite a previous measured scan. */
@@ -2949,6 +3137,45 @@ export interface operations {
       };
       /** @description Database unavailable */
       500: {
+        content: never;
+      };
+      /** @description The partner scoring assignment or deployed scoring rules are unavailable. */
+      503: {
+        content: never;
+      };
+    };
+  };
+  /**
+   * Poll deep checks for a scan
+   * @description Returns checks and completion state for the caller's assigned scan. Pass the scanId from the original response to keep reading that scan after an assignment changes. With scanId, domain can be the URL-encoded exact MCP endpoint. Responses are never cached.
+   */
+  getDeepChecks: {
+    parameters: {
+      query?: {
+        /** @description Read the exact managed scan returned by a scan response. Keep the original target and scanId when polling after a release or partner assignment changes. Only published standard or preparation scans are readable; previews are hidden. A missing or mismatched ID never falls back to the current scan. */
+        scanId?: number;
+      };
+      path: {
+        domain: string;
+      };
+    };
+    responses: {
+      /** @description The selected scan's deep-check state */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DeepCheckResponse"];
+        };
+      };
+      /** @description Invalid scanId. */
+      400: {
+        content: never;
+      };
+      /** @description The exact scan is missing, belongs to another target, or is not public. */
+      404: {
+        content: never;
+      };
+      /** @description Scoring assignment or deep-check results unavailable. */
+      503: {
         content: never;
       };
     };
@@ -2978,14 +3205,56 @@ export interface operations {
     };
   };
   /**
+   * Read the rules for a published scoring version
+   * @description Returns the scored checks, layer weights, grade thresholds and score formula for the requested version. A frozen version returns exactly the rules it was frozen with. Before managed publication, the current default and explicitly available legacy scoring versions are readable with publishedAt set to null. After managed publication, unpublished candidates are not public. No authentication required; responses use Cache-Control: no-store and Access-Control-Allow-Origin: *.
+   */
+  getScoringRules: {
+    parameters: {
+      path: {
+        /** @description The scoringVersion returned by a scan, score or catalog response. */
+        version: number;
+      };
+    };
+    responses: {
+      /** @description The scoring rules */
+      200: {
+        content: {
+          "application/json": components["schemas"]["ScoringRules"];
+        };
+      };
+      /** @description Invalid scoring version */
+      400: {
+        content: never;
+      };
+      /** @description Unknown or unpublished scoring version */
+      404: {
+        content: never;
+      };
+      /** @description Rate limit exceeded: 60 requests per minute per IP */
+      429: {
+        headers: {
+          /** @description Seconds until the next allowed request */
+          "Retry-After"?: number;
+        };
+        content: never;
+      };
+      /** @description Rules unavailable, including a mismatch between published rules and this deployment */
+      503: {
+        content: never;
+      };
+    };
+  };
+  /**
    * Get the complete catalog of scanner checks
-   * @description Returns every check the ora scanner can run - stable id, scored layer, max score, applicability, eligible scan kinds, tier, maturity, and fix guidance per check, plus the four scored layers with their weights. Check ids are stable: gate CI on an explicit id list, not on tiers (the required set can grow on a minor version). Ids are also what POST /api/scan/checks takes, and every check carries a `beta` boolean for building check pickers - a beta check runs but cannot affect any score. The document is static and byte-stable between check-set changes, so diffing it detects catalog updates. One optional parameter: `?include=essentials` adds `essentialsTier`, `essentialsBonusOnly`, and `essentialsExcluded` (the essentials-model classification; excluded checks are ignored by that model outright) to every check; without it the body is byte-identical to previous releases. Sends Access-Control-Allow-Origin: * and is CDN-cached for 1 hour. Rate limited to 60 requests per minute per IP - returns 429 with a Retry-After header if exceeded.
+   * @description Returns every check the ora scanner can run - stable id, scored layer, max score, applicability, eligible scan kinds, tier, maturity, and fix guidance per check, plus the four scored layers with their weights. Check ids are stable: gate CI on an explicit id list, not on tiers (the required set can grow on a minor version). Ids are also what POST /api/scan/checks takes, and every check carries a `beta` boolean for building check pickers - a beta check runs but cannot affect any score. The catalog follows the public scoring version or the partner API key's assigned version; scoringVersion and rulesUrl identify its rules. One optional parameter: `?include=essentials` adds `essentialsTier`, `essentialsBonusOnly`, and `essentialsExcluded` (the essentials-model classification; excluded checks are ignored by that model outright) to every check; without it those fields are omitted. Sends Access-Control-Allow-Origin: *. Keyed or managed-release responses use private, no-store; anonymous legacy responses are CDN-cached for 1 hour. Rate limited to 60 requests per minute per IP - returns 429 with a Retry-After header if exceeded.
    */
   listChecks: {
     parameters: {
       query?: {
         /** @description Opt-in expansion list (comma-separated). `essentials` adds one response key, `essentials`: an alternate reading of the same scan carrying its own `score` (0-100 or null - required checks share 80 points, recommended 20, forward-looking signals upside-only), the required/recommended buckets, label copy, per-surface sub-scores, access signals, and a `checks` map keyed by check id. That map holds the essentials INTERPRETATION only (tier, bonus, fraction, occurrences, `essentialsGain`) - name, status, details, ora's recommendation, and `estScoreGain` for the same id stay in `layers[].checks[]`, so nothing serializes twice; join on the id. The pre-sorted `issues` list and `scoreEvidence` are arrays of ids resolving in that map. Omit the parameter and the response is byte-identical to previous releases. On GET /api/checks, `essentials` instead adds `essentialsTier`, `essentialsBonusOnly`, and `essentialsExcluded` to every catalog check (an excluded check never enters the essentials model; since 1.19.1 that is the two robots.txt policy checks). */
         include?: "essentials";
+        /** @description Optional. The published scoring version to use for this request. Omitted, the request uses the version pinned to your API key, else the public version. An unpublished or unknown version answers 400 `scoring_version_unavailable` listing the published versions; a value that is not a positive integer answers 400 `invalid_scoring_version`. Until release management is active, a request can name 3 (the same opt-in as the older `rankerVersion: 3`) or the version it would run anyway; any other version answers 400. A version other than the one a domain was last scanned under has no stored result yet, so the first scan of a domain under it runs live. */
+        scoringVersion?: number;
       };
     };
     responses: {
