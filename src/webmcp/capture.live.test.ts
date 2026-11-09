@@ -48,9 +48,11 @@ const PAGE = `<!doctype html>
   if (mc) {
     mc.registerTool({
       name: "search_books",
+      title: "Search books",
       description: "Search the catalogue by title or author and return matches.",
       inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-      annotations: { readOnlyHint: true },
+      outputSchema: { type: "object", properties: { matches: { type: "array" } } },
+      annotations: { readOnlyHint: true, consequentialHint: false, debugging: false },
       async execute({ query }) { return { content: [{ type: "text", text: "no results for " + query }] }; },
     });
   }
@@ -124,6 +126,15 @@ describe.skipIf(!LIVE)("captureLocally against a real Chrome", () => {
 		expect(tool.entryPoint).toBe("document");
 		expect(tool.hasExecute).toBe(true);
 		expect(tool.annotations.readOnlyHint).toBe(true);
+		// The spec's newer annotation keys, top-level title and outputSchema all
+		// survive the trip from the shim to the contract, as on ora's worker.
+		expect(tool.annotations.consequentialHint).toBe(false);
+		expect(tool.annotations.debugging).toBe(false);
+		expect(tool.title).toBe("Search books");
+		expect(tool.outputSchema).toEqual({
+			type: "object",
+			properties: { matches: { type: "array" } },
+		});
 		// Timed from navigation, so a registration that happened is a number.
 		expect(typeof tool.registrationMs).toBe("number");
 

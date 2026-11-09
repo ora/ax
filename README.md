@@ -158,7 +158,7 @@ present in order to call your tools.
 passes and the same probe code ora's worker runs, plus a viewport screenshot at ora's 1280×720. As
 ora does, it loads the page with images, media and webfonts refused — stylesheets still apply — so
 the screenshot the grader sees is the one ora would have taken. That capture is
-posted to ora, which runs its 19 checks, two model hops and the tool-selection simulation, and
+posted to ora, which runs its 20 checks, two model hops and the tool-selection simulation, and
 streams back a score. The CLI never calls your tools, so the three checks that need a tool call
 (`invoke-success-rate`, `visible-effect`, `hint-vs-observed`) read `Not applicable` on a local
 audit. The CLI scores nothing itself (design decision #1) — grade, findings,

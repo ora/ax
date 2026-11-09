@@ -66,7 +66,8 @@ export type WebmcpAuditStatus =
  *  - `tool-quality` (25): are the tool contracts built right - schemas,
  *    descriptions, names, handlers, entry points, registration health.
  *  - `trust` (20): can an agent trust what the tools declare - honest
- *    behaviour hints, no instruction-override surface in the metadata.
+ *    behaviour hints, consequential actions marked as such, no
+ *    instruction-override surface in the metadata.
  */
 export type WebmcpCategory =
   | "shared-experience"
@@ -157,6 +158,10 @@ export type WebmcpCheckId =
   | "annotation-mismatch"
   | "injection-surface"
   | "untrusted-content-hint"
+  // 2026-10-19: consequentialHint (in the spec since 2026-09-03, first pinned
+  // by Ora at the 2026-10-16 snapshot; spec 6.4.5, the misrepresentation-of-
+  // intent mitigation).
+  | "consequential-hint"
   | "registration-errors"
   | "human-parity"
   | "page-experience"
@@ -167,26 +172,42 @@ export type WebmcpCheckId =
   | "invoke-success-rate"
   | "hint-vs-observed";
 
+/**
+ * Page-declared annotations as captured. Observer vocabulary: WebMCP's four
+ * ToolAnnotations keys (readOnlyHint, untrustedContentHint, consequentialHint,
+ * debugging - the last two new in Ora's 2026-10-16 pin) beside the MCP-only
+ * hints and `title` that sites in the wild also put there, so checks can name
+ * those mistakes. Carried, never recommended.
+ */
 export interface WebmcpToolAnnotations {
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
   idempotentHint?: boolean;
   openWorldHint?: boolean;
   untrustedContentHint?: boolean;
+  consequentialHint?: boolean;
+  debugging?: boolean;
   title?: string;
 }
 
 /** One tool discovered on a captured page, however it was registered. */
 export interface WebmcpTool {
   name: string;
+  /** The spec's top-level human-readable `title`; `null` when the page
+   * declared none, absent on captures from before 2026-10-19 (not recorded,
+   * which is not the same claim as "not declared"). */
+  title?: string | null;
   description: string;
   via: "imperative" | "declarative";
   entryPoint: "navigator" | "document" | "provideContext" | "form";
   /** Page the tool was discovered on (a capture can cover multiple pages). */
   pageUrl: string;
-  /** Raw JSON Schema the tool declares for its input - shape is unvalidated
-   * here; `schema-validity` / `schema-quality` checks parse it. */
+  /** Input JSON Schema as the page registered it (imperative), or as Chrome 151 synthesizes it from a declarative
+   * form (a Chrome preview the spec does not define). Unvalidated here; only imperative schemas are graded. */
   inputSchema: unknown;
+  /** Output JSON Schema as the page registered it (a spec member since 2026-11-02); absent on older captures
+   * and on tools that declared none. Kept off the public projection. */
+  outputSchema?: unknown;
   annotations: WebmcpToolAnnotations;
   hasExecute: boolean;
   /** Time from navigation to this tool appearing in the registry, or `null`

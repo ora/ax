@@ -243,9 +243,11 @@ export interface WebmcpPageFacts {
   /** Number of tools the native getTools() surface returned. `null` means the
    * API could not enumerate tools, which is unverified rather than empty. */
   nativeToolCount: number | null;
-  /** Declarative `[toolname]` tools found in the DOM. */
+  /** Declarative `[toolname]` forms found in the DOM: observed, never
+   * counted as tools (the 2026-10-16 draft removed the declarative API). */
   declarativeToolCount: number;
-  /** Live tools in the capture, declarative and imperative together. */
+  /** WebMCP tools in the capture: imperative registrations only. A page with
+   * declarative forms and nothing else is not a WebMCP page. */
   toolCount: number;
   /** The page redefined `modelContext` over the shim on some entry point, so
    * an empty imperative capture is not evidence of absence. */
@@ -291,6 +293,27 @@ export function deriveVerdict(facts: WebmcpPageFacts): WebmcpVerdict {
 
   if (hasStaticEvidence(facts.staticSignals)) return "declared-inactive";
 
+  return "absent";
+}
+
+/**
+ * The audit verdict once declarative forms stop counting as tools. A worker
+ * verdict of `active` or `testing-only` over a capture with no imperative
+ * tool cannot stand: the native registry can list forms (Chrome's preview
+ * implements them) and a worker older than the 2026-10-19 change counted
+ * them, but the spec does not define forms, so the page has no WebMCP tools.
+ * It falls to the empty verdict its other facts support. Applied app-side
+ * so the answer does not depend on which worker produced the capture.
+ */
+export function verdictWithoutForms(
+  verdict: WebmcpVerdict,
+  webmcpToolCount: number,
+  observed: { nativeApi: boolean; staticEvidence: boolean },
+): WebmcpVerdict {
+  if (webmcpToolCount > 0) return verdict;
+  if (verdict !== "active" && verdict !== "testing-only") return verdict;
+  if (observed.nativeApi) return "api-empty";
+  if (observed.staticEvidence) return "declared-inactive";
   return "absent";
 }
 

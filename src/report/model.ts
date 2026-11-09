@@ -11,7 +11,15 @@ export interface ReportCheck {
 	id: string;
 	name: string;
 	passed: boolean;
+	/** Kept out of every count: not applicable, pending, or could not be checked. */
 	skipped?: boolean;
+	/**
+	 * The check applies but ora could not check it (`naKind: "unverified"`): a
+	 * bot shield answered instead of the site, the server wanted credentials,
+	 * or a request went unanswered. Skipped like any `na`, but reported as
+	 * "couldn't verify" rather than as not applicable.
+	 */
+	unverified?: boolean;
 	/** The finding — what the scan observed. */
 	detail?: string;
 	/** The fix — what to implement (the payload's `recommendation`). */
@@ -31,7 +39,10 @@ export interface ReportSection {
 	passed: number;
 	/** Non-skipped check count. */
 	total: number;
+	/** Not applicable or pending. Excludes `unverified`. */
 	skipped: number;
+	/** Applies but could not be checked (`naKind: "unverified"`). */
+	unverified: number;
 }
 
 export interface Report {
@@ -56,17 +67,20 @@ export interface Report {
 
 export function sectionOf(name: string, checks: ReportCheck[]): ReportSection {
 	const counted = checks.filter((c) => !c.skipped);
+	const unverified = checks.filter((c) => c.unverified).length;
 	return {
 		name,
 		checks,
 		passed: counted.filter((c) => c.passed).length,
 		total: counted.length,
-		skipped: checks.length - counted.length,
+		skipped: checks.length - counted.length - unverified,
+		unverified,
 	};
 }
 
 function convertCheck(raw: AuditResult["layers"][number]["checks"][number]): ReportCheck {
-	// pass → passed; na/pending → skipped (kept out of every count);
+	// pass → passed; na/pending → skipped (kept out of every count), with an
+	// na that ora marks `naKind: "unverified"` flagged as couldn't-verify;
 	// fail/warning/error all surface as issues (warning just gets a softer glyph).
 	const passed = raw.status === "pass";
 	const skipped = raw.status === "na" || raw.status === "pending";
@@ -78,6 +92,7 @@ function convertCheck(raw: AuditResult["layers"][number]["checks"][number]): Rep
 		status: raw.status,
 	};
 	if (skipped) check.skipped = true;
+	if (raw.status === "na" && raw.naKind === "unverified") check.unverified = true;
 	if (skipped && raw.naReason) check.detail = raw.naReason;
 	else if (raw.details) check.detail = raw.details;
 	if (typeof raw.estScoreGain === "number") check.estScoreGain = raw.estScoreGain;
