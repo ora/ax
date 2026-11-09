@@ -165,9 +165,10 @@ function sectionLines(
 
 	const tally =
 		section.total > 0 ? `${section.passed}/${section.total} passed` : "no applicable checks";
+	const unverifiedTail = section.unverified > 0 ? ` · ${section.unverified} couldn't verify` : "";
 	const skipTail = section.skipped > 0 ? ` · ${section.skipped} skipped` : "";
 	lines.push(
-		`  ${pc.bold(padTo(section.name, label))}  ${meter(section.passed, section.total)} ${pc.dim(tally + skipTail)}`,
+		`  ${pc.bold(padTo(section.name, label))}  ${meter(section.passed, section.total)} ${pc.dim(tally + unverifiedTail + skipTail)}`,
 	);
 
 	// Payload order throughout: ora already orders checks, and the ranked view
@@ -194,6 +195,24 @@ function sectionLines(
 		}
 	}
 
+	// Checks that apply but could not be checked (a bot shield answered, the
+	// server wanted credentials, a request went unanswered). Not counted for or
+	// against the score, but shown by default: unlike a not-applicable skip,
+	// the site may be blocking agents.
+	const unverified = section.checks.filter((c) => c.unverified);
+	if (unverified.length) {
+		lines.push(`    ${pc.yellow("?")} ${pc.bold(`Couldn't verify (${unverified.length})`)}`);
+		const grid = tableLines(
+			pairCols(
+				term,
+				unverified.map((c) => c.name),
+				["Check", "What happened"],
+			),
+			unverified.map((c) => [c.name, c.detail ?? ""]),
+		);
+		lines.push(...grid.map((row) => `    ${row}`));
+	}
+
 	if (view.showPassing) {
 		const passing = section.checks.filter((c) => c.passed && !c.skipped);
 		if (passing.length) {
@@ -211,7 +230,7 @@ function sectionLines(
 	}
 
 	if (view.showSkipped) {
-		const skipped = section.checks.filter((c) => c.skipped);
+		const skipped = section.checks.filter((c) => c.skipped && !c.unverified);
 		if (skipped.length) {
 			lines.push(`    ${pc.dim(`○ Skipped (${skipped.length})`)}`);
 			const grid = tableLines(
