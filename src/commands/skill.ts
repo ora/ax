@@ -89,9 +89,11 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 		const message = cause instanceof Error ? cause.message : String(cause);
 		// An unknown name is a usage mistake; everything else is registry trouble.
 		const unknown = cause instanceof SkillApiError && cause.code === "UNKNOWN_SKILL";
+		const json = input.json ? ["--json"] : [];
 		const retry = axCall([
 			"skill",
 			...(input.name ? [input.name] : []),
+			...json,
 			...(input.install ? ["--install"] : []),
 			...(input.dir ? ["--dir", input.dir] : []),
 		]);
@@ -100,7 +102,7 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 				code: cause instanceof SkillApiError ? cause.code : "REGISTRY_ERROR",
 				message,
 				next: unknown
-					? { call: axCall(["skill"]), why: "list the skills the registry has" }
+					? { call: axCall(["skill", ...json]), why: "list the skills the registry has" }
 					: { call: retry, why: "retry; the registry may be briefly unreachable" },
 			},
 			{
