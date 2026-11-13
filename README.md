@@ -18,18 +18,19 @@
 npx ax audit https://stripe.com
 ```
 
-**No account, no API key.** Everything below works out of the box. The exceptions are [`journey`](#for-ora-partners) and `audit --tunnel ora`, which need an ora platform key, and `deep-journey --task`, which needs a partner key.
+**No account, no API key** for `audit`, `webmcp-audit`, `deep-journey`, `skill` and `generate-files`. The exceptions are [`trial`](#trial), [`journey`](#journey) and `audit --tunnel ora`, which need a Front API key from your Front account at app.ora.ai, and `deep-journey --task`, which needs a partner key.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ora/ax/main/.github/assets/demo.gif" width="880" alt="ax audit https://stripe.com — live progress, then the layered report and ora's ranked top fixes" />
 </p>
 
-Six commands:
+Seven commands:
 
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
 - **`deep-journey <url>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks free-text tasks (`--task`) and a larger allowance.
-- **`journey "<intent>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)).
+- **`trial <site>`** - send real agents at one site on the same tasks, with a different amount of help in each prompt, and count how often they finish. It shows where agents lose your site. Runs on your Front account at app.ora.ai and needs a Front API key.
+- **`journey "<intent>"`** - send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Needs a Front API key in `ORA_API_KEY` (see [Setup](#setup)).
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
@@ -97,7 +98,7 @@ Budget notes: ora allows 30 scans + 6 `--force` scans per rolling 24h per IP (pl
 
 A local dev server only exists on your machine, so ora can't reach it. The simplest option is to audit a publicly reachable deployment of the same code (e.g. a preview URL). To audit localhost itself, run it through a tunnel. The result is stored as **ephemeral** either way: excluded from ora's rankings and leaderboard, served with `Cache-Control: no-store`, never indexed, and deleted after 7 days.
 
-**ora's own tunnel.** With an ora platform key (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done — nothing to install, nothing left behind:
+**ora's own tunnel.** With a Front API key (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done - nothing to install, nothing left behind:
 
 ```
 ax audit localhost:3000 --tunnel ora
@@ -255,6 +256,142 @@ deep-journey exit codes: `0` run succeeded (any verdict) · `1` run failed · `2
 
 This differs from `ax journey` (below), which drives the authenticated platform with free-text goals and renders the full trajectory graph; `deep-journey` is the zero-setup public path.
 
+## trial
+
+```
+npx ax trial run linear.app --task "Find how to create an issue from the API" --exact https://linear.app/developers --repeat 3
+```
+
+A trial sends real agents at one site on tasks you write, gives each run a different amount of help, and counts how often the platform judges the task done. The gap between two levels points at the layer where agents lose your site: Discovery, or Access and Usability.
+
+The example above is 1 task at 3 levels (the task names no site, so the need level runs; there is no `--docs`, so the docs level does not), with 1 agent and 3 repeats: 9 runs. The preview says so before anything launches.
+
+A trial is one site, 1 to 5 tasks, up to 4 levels of help, 1 to 4 agents and 1 to 10 repeats, and never more than 200 runs. ax counts runs per cell (a task, a level and an agent) and shows a rate from 5 gradable runs. Below that it shows the counts alone.
+
+### Get a key
+
+Trials run on your Front account. Sign up at app.ora.ai with a work email (personal addresses are not accepted), then create an API key in your account settings with these scopes: `journeys:write`, `journeys:read`, `runs:read`, `runs:write`, `intents:read`. Set it as `ORA_API_KEY`. The Free plan includes a monthly number of runs; the preview shows what is left before anything runs.
+
+A partner key raises limits on ora.ai's single runs; a Front API key runs trials on your Front account.
+
+### Commands
+
+```
+ax trial run <site> --task "..." [--task ...] [--agents <harness[/model]>,...] [--brand <name>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]
+ax trial view <id> [--wait <minutes>] [--json]
+ax trial list [--json]
+ax trial cancel <id> [--json]
+```
+
+| Flag | Effect |
+|---|---|
+| `<site>` | A domain or an http(s) URL. A leading `www.` is dropped (`https://www.linear.app` is `linear.app`); other subdomains stay |
+| `--task <text>` | A task for the agent. Repeat the flag for up to 5 tasks |
+| `--agents <list>` | 1 to 4 agents as `harness` or `harness/model`, comma separated. Omit it and the trial uses the first agent your plan offers; the preview names it |
+| `--brand <name>` | The brand named in the brand and docs prompts. Default: the domain's name with a capital, so `linear.app` gives `Linear`. The preview names the brand it used |
+| `--docs <url>` | The documentation URL. Adds the docs level |
+| `--exact <url>` | The page the agent starts at. Adds the exact level |
+| `--repeat <n>` | Runs per task, level and agent, 1 to 10 (default 1) |
+| `--yes` | Launch without asking |
+| `--wait <minutes>` | How many minutes to follow the runs before stopping, a whole number of 1 or more (default 60). `view` takes it too |
+| `--json` | Print a JSON document on stdout instead of the report |
+
+The report goes to stdout. The preview, the prompt, progress and the other lines for a person go to stderr, so `ax trial run ... --json` pipes clean.
+
+### Levels
+
+Every level is one prompt template. No model writes a prompt. The task gets a period at the end unless it already ends in `.`, `?` or `!`.
+
+| Level | The prompt | Runs |
+|---|---|---|
+| Need only | The task as you wrote it | When the task does not name the site. A task that contains the domain, or the brand as a whole word, skips this level and the preview says which term it found |
+| Brand named | The task, then `Use {brand}.` | Always |
+| Docs linked | The task, then `Use {brand}. Its documentation is at {docs}.` | When you pass `--docs` |
+| Exact target | The task, then `Start at {exact}.` | When you pass `--exact` |
+
+A skipped level prints a line saying why and how to include it. The levels climb in that order, from least help to most.
+
+### The preview
+
+Before anything runs, `ax trial run` reads your key's scopes, the agents your plan offers and what is left of your plan's runs this month, then prints:
+
+- the run total, as tasks x levels x agents x repeats;
+- the agent it chose, when you did not pass `--agents`;
+- the brand it will use, and any level it skipped;
+- how many runs your plan has left this month, and the reset date when the platform gives one (a plan with no monthly limit says so);
+- that it adds the site to your Front account's tracked sites if it is not there yet (with a daily ora score scan, which does not count against your plan), and one journey per task, level and repeat to your journeys list.
+
+Then it asks `Launch N runs? [y/N]`. `--yes` skips the question. With no terminal to ask on and no `--yes`, it launches nothing and exits `2`.
+
+The preview refuses, and launches nothing, when:
+
+- the key is missing a scope (the message names which, and repeats the key steps above);
+- an agent name is unknown, unavailable to your account, or listed twice under different names for the same agent;
+- the plan offers no agent;
+- the trial would use more than 200 runs;
+- the trial needs more runs than your plan has left (it names the largest `--repeat` that fits, when one does).
+
+### The report
+
+One block per task: levels down, agents across. Each cell reads `60% (3 of 5)` from 5 gradable runs, and `3 of 4` below that. Under a cell, its other runs are counted on their own lines: excluded, never started, in flight, not graded yet and not gradable. The two flags below are counted there too.
+
+- The platform grades every run. ax never does. A partial verdict counts as gradable, not as satisfied.
+- A run that never started, failed, errored, timed out, was canceled or was lost is excluded. Excluded runs never count against your site.
+- A line like `linear.app loses agents at the Discovery layer: 1 of 5 runs satisfied at Need only, 4 of 5 at Brand named.` appears when two neighboring levels that ran differ clearly. It compares levels, summed over agents, never one agent against another. A gap into Brand named or Docs linked points at the Discovery layer, a gap into Exact target at the Access and Usability layers. With fewer than 5 gradable runs at either level it is marked an early signal. When a level does worse than the one below it, the line says so and names no layer.
+- At the need level the prompt does not name your site, so an agent can finish the task without using it.
+
+Two flags sit beside the verdicts as counts. They never change a verdict.
+
+- **blocked**: your site answered the agent's first request with a 401, 403 or 429, or answered more than half of its requests that way. ax uses the rule ora.ai uses for its own journey runs, copied from it, so the flag means the same thing in both. A 404 never counts.
+- **never visited**: the agent never opened a page on your site. ora.ai also flags a run that answered from the model's memory. A trial run carries no signal for that, so `never visited` is raised in its place.
+
+If a run's steps cannot be read, the run is left unflagged and ax says so on stderr.
+
+The report ends with a Next line: `ax trial view <id>` while runs are still going or waiting for a grade, otherwise `ax audit <site>`.
+
+When launching stopped at your plan's run limit, the wait ran out, reads kept failing or a run has no grade yet, the report prints what it has and says in one line why it is not complete. `--json` carries the same fact.
+
+### JSON
+
+`ax trial run`, `view` and `list` print a document ax builds, because no single platform payload exists for a trial. Statuses, verdicts and reasons are the platform's words. A rate is a fraction from 0 to 1, or `null` below 5 gradable runs. The Next line goes to stderr.
+
+`run` and `view` print:
+
+| Field | What it holds |
+|---|---|
+| `trialId`, `site`, `createdAt` | The trial's id, its site and when it was recorded |
+| `complete` | `true` only when launching ran to the end, following settled, and no run is going or waiting for a grade |
+| `levels` | Per task: its index, its text and the levels that ran |
+| `skippedLevels` | The levels left out, each with the note the preview printed |
+| `agents` | The report's columns, as `harness/model` |
+| `cells` | One entry per task, level and agent: the counts, the rate, the excluded runs by status, the flag counts |
+| `gaps` | The gap lines as data |
+| `shortLevels` | Levels that launched fewer runs than planned |
+| `journeys` | Each journey's id, task index, level and repeat |
+| `notLaunched`, `stoppedReason` | Runs that never started, and why launching stopped (`quota`, `platform_down`, `api_error`, `interrupted`), or `null` |
+| `ended` | How following ended: `settled`, `settle_limit`, `wait_limit`, `detached` or `read_failed` |
+
+`list --json` prints `{ "records": [...], "skipped": [...] }`. `cancel --json` prints the platform's answer unchanged.
+
+### The local record
+
+Each trial writes one file, `~/.ax/trials/<id>.json`, before it creates the first journey, and adds to it as each journey is created. An id looks like `t-0123456789`. The file holds the spec, the agents, the planned levels and each journey's id and run ids. It never holds your key or a token.
+
+- `ax trial view <id>` picks a trial up: it follows the runs, reads them and prints the same report, including from another terminal. Closing the terminal does not stop the runs.
+- `ax trial list` shows the trials recorded on this machine, newest first. It reads that folder and asks no server.
+- `ax trial cancel <id>` asks the platform to stop every run of the trial, then prints how many it canceled, how many had already finished and how many it skipped. Run `ax trial view <id>` afterward for what finished.
+
+Known gap: if ax crashes after the platform answers a create and before the record is written, that one journey's id is lost. Its runs still happen and still show in your account's journeys list.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | A report printed, complete or not. A launch stopped at your plan's run limit, or a wait that ran out, still exits `0` with the report and its reason. `list`, `cancel` and a declined prompt exit `0` too |
+| `2` | Usage: a bad flag or spec, a missing key, a key made for another product, an unknown trial id, or a refusal before launch |
+| `3` | The platform failed and there is no report (or `cancel` could not reach it): the key exchange failed, launching stopped on an error or because the platform stopped answering, or reads kept failing before any run was read. The Next lines name `ax trial view <id>` and, once a run started, `ax trial cancel <id>` |
+| `130` | Ctrl-C, after printing the `ax trial view <id>` line (and `ax trial cancel <id>` when it hit during launching) |
+
 ## skill
 
 ```
@@ -321,7 +458,9 @@ console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 
 ## For ora partners
 
-Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). Two kinds of key exist. `journey` (and `audit --tunnel ora`) needs an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and `deep-journey`, and the daily limit on `webmcp-audit`.
+Everything above runs without an account, except [`trial`](#trial) and `audit --tunnel ora`. Two kinds of key exist. A Front API key (`ora_sk_…`) is self-serve: [trial](#get-a-key) shows how to get one, and `journey` (and `audit --tunnel ora`) use it too. A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and `deep-journey`, and the daily limit on `webmcp-audit`. Partner and scan keys are still issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)).
+
+A partner key raises limits on ora.ai's single runs; a Front API key runs trials on your Front account.
 
 ### journey
 
@@ -375,7 +514,7 @@ Journey exit codes: `0` run outcome `success` · `1` non-success outcome · `2` 
 
 #### Setup
 
-`journey` needs an ora platform API key (scopes `runs:read` + `runs:write`):
+`journey` needs a Front API key (scopes `runs:read` + `runs:write`; to run trials too, create it with the scopes listed under [trial](#get-a-key)):
 
 ```sh
 export ORA_API_KEY=ora_sk_...        # your shell, CI secret store, etc.
@@ -393,10 +532,10 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
 | `ORA_API_URL` | audit, webmcp-audit, deep-journey, skill, generate-files | `https://ora.ai` | Public API base (no auth); also the ingest base for `webmcp-audit` |
-| `ORA_PLATFORM_URL` | journey, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
+| `ORA_PLATFORM_URL` | journey, trial, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_KEY` | journey, audit `--tunnel ora` | — (required for both) | ora platform key (`ora_sk_…`); exchanged for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes) |
+| `ORA_API_KEY` | journey, trial, audit `--tunnel ora` | none (required for all three) | Front API key (`ora_sk_…`, made in your Front account at app.ora.ai); exchanged for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes, trials the five scopes listed under [trial](#get-a-key)) |
 | `ORA_SCAN_API_KEY` | audit, deep-journey, webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). deep-journey and webmcp-audit accept it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | deep-journey, webmcp-audit | — (optional) | ora-issued partner API key; unlocks `--task` and the 1000/24h keyed allowance on deep-journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |
