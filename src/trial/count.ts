@@ -8,7 +8,7 @@ import type { Bucket } from "./outcome";
 /** Gradable runs a cell needs to show a rate, and a level needs for its gap lines not to be early signals. */
 export const RATE_FLOOR = 5;
 
-/** Satisfied runs two adjacent levels must differ by before a gap line prints. */
+/** Satisfied runs two adjacent levels must differ by before a gap line prints, at the smaller level's size. */
 export const GAP_MIN_DIFFERENCE = 2;
 
 /** The score layer that covers a gap, named by its upper level. Need is never the upper level. */
@@ -87,7 +87,10 @@ export interface GapLine {
 	task: number;
 	lower: LevelTotal;
 	upper: LevelTotal;
-	/** upper.satisfied - lower.satisfied: positive when more help satisfied more runs. */
+	/**
+	 * The rate gap in satisfied runs at the smaller level's size (upper.satisfied - lower.satisfied
+	 * when both have the same gradable runs): positive when more help satisfied more runs.
+	 */
 	difference: number;
 	layer: Layer;
 	/** Either level has fewer than RATE_FLOOR gradable runs. */
@@ -214,14 +217,20 @@ function levelTotal(cells: readonly CellCount[], task: number, level: Level): Le
 	};
 }
 
+/**
+ * The rate gap between two levels, in satisfied runs at the smaller level's size: the plain
+ * difference in satisfied runs when both levels have the same gradable runs. The threshold is
+ * compared in whole numbers, so no rounding decides whether a line prints.
+ */
 function gapBetween(task: number, lower: LevelTotal, upper: LevelTotal): GapLine | null {
-	const difference = upper.satisfied - lower.satisfied;
-	if (upper.level === "need" || Math.abs(difference) < GAP_MIN_DIFFERENCE) return null;
+	const crossed = upper.satisfied * lower.gradable - lower.satisfied * upper.gradable;
+	const larger = Math.max(lower.gradable, upper.gradable);
+	if (upper.level === "need" || Math.abs(crossed) < GAP_MIN_DIFFERENCE * larger) return null;
 	return {
 		task,
 		lower,
 		upper,
-		difference,
+		difference: crossed / larger,
 		layer: LEVEL_LAYER[upper.level],
 		earlySignal: lower.gradable < RATE_FLOOR || upper.gradable < RATE_FLOOR,
 	};

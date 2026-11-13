@@ -248,6 +248,54 @@ describe("gap lines", () => {
 		expect(gap).toMatchObject({ difference: -2, layer: "Access and Usability" });
 	});
 
+	it("compares rates, not counts, when the levels have different gradable runs", () => {
+		const BRAND_FIVE_OF_FIVE_EXACT_TWO_OF_TWO = [
+			...runsOf("brand", ["satisfied", "satisfied", "satisfied", "satisfied", "satisfied"]),
+			...runsOf("exact", ["satisfied", "satisfied", "excluded", "excluded", "excluded"]),
+		];
+		expect(
+			countTrial(BRAND_FIVE_OF_FIVE_EXACT_TWO_OF_TWO, shape([["brand", "exact"]], [AGENT_ONE], 5))
+				.gaps,
+		).toEqual([]);
+	});
+
+	it("scales a rate gap to the smaller level's gradable runs", () => {
+		const NEED_ONE_OF_SEVEN_BRAND_NINE_OF_NINE = [
+			...runsOf("need", [
+				"satisfied",
+				...Array<Bucket>(6).fill("unsatisfied"),
+				...Array<Bucket>(2).fill("excluded"),
+			]),
+			...runsOf("brand", Array<Bucket>(9).fill("satisfied")),
+		];
+		const [gap] = countTrial(
+			NEED_ONE_OF_SEVEN_BRAND_NINE_OF_NINE,
+			shape([["need", "brand"]], [AGENT_ONE], 9),
+		).gaps;
+		expect(gap).toMatchObject({
+			lower: { level: "need", satisfied: 1, gradable: 7 },
+			upper: { level: "brand", satisfied: 9, gradable: 9 },
+			difference: 6,
+		});
+	});
+
+	it("does not fire when the scaled gap is under 2, however far the counts differ", () => {
+		const DOCS_TWO_OF_FOUR_EXACT_SEVEN_OF_EIGHT = [
+			...runsOf("docs", [
+				"satisfied",
+				"satisfied",
+				"unsatisfied",
+				"unsatisfied",
+				...Array<Bucket>(4).fill("excluded"),
+			]),
+			...runsOf("exact", [...Array<Bucket>(7).fill("satisfied"), "unsatisfied"]),
+		];
+		expect(
+			countTrial(DOCS_TWO_OF_FOUR_EXACT_SEVEN_OF_EIGHT, shape([["docs", "exact"]], [AGENT_ONE], 8))
+				.gaps,
+		).toEqual([]);
+	});
+
 	it("names the layer of the upper level at every rung of the ladder", () => {
 		const EACH_RUNG_TWO_MORE_SATISFIED = [
 			...runsOf("need", [
