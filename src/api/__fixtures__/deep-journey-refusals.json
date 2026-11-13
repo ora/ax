@@ -16,5 +16,14 @@
 			"url": "/api/journey/agents",
 			"reason": "This agent cannot run here. Pick one from this list and send its harness and model."
 		}
+	},
+	"CUSTOM_INTENT_REQUIRES_KEY": {
+		"error": "Custom intents require a partner API key",
+		"code": "CUSTOM_INTENT_REQUIRES_KEY",
+		"next_action": {
+			"method": "GET",
+			"url": "https://ora.ai/docs/journeys",
+			"reason": "Free-text tasks need an ora partner API key, and this page says how to get one. Without a key, send a curated intent_id instead."
+		}
 	}
 }

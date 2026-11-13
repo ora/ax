@@ -515,7 +515,8 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 		`ORA_PARTNER_API_KEY=<partner key> ${axCall(runWords(intent, agentId))}`;
 	// A next action ora served is the Next line. Starting the run again is
 	// this same ax call, which follows the run it starts; any other request
-	// (the run's stream, the agent list, a docs page) is written as curl.
+	// (the run's stream, the agent list) is written as curl. A docs page ora
+	// links to (the partner key page on a 401) puts the keyed retry first.
 	const base = apiBase();
 	const served =
 		(intent: string | undefined, agentId: string | undefined) =>
@@ -523,6 +524,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			servedNextStep(action, {
 				base,
 				axEquivalent: { method: "POST", url: JOURNEY_RUNS_PATH, call: sameCall(intent, agentId) },
+				pageCall: keyedCall(intent, agentId),
 			});
 	if (task && input.intent !== undefined) {
 		return fail(
