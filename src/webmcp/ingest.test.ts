@@ -175,6 +175,10 @@ describe("ingestCapture", () => {
 		expect(err.code).toBe("SHIM_VERSION_MISMATCH");
 		expect(err.message).toMatch(/Upgrade/);
 		expect(err.message).not.toMatch(/ingest failed/);
+		expect(err.payload).toEqual({
+			code: "SHIM_VERSION_MISMATCH",
+			error: "capture is shim 1, server scores 3",
+		});
 	});
 
 	it("surfaces retry_after_ms from a 429", async () => {

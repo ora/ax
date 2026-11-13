@@ -437,12 +437,14 @@ function renderOutcome(outcome: DeepJourneyOutcome, url: string): string[] {
 }
 
 export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promise<number> {
-	// Usage mistakes print plain, API failures in red, both prefixed.
-	const fail = (error: CommandError, exit: number): number => {
+	// Usage mistakes print plain, API failures in red, both prefixed. `cause`
+	// is the thrown error, whose served body (if any) is what --json prints.
+	const fail = (error: CommandError, exit: number, cause?: unknown): number => {
 		const display = `ax deep-journey: ${error.message}`;
 		reportError(error, {
 			json: input.json,
 			display: exit === EXIT.API ? pc.red(display) : display,
+			served: cause instanceof DeepJourneyApiError ? cause.payload : undefined,
 		});
 		return exit;
 	};
@@ -592,6 +594,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 				next: failureNext(error, sameCall(intentId, input.agent), keyedCall(intentId, input.agent)),
 			},
 			EXIT.API,
+			error,
 		);
 	}
 
@@ -658,6 +661,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 				next: failureNext(error, sameCall(intentId, agent.id), keyedCall(intentId, agent.id)),
 			},
 			EXIT.API,
+			error,
 		);
 	}
 	if (live) panel.close();

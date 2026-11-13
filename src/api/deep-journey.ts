@@ -6,7 +6,7 @@ import type {
 } from "../contract";
 import { warnOnNewerContract } from "../contract";
 import { decodeEventBlock } from "./platform";
-import { errorBodyText, pause, usageLimitMessage, watchdog } from "./shared";
+import { errorBody, pause, usageLimitMessage, watchdog } from "./shared";
 
 // Client for ora's public deep-journey API (/api/journey/*): a real AI agent
 // attempts a curated task against a domain while ora records the trajectory.
@@ -51,19 +51,23 @@ export type DeepJourneyErrorCode =
  * Any failure to obtain a run from ora: network, HTTP, rate limit, stream error.
  * `code` names the failures a caller answers differently (a key to fix, a wait,
  * a run to read rather than start again) and is null for the rest; `runUrl` is
- * the run's detail URL when the run exists and is still executing.
+ * the run's detail URL when the run exists and is still executing; `payload`
+ * is the error body exactly as ora served it when ora answered with JSON
+ * (what `--json` prints), and null or undefined otherwise.
  */
 export class DeepJourneyApiError extends Error {
 	readonly code: DeepJourneyErrorCode | null;
 	readonly runUrl: string | undefined;
+	readonly payload: unknown;
 
 	constructor(
 		message: string,
-		options: { code?: DeepJourneyErrorCode | null; runUrl?: string } = {},
+		options: { code?: DeepJourneyErrorCode | null; runUrl?: string; payload?: unknown } = {},
 	) {
 		super(message);
 		this.code = options.code ?? null;
 		this.runUrl = options.runUrl;
+		this.payload = options.payload;
 	}
 }
 
@@ -73,8 +77,9 @@ class JourneyStreamHttpError extends DeepJourneyApiError {
 		message: string,
 		readonly status: number,
 		readonly retryAfterMs: number | undefined,
+		payload: unknown,
 	) {
-		super(message);
+		super(message, { payload });
 	}
 }
 
@@ -177,7 +182,10 @@ async function getJson<T>(url: string): Promise<T> {
 		const detail = cause instanceof Error ? cause.message : String(cause);
 		throw new DeepJourneyApiError(`ora request failed: ${detail}`);
 	}
-	if (!res.ok) throw new DeepJourneyApiError(`ora request failed: ${await errorBodyText(res)}`);
+	if (!res.ok) {
+		const { message, payload } = await errorBody(res);
+		throw new DeepJourneyApiError(`ora request failed: ${message}`, { payload });
+	}
 	return (await res.json()) as T;
 }
 
@@ -255,16 +263,19 @@ async function triggerRun(
 	if (res.status === 401) {
 		// The capability 401: free text needs a recognized partner key. (A
 		// curated body never 401s - a bad key silently degrades to keyless.)
+		const { payload } = await errorBody(res);
 		throw new DeepJourneyApiError(
 			"free-text tasks need an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
-			{ code: "NEEDS_KEY" },
+			{ code: "NEEDS_KEY", payload },
 		);
 	}
 	if (res.status === 429) {
 		const usage = await usageLimitMessage(res);
+		const { payload } = await errorBody(res);
 		if (usage) {
 			throw new DeepJourneyApiError(`ora usage limit reached: ${usage}`, {
 				code: "USAGE_LIMIT_REACHED",
+				payload,
 			});
 		}
 		const wait = res.headers.get("retry-after");
@@ -273,16 +284,19 @@ async function triggerRun(
 			: "burst: 20/min/IP; daily: 20 runs per 24h per IP — an ora partner API key raises this to 1000/24h per key: set ORA_PARTNER_API_KEY or pass --api-key";
 		throw new DeepJourneyApiError(
 			`ora journey caller limit exceeded${wait ? ` — retry after ${formatWait(Number(wait) * 1000)}` : ""} (${caps})`,
-			{ code: "RATE_LIMITED" },
+			{ code: "RATE_LIMITED", payload },
 		);
 	}
 	if (res.status === 503) {
+		const { payload } = await errorBody(res);
 		throw new DeepJourneyApiError("ora's run engine is unavailable right now — try again shortly", {
 			code: "ENGINE_UNAVAILABLE",
+			payload,
 		});
 	}
 	if (!res.ok) {
-		throw new DeepJourneyApiError(`ora journey request failed: ${await errorBodyText(res)}`);
+		const { message, payload } = await errorBody(res);
+		throw new DeepJourneyApiError(`ora journey request failed: ${message}`, { payload });
 	}
 
 	const record = (await res.json()) as TriggeredRun["record"];
@@ -355,10 +369,12 @@ async function followJourneyStream(
 	if (!res.ok || !res.body) {
 		dog.disarm();
 		const retryAfterS = Number(res.headers.get("retry-after"));
+		const { message, payload } = await errorBody(res);
 		throw new JourneyStreamHttpError(
-			`ora journey stream failed (${res.status}): ${await errorBodyText(res)}`,
+			`ora journey stream failed (${res.status}): ${message}`,
 			res.status,
 			Number.isFinite(retryAfterS) && retryAfterS > 0 ? retryAfterS * 1000 : undefined,
+			payload,
 		);
 	}
 

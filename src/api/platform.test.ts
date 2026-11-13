@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decodeEventBlock, launchJourney, type RawRunStep } from "./platform";
+import { decodeEventBlock, launchJourney, PlatformApiError, type RawRunStep } from "./platform";
 
 // The run stream is *named* SSE — `event: X` + `data: {json}` blocks with
 // `: ping` heartbeat comments in between. A different framing from the scan
@@ -223,6 +223,26 @@ describe("launchJourney", () => {
 			}),
 		);
 		await expect(launchJourney(REQUEST)).rejects.toThrow(/rate limit/i);
+	});
+
+	it("keeps the platform's JSON error body on the error, and none for a non-JSON one", async () => {
+		const served = { error: "invalid_harness", message: "unknown harness: nope" };
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string | URL) => {
+				if (String(url).endsWith("/auth/token")) return asJson({ token: "t" });
+				return asJson(served, 422);
+			}),
+		);
+		const failure = launchJourney(REQUEST);
+		await expect(failure).rejects.toThrow(PlatformApiError);
+		await expect(failure).rejects.toMatchObject({ status: 422, payload: served });
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("<html>bad gateway</html>", { status: 502 })),
+		);
+		await expect(launchJourney(REQUEST)).rejects.toMatchObject({ status: 502, payload: null });
 	});
 
 	it("times out when the run stream goes silent", async () => {

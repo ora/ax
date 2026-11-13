@@ -361,6 +361,39 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		expect(`${writes.join("")}${stderrLines().join("\n")}`).not.toContain("pk_live_not_for_echo");
 	});
 
+	it("--json prints ora's error body unchanged and puts the message and Next line on stderr", async () => {
+		const served = {
+			error: "usage_limit_reached",
+			kind: "journey",
+			period: "month",
+			used: 1000,
+			limit: 1000,
+			resets_at: "2026-12-01T00:00:00Z",
+			next_action: { call: "ax deep-journey zapier.com" },
+		};
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora usage limit reached: this API key has used its journey limit", {
+				code: "USAGE_LIMIT_REACHED",
+				payload: served,
+			}),
+		);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.API);
+		expect(writes).toEqual([`${JSON.stringify(served, null, 2)}\n`]);
+		expect(stderrLines()).toEqual([
+			expect.stringContaining("ora usage limit reached"),
+			"Next: ax deep-journey zapier.com --intent pricing --agent cas-haiku --json  # after the wait the message names",
+		]);
+	});
+
+	it("--json passes through ora's body when the roster fetch fails too", async () => {
+		const served = { error: "rate_limited", retry_after_ms: 30_000 };
+		vi.mocked(fetchJourneyIntents).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora request failed: rate_limited", { payload: served }),
+		);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.API);
+		expect(envelope()).toEqual(served);
+	});
+
 	it("--json keeps stdout the run detail and puts the Next line on stderr", async () => {
 		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
 		expect(envelope()).toMatchObject({ id: "run_1", status: "succeeded" });

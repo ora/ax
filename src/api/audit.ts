@@ -158,10 +158,12 @@ async function consumeScanStream(
 	if (res.status === 429) {
 		dog.disarm();
 		const usage = await usageLimitMessage(res);
-		if (usage) throw new AuditApiError(`ora usage limit reached: ${usage}`);
+		const { payload } = await errorBody(res);
+		if (usage) throw new AuditApiError(`ora usage limit reached: ${usage}`, { payload });
 		const wait = res.headers.get("retry-after");
 		throw new AuditApiError(
 			`ora rate limit exceeded${wait ? ` — retry after ${wait}s` : ""} (burst: 10 scans/min/IP; daily: 30 scans + 6 force per 24h). An ora-issued scan API key lifts these limits: set ORA_SCAN_API_KEY or pass --api-key.`,
+			{ payload },
 		);
 	}
 	if (!res.ok || !res.body) {

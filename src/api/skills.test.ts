@@ -87,7 +87,22 @@ describe("skill registry client", () => {
 			"fetch",
 			vi.fn(async () => new Response("nope", { status: 503 })),
 		);
-		await expect(fetchSkillIndex()).rejects.toMatchObject({ code: "REGISTRY_ERROR" });
+		await expect(fetchSkillIndex()).rejects.toMatchObject({
+			code: "REGISTRY_ERROR",
+			payload: null,
+		});
+	});
+
+	it("keeps a JSON error body from the registry as the payload", async () => {
+		const served = { error: "rate_limited", retry_after_ms: 1000 };
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => Response.json(served, { status: 429 })),
+		);
+		await expect(fetchSkillIndex()).rejects.toMatchObject({
+			code: "REGISTRY_ERROR",
+			payload: served,
+		});
 	});
 });
 

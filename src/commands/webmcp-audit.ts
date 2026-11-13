@@ -110,8 +110,8 @@ function resultNext(input: WebmcpAuditCommandInput, target: string, belowGate: b
 }
 
 export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promise<number> {
-	const fail = (error: CommandError, exit: number, display?: string): number => {
-		reportError(error, { json: input.json, display });
+	const fail = (error: CommandError, exit: number, display?: string, served?: unknown): number => {
+		reportError(error, { json: input.json, display, served });
 		return exit;
 	};
 	const target = normalizeTarget(input.url);
@@ -256,6 +256,7 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 			},
 			EXIT.API,
 			ingest ? message : `Scoring failed: ${message}`,
+			ingest ? err.payload : undefined,
 		);
 	}
 	spinner.stop();

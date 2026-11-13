@@ -1,9 +1,12 @@
 import { type NextStep, printNext } from "./next-line";
 
-// Under --json, stdout carries one JSON document and nothing else: ora's
-// payload when the command produced one, or this envelope when it could not.
-// Every line written for a person (the error itself, the Next line, progress,
-// warnings) goes to stderr, in both modes.
+// Under --json, stdout carries one JSON document and nothing else. When ora
+// (or the platform) answered with an error body, that body is the document,
+// unchanged: it is the contract, the same as a result payload (invariant 4).
+// Only a failure with no server body to show (a usage mistake caught here, a
+// network failure, a timeout, a response that did not parse) gets this
+// envelope instead. Every line written for a person (the error itself, the
+// Next line, progress, warnings) goes to stderr, in both modes.
 
 export interface CommandError {
 	/** ora's code when it named one, otherwise the CLI's own (e.g. INVALID_TARGET). */
@@ -23,15 +26,20 @@ export function jsonErrorEnvelope(error: CommandError): JsonErrorEnvelope {
 
 /**
  * Report a failed command: the message (or `display`, its painted or prefixed
- * form) and the Next line on stderr, and under --json the envelope on stdout.
+ * form) and the Next line on stderr. Under --json, stdout gets `served`, the
+ * error body the server answered with, when there is one (a body that parsed
+ * to null carries nothing to pass through), and the envelope otherwise.
  */
 export function reportError(
 	error: CommandError,
-	options: { json: boolean; display?: string },
+	options: { json: boolean; display?: string; served?: unknown },
 ): void {
 	console.error(options.display ?? error.message);
 	printNext(error.next, { stderr: true });
-	if (options.json) {
-		process.stdout.write(`${JSON.stringify(jsonErrorEnvelope(error), null, 2)}\n`);
-	}
+	if (!options.json) return;
+	const document =
+		options.served === undefined || options.served === null
+			? jsonErrorEnvelope(error)
+			: options.served;
+	process.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
 }
