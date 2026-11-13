@@ -102,7 +102,7 @@ function recordPath(id: string, dir: string): string {
 }
 
 /** A file that exists but is not a trial record; `listRecords` skips these, `readRecord` surfaces them. */
-class CorruptRecordError extends Error {
+export class CorruptRecordError extends Error {
 	constructor(id: string, why: string) {
 		super(`trial record ${id} ${why}`);
 	}
