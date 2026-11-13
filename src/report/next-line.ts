@@ -51,6 +51,17 @@ export interface ServedCallOptions {
 	 * request is written as curl.
 	 */
 	axEquivalent?: { method: string; url: string; call: string };
+	/**
+	 * The ax call to make once a page ora links to has been read (a docs
+	 * page, never an API request). Without one, the page URL is the call.
+	 */
+	pageCall?: string;
+}
+
+/** A page to read rather than a request to send: an absolute URL off the API. */
+function isPage(action: JourneyNextAction): boolean {
+	if (action.method !== "GET" || !/^https?:\/\//.test(action.url)) return false;
+	return !new URL(action.url).pathname.startsWith("/api/");
 }
 
 function curlCall(action: JourneyNextAction, base: string): string {
@@ -69,6 +80,11 @@ function curlCall(action: JourneyNextAction, base: string): string {
  */
 export function servedNextStep(action: JourneyNextAction, options: ServedCallOptions): NextStep {
 	const same = options.axEquivalent;
+	if (isPage(action)) {
+		return options.pageCall
+			? { call: options.pageCall, why: `${action.reason} ${action.url}` }
+			: { call: action.url, why: action.reason };
+	}
 	const call =
 		same && action.method === same.method && action.url === same.url
 			? same.call

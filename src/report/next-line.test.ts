@@ -58,6 +58,7 @@ describe("servedNextStep", () => {
 	const STREAM = runningDetail.next_action as JourneyNextAction;
 	const INVALID_DOMAIN = refusals.INVALID_DOMAIN.next_action as JourneyNextAction;
 	const AGENTS = refusals.UNSUPPORTED_AGENT.next_action as JourneyNextAction;
+	const KEY_DOCS = refusals.CUSTOM_INTENT_REQUIRES_KEY.next_action as JourneyNextAction;
 	const SAME = {
 		method: "POST",
 		url: "/api/journey/runs",
@@ -75,11 +76,24 @@ describe("servedNextStep", () => {
 		});
 	});
 
-	it("keeps an absolute URL, such as a docs page, as served", () => {
-		const docs = { ...AGENTS, url: "https://ora.ai/docs/journeys" };
-		expect(servedNextStep(docs, { base: "http://localhost:4214" }).call).toBe(
-			"curl -s https://ora.ai/docs/journeys",
+	it("keeps an absolute API URL as served", () => {
+		const api = { ...AGENTS, url: "https://ora.ai/api/journey/agents" };
+		expect(servedNextStep(api, { base: "http://localhost:4214" }).call).toBe(
+			"curl -s https://ora.ai/api/journey/agents",
 		);
+	});
+
+	it("never curls a docs page: the call is the ax call to make after reading it, the page goes in the why", () => {
+		const keyed =
+			"ORA_PARTNER_API_KEY=<partner key> ax deep-journey linear.app --task 'find pricing'";
+		expect(servedNextStep(KEY_DOCS, { base: "http://localhost:4214", pageCall: keyed })).toEqual({
+			call: keyed,
+			why: `${KEY_DOCS.reason} ${KEY_DOCS.url}`,
+		});
+		expect(servedNextStep(KEY_DOCS, { base: "http://localhost:4214" })).toEqual({
+			call: KEY_DOCS.url,
+			why: KEY_DOCS.reason,
+		});
 	});
 
 	it("writes the request ax itself sends as that ax call", () => {
