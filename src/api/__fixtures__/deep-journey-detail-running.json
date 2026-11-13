@@ -1,0 +1,18 @@
+{
+	"id": "795ec07c-342a-4603-9649-66be4bb7936e",
+	"status": "running",
+	"intent_id": "pricing",
+	"domain": "linear.app",
+	"agent": {
+		"harness": "claude-agent-sdk",
+		"model": "claude-haiku-5-5"
+	},
+	"started_at": "2026-11-13T12:13:32.627Z",
+	"stream_url": "/api/journey/runs/795ec07c-342a-4603-9649-66be4bb7936e/stream",
+	"contractVersion": "1.42.0",
+	"next_action": {
+		"method": "GET",
+		"url": "/api/journey/runs/795ec07c-342a-4603-9649-66be4bb7936e/stream",
+		"reason": "Hold the stream open to the end; only a followed stream saves the result."
+	}
+}

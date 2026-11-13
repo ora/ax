@@ -1,9 +1,12 @@
+import type { JourneyNextAction } from "../contract";
 import { plain } from "../ui/ansi";
 
 // The one renderer for the line that ends every ax result and error: the next
 // call to make, written out with its arguments so an agent can run it as-is.
 // A value the CLI cannot know (the user's domain, a key) is a <placeholder>;
-// a secret the user passed is never echoed, only its placeholder.
+// a secret the user passed is never echoed, only its placeholder. When ora
+// served a `next_action`, that request is the next call (servedNextStep);
+// the CLI's own suggestion is only for payloads that carry none.
 
 export interface NextStep {
 	/** The call, e.g. `ax deep-journey stripe.com --intent pricing`. */
@@ -37,6 +40,42 @@ export function axCall(words: readonly Word[]): string {
 		typeof word === "string" ? shellWord(word) : `<${word.placeholder}>`,
 	);
 	return ["ax", ...rendered].join(" ");
+}
+
+export interface ServedCallOptions {
+	/** The origin a relative API path in the action resolves against. */
+	base: string;
+	/**
+	 * The ax call that sends `method url` itself. A request ax makes is
+	 * written as that ax call, which also follows what it starts; any other
+	 * request is written as curl.
+	 */
+	axEquivalent?: { method: string; url: string; call: string };
+}
+
+function curlCall(action: JourneyNextAction, base: string): string {
+	const url = /^https?:\/\//.test(action.url) ? action.url : `${base}${action.url}`;
+	if (action.method === "GET") return `curl -s ${shellWord(url)}`;
+	const body = action.body
+		? ` -H ${shellWord("content-type: application/json")} -d ${shellWord(JSON.stringify(action.body))}`
+		: "";
+	return `curl -s -X ${shellWord(action.method)} ${shellWord(url)}${body}`;
+}
+
+/**
+ * The Next step for a next action ora served (a `next_action` on a journey
+ * payload): its request as a call, its wait as a `sleep` in front, and ora's
+ * reason, verbatim, as the why.
+ */
+export function servedNextStep(action: JourneyNextAction, options: ServedCallOptions): NextStep {
+	const same = options.axEquivalent;
+	const call =
+		same && action.method === same.method && action.url === same.url
+			? same.call
+			: curlCall(action, options.base);
+	const seconds = action.wait_seconds;
+	const wait = Number.isInteger(seconds) && (seconds ?? 0) > 0 ? `sleep ${seconds} && ` : "";
+	return { call: `${wait}${call}`, why: action.reason };
 }
 
 /** `Next: <call>`, plus `  # <why>` when there is one. Control characters are blanked. */

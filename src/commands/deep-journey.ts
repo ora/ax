@@ -1,21 +1,30 @@
 import pc from "picocolors";
 import {
+	apiBase,
 	DeepJourneyApiError,
 	type DeepJourneyOutcome,
 	fetchJourneyAgents,
 	fetchJourneyIntents,
 	formatWait,
+	JOURNEY_RUNS_PATH,
 	type JourneyAgentOption,
 	performDeepJourney,
+	servedNextAction,
 } from "../api/deep-journey";
 import type { JourneyStep } from "../api/platform";
-import type { JourneyRunResult, JourneyTrajectoryStep } from "../contract";
+import type {
+	JourneyNextAction,
+	JourneyRunDetail,
+	JourneyRunResult,
+	JourneyTrajectoryStep,
+} from "../contract";
 import { type CommandError, reportError } from "../report/json-error";
 import {
 	axCall,
 	type NextStep,
 	placeholder,
 	printNext,
+	servedNextStep,
 	shellWord,
 	type Word,
 } from "../report/next-line";
@@ -66,11 +75,18 @@ export interface DeepJourneyCommandInput {
 }
 
 /**
- * The next call after a failed run request. A run that is still executing is
- * read, never started again; a missing key is named; everything else is the
- * same call, after the wait the message names.
+ * The next call after a failed run request: the request ora named, when it
+ * named one. Otherwise a run that is still executing is read, never started
+ * again; a missing key is named; everything else is the same call, after the
+ * wait the message names.
  */
-function failureNext(error: unknown, sameCall: string, keyed: string): NextStep {
+function failureNext(
+	error: unknown,
+	sameCall: string,
+	keyed: string,
+	served: (action: JourneyNextAction) => NextStep,
+): NextStep {
+	if (error instanceof DeepJourneyApiError && error.nextAction) return served(error.nextAction);
 	const code = error instanceof DeepJourneyApiError ? error.code : null;
 	if (code === "RUN_STILL_RUNNING" && error instanceof DeepJourneyApiError && error.runUrl) {
 		return {
@@ -107,6 +123,16 @@ function verdictLine(verdict: string | undefined, status: string): string {
 
 function agentLine(agent: JourneyAgentOption): string {
 	return `${agent.label} · ${agent.variant}`;
+}
+
+// The notes ora raised beside the verdict (the site refused the agent, the
+// answer came from memory), in ora's words and order. They never change the
+// verdict. A raised flag that came without a reason shows its id instead.
+function flagLines(flags: JourneyRunDetail["flags"]): string[] {
+	if (!flags) return [];
+	return Object.entries(flags)
+		.filter(([, flag]) => flag?.flagged)
+		.map(([id, flag]) => `${pc.yellow("!")} ${plain(flag.reason || id.replaceAll("_", " "))}`);
 }
 
 // The live graph (ui/graph) is written against the platform `JourneyStep`
@@ -401,6 +427,7 @@ function renderOutcome(outcome: DeepJourneyOutcome, url: string): string[] {
 	if (tokens != null) chips.push(`${chipTokens(tokens)} tokens`);
 	if (result?.cost_usd != null) chips.push(chipCost(result.cost_usd));
 	if (chips.length) lines.push(`  ${pc.dim(chips.join("  ·  "))}`);
+	for (const line of flagLines(detail.flags)) lines.push(`  ${line}`);
 
 	// Behavioral signals: the answer-quality score cards and attribution
 	// distributions, when the result carries them.
@@ -486,6 +513,17 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 		axCall([...runWords(intent, agentId), ...keyWords]);
 	const keyedCall = (intent: string | undefined, agentId: string | undefined) =>
 		`ORA_PARTNER_API_KEY=<partner key> ${axCall(runWords(intent, agentId))}`;
+	// A next action ora served is the Next line. Starting the run again is
+	// this same ax call, which follows the run it starts; any other request
+	// (the run's stream, the agent list, a docs page) is written as curl.
+	const base = apiBase();
+	const served =
+		(intent: string | undefined, agentId: string | undefined) =>
+		(action: JourneyNextAction): NextStep =>
+			servedNextStep(action, {
+				base,
+				axEquivalent: { method: "POST", url: JOURNEY_RUNS_PATH, call: sameCall(intent, agentId) },
+			});
 	if (task && input.intent !== undefined) {
 		return fail(
 			{
@@ -591,7 +629,12 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "API_ERROR",
 				message: error instanceof Error ? error.message : String(error),
-				next: failureNext(error, sameCall(intentId, input.agent), keyedCall(intentId, input.agent)),
+				next: failureNext(
+					error,
+					sameCall(intentId, input.agent),
+					keyedCall(intentId, input.agent),
+					served(intentId, input.agent),
+				),
 			},
 			EXIT.API,
 			error,
@@ -658,7 +701,12 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: (error instanceof DeepJourneyApiError && error.code) || "API_ERROR",
 				message: error instanceof Error ? error.message : String(error),
-				next: failureNext(error, sameCall(intentId, agent.id), keyedCall(intentId, agent.id)),
+				next: failureNext(
+					error,
+					sameCall(intentId, agent.id),
+					keyedCall(intentId, agent.id),
+					served(intentId, agent.id),
+				),
 			},
 			EXIT.API,
 			error,
@@ -668,18 +716,22 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	else if (interactive) spinner.stop();
 
 	const failed = outcome.detail.status === "failed";
-	const next: NextStep = failed
-		? {
-				call: sameCall(intentId, agent.id),
-				why: "the run ended in an engine error; re-running is free to try",
-			}
-		: {
-				call: axCall(["audit", target, ...json]),
-				why: "the readiness audit: which checks explain what the agent hit",
-			};
+	const servedNext = servedNextAction(outcome.detail);
+	const next: NextStep = servedNext
+		? served(intentId, agent.id)(servedNext)
+		: failed
+			? {
+					call: sameCall(intentId, agent.id),
+					why: "the run ended in an engine error; re-running is free to try",
+				}
+			: {
+					call: axCall(["audit", target, ...json]),
+					why: "the readiness audit: which checks explain what the agent hit",
+				};
 
 	if (input.json) {
 		console.log(JSON.stringify(outcome.detail, null, 2));
+		for (const line of flagLines(outcome.detail.flags)) console.error(line);
 		printNext(next, { stderr: true });
 		return failed ? EXIT.RUN_FAILED : EXIT.OK;
 	}
