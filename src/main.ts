@@ -1,13 +1,17 @@
-import { defineCommand, runMain, showUsage } from "citty";
+import { defineCommand, renderUsage, runMain, showUsage } from "citty";
 import pc from "picocolors";
 import pkg from "../package.json";
+import { platformBase } from "./api/platform";
+import { resolveBase } from "./api/skills";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
 import { journeyCommand } from "./commands/journey";
+import { learnCommand } from "./commands/learn";
 import { skillCommand } from "./commands/skill";
 import { webmcpAuditCommand } from "./commands/webmcp-audit";
 import { loadLocalEnv } from "./env";
+import { axCall, type NextStep, placeholder, printNext } from "./report/next-line";
 
 const NAME = "ax";
 
@@ -296,6 +300,98 @@ const webmcpAudit = defineCommand({
 	},
 });
 
+const learn = defineCommand({
+	meta: {
+		name: "learn",
+		description:
+			"Print the ax workflow from ora's skill: score a site, read the report, run a journey, read its result",
+	},
+	args: {},
+	async run() {
+		process.exitCode = await learnCommand();
+	},
+});
+
+// Read at help time, after loadLocalEnv(), so help names the hosts this run
+// would actually call.
+const oraSite = () => `ora.ai at ${resolveBase()} (set by ORA_API_URL)`;
+const oraPlatform = () =>
+	`ora's platform API at ${platformBase()} (set by ORA_PLATFORM_URL), with ORA_API_KEY`;
+
+/** The chain every help screen ends with; `ax learn` prints the skill's own copy. */
+function workflowLines(): string[] {
+	const d = pc.dim;
+	return [
+		`  ${d("Workflow:")}`,
+		`    1. ax audit <domain>          ${d("score the site and list what to fix")}`,
+		`    2. read the report            ${d("start with its Top fixes, ranked by ora")}`,
+		`    3. ax deep-journey <domain>   ${d("send a real agent at the site on a task")}`,
+		`    4. read its result            ${d("whether the agent finished, and where it got stuck")}`,
+		`    ${d("Every result and error ends with a Next: line, the call to make next.")}`,
+		`    ${d("ax learn prints these steps from ora's skill.")}`,
+		"",
+	];
+}
+
+interface CommandHelp {
+	talksTo: () => string;
+	/** The call to suggest when citty rejects the arguments (a missing positional). */
+	usageNext: NextStep;
+}
+
+const COMMAND_HELP = new Map<unknown, CommandHelp>([
+	[
+		audit,
+		{
+			talksTo: () => `${oraSite()}; with --tunnel ora, also ${oraPlatform()}`,
+			usageNext: { call: axCall(["audit", placeholder("domain")]) },
+		},
+	],
+	[
+		webmcpAudit,
+		{
+			talksTo: () => `a Chrome on this machine for the capture, then ${oraSite()} to score it`,
+			usageNext: { call: axCall(["webmcp-audit", "http://localhost:3000"]) },
+		},
+	],
+	[
+		deepJourney,
+		{
+			talksTo: oraSite,
+			usageNext: { call: axCall(["deep-journey", placeholder("domain")]) },
+		},
+	],
+	[
+		journey,
+		{
+			talksTo: oraPlatform,
+			usageNext: {
+				call: axCall(["journey", placeholder("intent"), "--domain", placeholder("domain")]),
+				why: "quote the intent",
+			},
+		},
+	],
+	[
+		generateFiles,
+		{
+			talksTo: oraSite,
+			usageNext: { call: axCall(["generate-files", placeholder("domain")]) },
+		},
+	],
+	[
+		skill,
+		{ talksTo: () => `ora's skill registry on ${oraSite()}`, usageNext: { call: "ax skill" } },
+	],
+	[
+		learn,
+		{ talksTo: () => `ora's skill registry on ${oraSite()}`, usageNext: { call: "ax learn" } },
+	],
+]);
+
+function commandFooter(help: CommandHelp): string {
+	return [`  ${pc.dim("Talks to:")} ${help.talksTo()}`, "", ...workflowLines()].join("\n");
+}
+
 function helpScreen(): string {
 	const g = pc.green("$");
 	const d = pc.dim;
@@ -311,6 +407,13 @@ function helpScreen(): string {
 		`    journey ${d("<intent>")}    ${d("Send a real agent at a site and watch it live (needs a platform key)")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
 		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
+		`    learn                ${d("Print the ax workflow from ora's skill")}`,
+		"",
+		`  ${d("Talks to:")}`,
+		`    ${oraSite()}`,
+		`      ${d("audit, webmcp-audit, deep-journey, generate-files, skill, learn")}`,
+		`    ${oraPlatform()}`,
+		`      ${d("journey, and audit --tunnel ora")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -321,6 +424,7 @@ function helpScreen(): string {
 		`    ${g} ${NAME} deep-journey stripe.com --intent pricing`,
 		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
 		`    ${g} ${NAME} generate-files example.com --out public`,
+		`    ${g} ${NAME} learn`,
 		"",
 		`  ${d("audit options:")}`,
 		`    --min-score <n>  ${d("Exit 1 when the score is below n (0-100); the CI gate")}`,
@@ -375,6 +479,7 @@ function helpScreen(): string {
 		`    --json           ${d("Output as JSON")}`,
 		`    ${d("requires ORA_API_KEY (see .env.example)")}`,
 		"",
+		...workflowLines(),
 	].join("\n");
 }
 
@@ -391,6 +496,7 @@ const root = defineCommand({
 		journey,
 		skill,
 		"generate-files": generateFiles,
+		learn,
 	},
 	setup() {
 		// Bare invocation gets the curated screen. Top-level --help is handled in
@@ -406,12 +512,27 @@ const root = defineCommand({
 // at call time, so the file has to be in place first.
 loadLocalEnv();
 
+const HELP_FLAGS = new Set(["--help", "-h"]);
+
 // citty intercepts --help itself and prints its generated usage, so the root
 // command's help is routed to the curated screen here. Subcommand --help
-// (`ax audit --help`) keeps citty's per-command usage.
+// (`ax audit --help`) keeps citty's per-command usage, followed by what the
+// command talks to and the workflow. citty also lands here when it rejects
+// the arguments (a missing positional), before printing its error and exiting
+// 1; that path gets a Next line on stderr instead of the footer.
 runMain(root, {
 	showUsage: async (cmd, parent) => {
+		const asked = process.argv.slice(2).some((arg) => HELP_FLAGS.has(arg));
+		const help = COMMAND_HELP.get(cmd);
 		if (cmd === root) console.log(helpScreen());
-		else await showUsage(cmd, parent);
+		else if (asked && help) {
+			const usage = (await renderUsage(cmd, parent)).trimEnd();
+			console.log(`${usage}\n\n${commandFooter(help)}`);
+		} else await showUsage(cmd, parent);
+		if (!asked) {
+			printNext(help?.usageNext ?? { call: axCall(["audit", placeholder("domain")]) }, {
+				stderr: true,
+			});
+		}
 	},
 });

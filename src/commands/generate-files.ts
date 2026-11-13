@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import pc from "picocolors";
 import { AgentFilesApiError, type AgentFilesBundle, fetchAgentFiles } from "../api/agent-files";
+import { type CommandError, reportError } from "../report/json-error";
+import { axCall, placeholder, printNext } from "../report/next-line";
 import { EXIT } from "./audit";
 
 export interface GenerateFilesCommandInput {
@@ -112,9 +114,58 @@ function wrap(text: string, width: number, indent: string): string[] {
 	return rows;
 }
 
+/** The code ora gave a refusal (`errorCode` on this route), or null. */
+function servedCode(payload: unknown): string | null {
+	if (typeof payload !== "object" || payload === null) return null;
+	const { errorCode, code } = payload as { errorCode?: unknown; code?: unknown };
+	if (typeof errorCode === "string" && errorCode) return errorCode;
+	return typeof code === "string" && code ? code : null;
+}
+
+function fetchFailure(input: GenerateFilesCommandInput, cause: unknown): CommandError {
+	const message = cause instanceof Error ? cause.message : String(cause);
+	// ora's 400 means the domain itself is not acceptable: a usage mistake.
+	if (cause instanceof AgentFilesApiError && cause.status === 400) {
+		return {
+			code: servedCode(cause.payload) || "INVALID_DOMAIN",
+			message,
+			next: {
+				call: axCall(["generate-files", placeholder("domain"), ...(input.json ? ["--json"] : [])]),
+				why: "a public host such as example.com",
+			},
+		};
+	}
+	const words = [
+		"generate-files",
+		input.domain,
+		...(input.json ? ["--json"] : []),
+		...(input.out ? ["--out", input.out] : []),
+		...(input.force ? ["--force"] : []),
+	];
+	return {
+		code:
+			servedCode(cause instanceof AgentFilesApiError ? cause.payload : undefined) || "API_ERROR",
+		message,
+		next: { call: axCall(words), why: "retry; ora may be briefly unreachable" },
+	};
+}
+
 export async function generateFilesCommand(input: GenerateFilesCommandInput): Promise<number> {
 	if (!input.domain?.trim()) {
-		console.error("Usage: ax generate-files <domain>");
+		reportError(
+			{
+				code: "INVALID_TARGET",
+				message: "a domain is required",
+				next: {
+					call: axCall([
+						"generate-files",
+						placeholder("domain"),
+						...(input.json ? ["--json"] : []),
+					]),
+				},
+			},
+			{ json: input.json, display: "Usage: ax generate-files <domain>" },
+		);
 		return EXIT.USAGE;
 	}
 
@@ -122,19 +173,20 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 	try {
 		bundle = await fetchAgentFiles(input.domain, { baseUrl: input.baseUrl });
 	} catch (cause) {
-		if (input.json && cause instanceof AgentFilesApiError && cause.payload !== undefined) {
-			process.stdout.write(`${JSON.stringify(cause.payload, null, 2)}\n`);
-		} else {
-			console.error(
-				`generate-files failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-			);
-		}
-		// ora's 400 means the domain itself is not acceptable: a usage mistake.
+		const error = fetchFailure(input, cause);
+		reportError(error, { json: input.json, display: `generate-files failed: ${error.message}` });
 		return cause instanceof AgentFilesApiError && cause.status === 400 ? EXIT.USAGE : EXIT.API;
 	}
 
 	if (input.json) {
 		process.stdout.write(`${JSON.stringify(bundle, null, 2)}\n`);
+		printNext(
+			{
+				call: axCall(["generate-files", bundle.domain, "--out", placeholder("dir")]),
+				why: "write the files instead of printing them",
+			},
+			{ stderr: true },
+		);
 		return EXIT.OK;
 	}
 
@@ -151,8 +203,17 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 	if (existing.length > 0 && !input.force) {
 		console.error("These files already exist, so nothing was written:");
 		for (const w of existing) console.error(`  ${displayPath(w.target)}`);
-		console.error(
-			pc.dim("Pass --force to overwrite them, or --out <dir> to write somewhere else."),
+		printNext(
+			{
+				call: axCall([
+					"generate-files",
+					input.domain,
+					...(input.out ? ["--out", input.out] : []),
+					"--force",
+				]),
+				why: "overwrite them, or pass --out <dir> to write somewhere else",
+			},
+			{ stderr: true },
 		);
 		return EXIT.USAGE;
 	}
@@ -203,5 +264,12 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 		),
 	);
 	console.log("");
+	printNext(
+		{
+			call: axCall(["audit", bundle.domain, "--force"]),
+			why: "after you publish them, rescan to verify",
+		},
+		{ stderr: false },
+	);
 	return EXIT.OK;
 }

@@ -1,3 +1,6 @@
+import { type CommandError, reportError } from "../report/json-error";
+import { axCall, type NextStep, placeholder, printNext, type Word } from "../report/next-line";
+import { isLocalTarget } from "../tunnel";
 import { plain } from "../ui/ansi";
 import { spinner } from "../ui/spinner";
 import { captureLocally } from "../webmcp/capture";
@@ -62,26 +65,102 @@ function parseMinScore(raw: string | undefined): { value?: number; error?: strin
 	return { value };
 }
 
+/** The same audit as a call, with a key passed as a flag shown as a placeholder. */
+function sameCallWords(input: WebmcpAuditCommandInput, minScore = input.minScore): Word[] {
+	return [
+		"webmcp-audit",
+		input.url.trim(),
+		...(input.json ? ["--json"] : []),
+		...(input.showPassing ? ["--show-passing"] : []),
+		...(minScore !== undefined ? ["--min-score", minScore] : []),
+		...(input.chromeEndpoint ? ["--chrome-endpoint", input.chromeEndpoint] : []),
+		...(input.apiKey ? ["--api-key", placeholder("key")] : []),
+	];
+}
+
+/** A failed ingest: an outdated shim is an upgrade, never a retry. */
+function ingestNext(input: WebmcpAuditCommandInput, err: unknown): NextStep {
+	if (err instanceof WebmcpIngestError && err.code === "SHIM_VERSION_MISMATCH") {
+		return {
+			call: "npm i -g ax@latest",
+			why: "this ax captures with a shim ora no longer scores; then run it again",
+		};
+	}
+	if (err instanceof WebmcpIngestError && err.code === "RATE_LIMITED") {
+		return { call: axCall(sameCallWords(input)), why: "after the wait the message names" };
+	}
+	return { call: axCall(sameCallWords(input)), why: "retry; ora may be briefly unreachable" };
+}
+
+/**
+ * After a result: a local page or one under the gate is re-audited once the
+ * fixes are in; a public page that cleared it moves on to the whole site.
+ */
+function resultNext(input: WebmcpAuditCommandInput, target: string, belowGate: boolean): NextStep {
+	if (isLocalTarget(target) || belowGate) {
+		return {
+			call: axCall(sameCallWords(input)),
+			why: "after you fix the failing checks above, run it again",
+		};
+	}
+	return {
+		call: axCall(["audit", new URL(target).host, ...(input.json ? ["--json"] : [])]),
+		why: "the readiness audit of the whole site",
+	};
+}
+
 export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promise<number> {
+	const fail = (error: CommandError, exit: number, display?: string): number => {
+		reportError(error, { json: input.json, display });
+		return exit;
+	};
 	const target = normalizeTarget(input.url);
 	if (!target) {
-		console.error(`Not an auditable URL: ${JSON.stringify(input.url)}`);
-		console.error("Pass the page you want audited, e.g. http://localhost:3000");
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "INVALID_TARGET",
+				message: `Not an auditable URL: ${JSON.stringify(input.url)}`,
+				next: {
+					call: axCall([
+						"webmcp-audit",
+						"http://localhost:3000",
+						...(input.json ? ["--json"] : []),
+					]),
+				},
+			},
+			EXIT.USAGE,
+			`Not an auditable URL: ${JSON.stringify(input.url)}\nPass the page you want audited, e.g. http://localhost:3000`,
+		);
 	}
 
 	const minScore = parseMinScore(input.minScore);
 	if (minScore.error) {
-		console.error(minScore.error);
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "INVALID_FLAG",
+				message: minScore.error,
+				next: { call: axCall(sameCallWords(input, "70")) },
+			},
+			EXIT.USAGE,
+		);
 	}
 
 	// A Chrome we cannot reach is a usage problem with a fix the developer can
 	// act on, not an API failure - and never a prompt to download a browser.
 	const chrome = await resolveChrome(input.chromeEndpoint);
 	if (!chrome.ok) {
-		console.error(chrome.message);
-		return EXIT.USAGE;
+		const words = sameCallWords({ ...input, chromeEndpoint: undefined });
+		return fail(
+			{
+				code: "NO_CHROME",
+				message: chrome.message,
+				next: {
+					call: axCall([...words, "--chrome-endpoint", placeholder("host:port")]),
+					why: "a Chrome started with --remote-debugging-port, or install Chrome",
+				},
+			},
+			EXIT.USAGE,
+		);
 	}
 
 	if (!input.json) {
@@ -101,8 +180,16 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 		});
 	} catch (err) {
 		spinner.stop();
-		console.error(`Capture failed: ${err instanceof Error ? err.message : String(err)}`);
-		return EXIT.API;
+		const message = err instanceof Error ? err.message : String(err);
+		return fail(
+			{
+				code: "CAPTURE_FAILED",
+				message,
+				next: { call: axCall(sameCallWords(input)), why: "retry the capture" },
+			},
+			EXIT.API,
+			`Capture failed: ${message}`,
+		);
 	} finally {
 		// A Chrome we started is ours to stop, on every path out of the capture.
 		// Leaking one holds a profile directory and a port until reboot, and this
@@ -116,16 +203,28 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 	const page = capture.pages[0];
 	if (page?.error) {
 		spinner.stop();
-		console.error(`Could not capture ${target}: ${page.error}`);
-		console.error("Is the dev server running?");
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "PAGE_UNREACHABLE",
+				message: `Could not capture ${target}: ${page.error}`,
+				next: { call: axCall(sameCallWords(input)), why: "start the dev server first" },
+			},
+			EXIT.USAGE,
+			`Could not capture ${target}: ${page.error}\nIs the dev server running?`,
+		);
 	}
 
 	const rejection = preflightCapture(capture);
 	if (rejection) {
 		spinner.stop();
-		console.error(`ora would refuse this capture: ${rejection}`);
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "CAPTURE_REFUSED",
+				message: `ora would refuse this capture: ${rejection}`,
+				next: { call: axCall(sameCallWords(input)), why: "after you fix what the message names" },
+			},
+			EXIT.USAGE,
+		);
 	}
 
 	const { capture: payload, droppedScreenshot } = prepareForIngest(capture);
@@ -147,12 +246,17 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 		});
 	} catch (err) {
 		spinner.stop();
-		if (err instanceof WebmcpIngestError) {
-			console.error(err.message);
-			return EXIT.API;
-		}
-		console.error(`Scoring failed: ${err instanceof Error ? err.message : String(err)}`);
-		return EXIT.API;
+		const message = err instanceof Error ? err.message : String(err);
+		const ingest = err instanceof WebmcpIngestError;
+		return fail(
+			{
+				code: (ingest && err.code) || "SCORING_FAILED",
+				message,
+				next: ingestNext(input, err),
+			},
+			EXIT.API,
+			ingest ? message : `Scoring failed: ${message}`,
+		);
 	}
 	spinner.stop();
 
@@ -183,20 +287,30 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 		// Compared against the score, never the grade: below the coverage
 		// threshold the grade is withheld and a check keyed on it would pass
 		// everything.
+		// The payload is already on stdout, so this is a note, not an envelope.
 		if (audit.score === null) {
 			if (!input.json) {
 				console.error("\n  ora returned no score, so --min-score cannot be evaluated.");
 			}
+			printNext(
+				{
+					call: axCall(sameCallWords(input)),
+					why: "ora returned no score to gate on; retry, or drop --min-score",
+				},
+				{ stderr: true },
+			);
 			return EXIT.API;
 		}
 		if (audit.score < minScore.value) {
 			if (!input.json) {
 				console.log(`\n  Score ${audit.score} is below the required minimum ${minScore.value}\n`);
 			}
+			printNext(resultNext(input, target, true), { stderr: input.json });
 			return EXIT.BELOW_MIN_SCORE;
 		}
 	}
 
+	printNext(resultNext(input, target, false), { stderr: input.json });
 	return EXIT.OK;
 }
 
