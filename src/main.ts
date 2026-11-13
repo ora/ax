@@ -9,6 +9,7 @@ import { generateFilesCommand } from "./commands/generate-files";
 import { journeyCommand } from "./commands/journey";
 import { learnCommand } from "./commands/learn";
 import { skillCommand } from "./commands/skill";
+import { trial, trialCancel, trialList, trialRun, trialView } from "./commands/trial-cli";
 import { webmcpAuditCommand } from "./commands/webmcp-audit";
 import { loadLocalEnv } from "./env";
 import { axCall, type NextStep, placeholder, printNext } from "./report/next-line";
@@ -315,8 +316,8 @@ const learn = defineCommand({
 // Read at help time, after loadLocalEnv(), so help names the hosts this run
 // would actually call.
 const oraSite = () => `ora.ai at ${resolveBase()} (set by ORA_API_URL)`;
-const oraPlatform = () =>
-	`ora's platform API at ${platformBase()} (set by ORA_PLATFORM_URL), with ORA_API_KEY`;
+const frontAccount = () =>
+	`your Front account at app.ora.ai, through ${platformBase()} (set by ORA_PLATFORM_URL), with ORA_API_KEY`;
 
 /** The chain every help screen ends with; `ax learn` prints the skill's own copy. */
 function workflowLines(): string[] {
@@ -343,7 +344,7 @@ const COMMAND_HELP = new Map<unknown, CommandHelp>([
 	[
 		audit,
 		{
-			talksTo: () => `${oraSite()}; with --tunnel ora, also ${oraPlatform()}`,
+			talksTo: () => `${oraSite()}; with --tunnel ora, also ${frontAccount()}`,
 			usageNext: { call: axCall(["audit", placeholder("domain")]) },
 		},
 	],
@@ -364,12 +365,45 @@ const COMMAND_HELP = new Map<unknown, CommandHelp>([
 	[
 		journey,
 		{
-			talksTo: oraPlatform,
+			talksTo: frontAccount,
 			usageNext: {
 				call: axCall(["journey", placeholder("intent"), "--domain", placeholder("domain")]),
 				why: "quote the intent",
 			},
 		},
+	],
+	[
+		trial,
+		{
+			talksTo: frontAccount,
+			usageNext: {
+				call: axCall(["trial", "run", placeholder("site"), "--task", placeholder("task")]),
+			},
+		},
+	],
+	[
+		trialRun,
+		{
+			talksTo: frontAccount,
+			usageNext: {
+				call: axCall(["trial", "run", placeholder("site"), "--task", placeholder("task")]),
+			},
+		},
+	],
+	[
+		trialView,
+		{ talksTo: frontAccount, usageNext: { call: axCall(["trial", "view", placeholder("id")]) } },
+	],
+	[
+		trialList,
+		{
+			talksTo: () => "the trial records in ~/.ax/trials on this machine, with no API call",
+			usageNext: { call: "ax trial list" },
+		},
+	],
+	[
+		trialCancel,
+		{ talksTo: frontAccount, usageNext: { call: axCall(["trial", "cancel", placeholder("id")]) } },
 	],
 	[
 		generateFiles,
@@ -404,7 +438,9 @@ function helpScreen(): string {
 		`    audit ${d("<url>")}         ${d("Score a site's agent readiness")}`,
 		`    webmcp-audit ${d("<url>")}  ${d("Audit a WebMCP surface in a real browser, localhost included")}`,
 		`    deep-journey ${d("<url>")}  ${d("Run a real agent at a site on a curated or free-text task")}`,
-		`    journey ${d("<intent>")}    ${d("Send a real agent at a site and watch it live (needs a platform key)")}`,
+		`    journey ${d("<intent>")}    ${d("Send a real agent at a site and watch it live (needs a Front API key)")}`,
+		`    trial run ${d("<site>")}    ${d("Run tasks on a site at levels of help and count how often agents finish (needs a Front API key)")}`,
+		`    trial ${d("view|list|cancel")} ${d("Pick up, list, or stop a recorded trial")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
 		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
 		`    learn                ${d("Print the ax workflow from ora's skill")}`,
@@ -412,8 +448,8 @@ function helpScreen(): string {
 		`  ${d("Talks to:")}`,
 		`    ${oraSite()}`,
 		`      ${d("audit, webmcp-audit, deep-journey, generate-files, skill, learn")}`,
-		`    ${oraPlatform()}`,
-		`      ${d("journey, and audit --tunnel ora")}`,
+		`    ${frontAccount()}`,
+		`      ${d("journey, trial, and audit --tunnel ora")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -423,6 +459,7 @@ function helpScreen(): string {
 		`    ${g} ${NAME} webmcp-audit http://localhost:3000`,
 		`    ${g} ${NAME} deep-journey stripe.com --intent pricing`,
 		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
+		`    ${g} ${NAME} trial run linear.app --task "Find how to create an issue from the API" --exact https://linear.app/developers --repeat 3`,
 		`    ${g} ${NAME} generate-files example.com --out public`,
 		`    ${g} ${NAME} learn`,
 		"",
@@ -472,6 +509,21 @@ function helpScreen(): string {
 		`    --dir <path>     ${d("Install directory (default .claude/skills)")}`,
 		`    --json           ${d("Print the raw registry index as JSON")}`,
 		"",
+		`  ${d("trial run options:")}`,
+		`    --task <text>    ${d("What the agents should do, in plain words; repeat the flag for up to 5 tasks")}`,
+		`    --agents <list>  ${d("Agents as harness or harness/model, separated by commas (up to 4; default: the first your plan offers)")}`,
+		`    --brand <name>   ${d("Brand for the brand level (default: the site's name)")}`,
+		`    --docs <url>     ${d("Documentation URL; adds the docs level")}`,
+		`    --exact <url>    ${d("URL the agent starts at; adds the exact level")}`,
+		`    --repeat <n>     ${d("Runs for each task, level and agent (1 to 10; default 1)")}`,
+		`    --yes            ${d("Launch without asking after the preview")}`,
+		`    --wait <min>     ${d("Minutes to follow the runs before printing what has finished (default 60)")}`,
+		`    --json           ${d("Print one JSON document on stdout instead of the report")}`,
+		`    ${d("needs a Front API key as ORA_API_KEY; sign up at app.ora.ai")}`,
+		`    ${d("the preview shows what the trial will use; nothing runs until you say yes")}`,
+		`    ${d("ax trial view <id> [--wait <min>] [--json]   ax trial list [--json]   ax trial cancel <id> [--json]")}`,
+		`    ${d("exit codes: 0 report printed, even when runs are unfinished · 2 usage or refusal before launch · 3 API error · 130 Ctrl-C")}`,
+		"",
 		`  ${d("journey options:")}`,
 		`    --domain <d>     ${d("Site the agent targets (e.g. stripe.com)")}`,
 		`    --harness <h>    ${d("Agent harness: claude-code (default), codex, openclaw, hermess, claude-agent, eve, …")}`,
@@ -494,6 +546,7 @@ const root = defineCommand({
 		"webmcp-audit": webmcpAudit,
 		"deep-journey": deepJourney,
 		journey,
+		trial,
 		skill,
 		"generate-files": generateFiles,
 		learn,
