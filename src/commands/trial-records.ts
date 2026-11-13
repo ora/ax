@@ -1,28 +1,15 @@
-import { join } from "node:path";
 import { PlatformApiError } from "../api/platform";
-import {
-	createStudioClient,
-	isStudioFailure,
-	StudioApiError,
-	StudioConnectionError,
-	StudioShapeError,
-} from "../api/studio";
+import { createStudioClient, isStudioFailure, StudioApiError } from "../api/studio";
 import type { CancelResult, StudioClient } from "../api/studio-types";
 import { reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
-import {
-	CorruptRecordError,
-	DEFAULT_TRIALS_DIR,
-	isTrialId,
-	listRecords,
-	readRecord,
-	type TrialRecord,
-} from "../trial/record";
+import { listRecords } from "../trial/record";
 import {
 	GET_A_KEY,
 	isProductNotGranted,
 	PRODUCT_NOT_GRANTED_MESSAGE,
 } from "../trial/render-preview";
+import { failureCode, pickUpRecord } from "../trial/report-flow";
 import { plain } from "../ui/ansi";
 import { EXIT } from "./audit";
 
@@ -113,47 +100,6 @@ function fail(
 	return exit;
 }
 
-const LIST_STEP: NextStep = {
-	call: axCall(["trial", "list"]),
-	why: "see the trials recorded on this machine",
-};
-
-/** The record for `id`, or the exit code of the refusal already reported. */
-function loadRecord(input: TrialCancelInput): TrialRecord | number {
-	const { id, json } = input;
-	const quoted = JSON.stringify(plain(id));
-	if (!isTrialId(id)) {
-		return fail(
-			"INVALID_TRIAL_ID",
-			`${quoted} is not a trial id. Ids look like t-0123456789.`,
-			LIST_STEP,
-			EXIT.USAGE,
-			{ json },
-		);
-	}
-	let record: TrialRecord | null;
-	try {
-		record = readRecord(id, input.trialsDir);
-	} catch (error) {
-		if (!(error instanceof CorruptRecordError)) throw error;
-		const file = `${id}.json`;
-		const where = join(input.trialsDir ?? DEFAULT_TRIALS_DIR, file);
-		return fail(
-			"CORRUPT_TRIAL_RECORD",
-			`The record ${file} is damaged, so ax cannot read its run ids. It is at ${plain(where)}.`,
-			LIST_STEP,
-			EXIT.USAGE,
-			{ json },
-		);
-	}
-	if (!record) {
-		return fail("UNKNOWN_TRIAL", `No trial ${plain(id)} on this machine.`, LIST_STEP, EXIT.USAGE, {
-			json,
-		});
-	}
-	return record;
-}
-
 /** The scopes a 403 named, in one sentence. */
 function missingScopesMessage(scopes: readonly string[]): string {
 	const names = scopes.map((scope) => plain(scope)).join(", ");
@@ -191,14 +137,6 @@ function platformFailure(error: unknown, id: string, json: boolean): number {
 	return fail(failureCode(error), message, retry, EXIT.API, { json, served });
 }
 
-/** `API_ERROR` is the fallback the other commands use; the two transport cases get their own. */
-function failureCode(error: unknown): string {
-	if (error instanceof StudioConnectionError) return "API_UNREACHABLE";
-	if (error instanceof StudioShapeError) return "API_BAD_ANSWER";
-	if (error instanceof StudioApiError && error.code) return error.code;
-	return "API_ERROR";
-}
-
 function printCounts(id: string, result: CancelResult): void {
 	const rows: Array<[string, number]> = [
 		["canceled", result.canceled.length],
@@ -211,8 +149,8 @@ function printCounts(id: string, result: CancelResult): void {
 
 export async function trialCancelCommand(input: TrialCancelInput): Promise<number> {
 	const { id, json } = input;
-	const loaded = loadRecord(input);
-	if (typeof loaded === "number") return loaded;
+	const loaded = pickUpRecord(id, json, input.trialsDir);
+	if (!loaded) return EXIT.USAGE;
 
 	const runIds = loaded.journeys.flatMap((journey) => journey.runIds);
 	if (runIds.length === 0) {
