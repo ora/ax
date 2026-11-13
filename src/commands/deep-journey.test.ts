@@ -42,7 +42,7 @@ vi.mock("../api/deep-journey", async (importOriginal) => {
 	};
 });
 
-import { fetchJourneyIntents, performDeepJourney } from "../api/deep-journey";
+import { DeepJourneyApiError, fetchJourneyIntents, performDeepJourney } from "../api/deep-journey";
 
 const BASE = { url: "zapier.com", json: true, noStream: false };
 
@@ -53,6 +53,7 @@ describe("deepJourneyCommand - keyed tier flags", () => {
 		vi.stubEnv("ORA_SCAN_API_KEY", "");
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.spyOn(console, "log").mockImplementation(() => {});
+		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 	});
 	afterEach(() => {
 		vi.unstubAllEnvs();
@@ -288,5 +289,90 @@ describe("deepJourneyCommand - keyed tier flags", () => {
 		// The intent-category line and the turns chip are intentionally not shown.
 		expect(out).not.toContain("turns");
 		expect(out).not.toContain("intent signup");
+	});
+});
+
+describe("deepJourneyCommand - Next lines and the --json error envelope", () => {
+	const writes: string[] = [];
+	beforeEach(() => {
+		vi.clearAllMocks();
+		writes.length = 0;
+		vi.stubEnv("ORA_PARTNER_API_KEY", "");
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+			writes.push(String(line ?? ""));
+		});
+		vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+			writes.push(String(chunk));
+			return true;
+		});
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
+	});
+
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+	const envelope = () => JSON.parse(writes.join(""));
+
+	it("--json prints the envelope for --task without a key, naming the key in the next call", async () => {
+		expect(await deepJourneyCommand({ ...BASE, task: "Find the pricing page" })).toBe(EXIT.USAGE);
+		expect(envelope().error).toEqual({
+			code: "NEEDS_KEY",
+			message: expect.stringContaining("--task needs an ora partner API key"),
+			next: "ORA_PARTNER_API_KEY=<partner key> ax deep-journey zapier.com --task 'Find the pricing page' --json",
+		});
+	});
+
+	it("an unknown intent suggests the default one", async () => {
+		expect(await deepJourneyCommand({ ...BASE, intent: "nope" })).toBe(EXIT.USAGE);
+		expect(envelope().error.code).toBe("UNKNOWN_INTENT");
+		expect(envelope().error.next).toBe("ax deep-journey zapier.com --intent pricing --json");
+	});
+
+	it("a run still executing is read, never started again", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("run run_1 is still executing; the stream ended", {
+				code: "RUN_STILL_RUNNING",
+				runUrl: "https://ora.ai/api/journey/runs/run_1",
+			}),
+		);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.API);
+		expect(envelope().error).toEqual({
+			code: "RUN_STILL_RUNNING",
+			message: expect.stringContaining("still executing"),
+			next: "curl -s https://ora.ai/api/journey/runs/run_1",
+		});
+	});
+
+	it("a retry after an API error repeats the run with the key as a placeholder", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora's run engine is unavailable right now", {
+				code: "ENGINE_UNAVAILABLE",
+			}),
+		);
+		expect(
+			await deepJourneyCommand({ ...BASE, intent: "pricing", apiKey: "pk_live_not_for_echo" }),
+		).toBe(EXIT.API);
+		expect(envelope().error.next).toBe(
+			"ax deep-journey zapier.com --intent pricing --agent cas-haiku --json --api-key <key>",
+		);
+		expect(`${writes.join("")}${stderrLines().join("\n")}`).not.toContain("pk_live_not_for_echo");
+	});
+
+	it("--json keeps stdout the run detail and puts the Next line on stderr", async () => {
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
+		expect(envelope()).toMatchObject({ id: "run_1", status: "succeeded" });
+		expect(stderrLines()).toContain(
+			"Next: ax audit zapier.com --json  # the readiness audit: which checks explain what the agent hit",
+		);
+	});
+
+	it("ends the human result with the Next line on stdout", async () => {
+		expect(await deepJourneyCommand({ ...BASE, json: false, noStream: true })).toBe(EXIT.OK);
+		expect(writes.at(-1)).toBe(
+			"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit",
+		);
 	});
 });

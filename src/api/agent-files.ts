@@ -44,7 +44,7 @@ export interface AgentFilesBundle {
 /**
  * Any failure to get the files from ora. `status` is the HTTP status when ora
  * answered (400 = not a public domain), and `payload` the error body exactly as
- * served, which is what `--json` prints.
+ * served, whose `errorCode` is the code `--json` reports.
  */
 export class AgentFilesApiError extends Error {
 	readonly status: number | null;

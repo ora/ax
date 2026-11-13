@@ -208,7 +208,9 @@ describe("performDeepJourney", () => {
 			}),
 		);
 
-		await expect(performDeepJourney("vercel.com", OPTIONS)).rejects.toThrow(DeepJourneyApiError);
+		const failure = performDeepJourney("vercel.com", OPTIONS);
+		await expect(failure).rejects.toThrow(DeepJourneyApiError);
+		await expect(failure).rejects.toMatchObject({ code: "RATE_LIMITED" });
 	});
 
 	it("names the key's monthly journey limit on a usage_limit_reached 429", async () => {
@@ -233,6 +235,7 @@ describe("performDeepJourney", () => {
 
 		const failure = performDeepJourney("vercel.com", { ...OPTIONS, apiKey: "k" });
 		await expect(failure).rejects.toThrow(/journeys limit for the month \(200 of 200\)/);
+		await expect(failure).rejects.toMatchObject({ code: "USAGE_LIMIT_REACHED" });
 	});
 
 	it("refuses to treat a never-settling run as terminal (truncated stream)", async () => {
@@ -268,6 +271,11 @@ describe("performDeepJourney", () => {
 			const error = await settled;
 			expect(error).toBeInstanceOf(DeepJourneyApiError);
 			expect(String(error)).toMatch(/still executing — the stream could not be followed/);
+			// Coded so the command points at the run instead of starting another.
+			expect(error).toMatchObject({
+				code: "RUN_STILL_RUNNING",
+				runUrl: `https://journey.test/api/journey/runs/${RUN_ID}`,
+			});
 		} finally {
 			vi.useRealTimers();
 		}
@@ -447,9 +455,13 @@ describe("performDeepJourney - keyed tier", () => {
 			}),
 		);
 
-		await expect(
-			performDeepJourney("vercel.com", { ...OPTIONS, intentId: undefined, task: "Find the docs" }),
-		).rejects.toThrow(/ORA_PARTNER_API_KEY|--api-key/);
+		const failure = performDeepJourney("vercel.com", {
+			...OPTIONS,
+			intentId: undefined,
+			task: "Find the docs",
+		});
+		await expect(failure).rejects.toThrow(/ORA_PARTNER_API_KEY|--api-key/);
+		await expect(failure).rejects.toMatchObject({ code: "NEEDS_KEY" });
 	});
 
 	it("sends the partner key on the stream too, which lifts its per-IP limit", async () => {

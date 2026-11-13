@@ -40,8 +40,32 @@ const MAX_RETRY_AFTER_MS = 60_000;
 const STREAM_REOPENS = 5;
 const STREAM_REOPEN_PAUSE_MS = 2_000;
 
-/** Any failure to obtain a run from ora: network, HTTP, rate limit, stream error. */
-export class DeepJourneyApiError extends Error {}
+export type DeepJourneyErrorCode =
+	| "NEEDS_KEY"
+	| "RATE_LIMITED"
+	| "USAGE_LIMIT_REACHED"
+	| "ENGINE_UNAVAILABLE"
+	| "RUN_STILL_RUNNING";
+
+/**
+ * Any failure to obtain a run from ora: network, HTTP, rate limit, stream error.
+ * `code` names the failures a caller answers differently (a key to fix, a wait,
+ * a run to read rather than start again) and is null for the rest; `runUrl` is
+ * the run's detail URL when the run exists and is still executing.
+ */
+export class DeepJourneyApiError extends Error {
+	readonly code: DeepJourneyErrorCode | null;
+	readonly runUrl: string | undefined;
+
+	constructor(
+		message: string,
+		options: { code?: DeepJourneyErrorCode | null; runUrl?: string } = {},
+	) {
+		super(message);
+		this.code = options.code ?? null;
+		this.runUrl = options.runUrl;
+	}
+}
 
 /** The stream answered with an HTTP error rather than an event stream. */
 class JourneyStreamHttpError extends DeepJourneyApiError {
@@ -233,21 +257,29 @@ async function triggerRun(
 		// curated body never 401s - a bad key silently degrades to keyless.)
 		throw new DeepJourneyApiError(
 			"free-text tasks need an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
+			{ code: "NEEDS_KEY" },
 		);
 	}
 	if (res.status === 429) {
 		const usage = await usageLimitMessage(res);
-		if (usage) throw new DeepJourneyApiError(`ora usage limit reached: ${usage}`);
+		if (usage) {
+			throw new DeepJourneyApiError(`ora usage limit reached: ${usage}`, {
+				code: "USAGE_LIMIT_REACHED",
+			});
+		}
 		const wait = res.headers.get("retry-after");
 		const caps = options.apiKey
 			? "keyed allowance: 1000 runs per 24h per key"
 			: "burst: 20/min/IP; daily: 20 runs per 24h per IP — an ora partner API key raises this to 1000/24h per key: set ORA_PARTNER_API_KEY or pass --api-key";
 		throw new DeepJourneyApiError(
 			`ora journey caller limit exceeded${wait ? ` — retry after ${formatWait(Number(wait) * 1000)}` : ""} (${caps})`,
+			{ code: "RATE_LIMITED" },
 		);
 	}
 	if (res.status === 503) {
-		throw new DeepJourneyApiError("ora's run engine is unavailable right now — try again shortly");
+		throw new DeepJourneyApiError("ora's run engine is unavailable right now — try again shortly", {
+			code: "ENGINE_UNAVAILABLE",
+		});
 	}
 	if (!res.ok) {
 		throw new DeepJourneyApiError(`ora journey request failed: ${await errorBodyText(res)}`);
@@ -519,12 +551,14 @@ export async function performDeepJourney(
 		if (engineError) {
 			throw new DeepJourneyApiError(`ora journey run failed: ${engineError}`);
 		}
+		const runUrl = `${base}/api/journey/runs/${record.id}`;
 		throw new DeepJourneyApiError(
 			`run ${record.id} is still executing — ${
 				streamFailure
 					? `the stream could not be followed (${streamFailure}) and polling ran out of time`
 					: "the stream ended"
-			} before a terminal result. Check ${base}/api/journey/runs/${record.id} shortly`,
+			} before a terminal result. Check ${runUrl} shortly`,
+			{ code: "RUN_STILL_RUNNING", runUrl },
 		);
 	}
 	warnOnNewerContract(detail.contractVersion);

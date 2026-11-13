@@ -214,6 +214,90 @@ describe("auditCommand exit codes", () => {
 	});
 });
 
+describe("auditCommand Next lines and the --json error envelope", () => {
+	beforeEach(() => {
+		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+		vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation(() => {});
+	});
+	afterEach(() => vi.restoreAllMocks());
+
+	const stdout = () =>
+		vi
+			.mocked(process.stdout.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+
+	it("--json prints the envelope on a usage error and exits 2", async () => {
+		expect(await run({ url: "not a domain" })).toBe(EXIT.USAGE);
+		expect(JSON.parse(stdout())).toEqual({
+			error: {
+				code: "INVALID_TARGET",
+				message: 'Not a scannable URL or domain: "not a domain"',
+				next: "ax audit <domain> --json",
+			},
+		});
+		expect(stderrLines()).toContain(
+			"Next: ax audit <domain> --json  # a public URL or domain, e.g. docs.example.com",
+		);
+	});
+
+	it("--json carries ora's code on an API error, with a retry that never echoes the key", async () => {
+		vi.mocked(api.performAudit).mockRejectedValue(
+			new api.AuditApiError("ora rate limit exceeded", { code: "RATE_LIMITED" }),
+		);
+		expect(await run({ apiKey: "sk_live_not_for_echo" })).toBe(EXIT.API);
+		const envelope = JSON.parse(stdout());
+		expect(envelope.error.code).toBe("RATE_LIMITED");
+		expect(envelope.error.next).toBe("ax audit example.com --json --api-key <key>");
+		expect(`${stdout()}${stderrLines().join("\n")}`).not.toContain("sk_live_not_for_echo");
+	});
+
+	it("--json keeps stdout the raw payload and puts the Next line on stderr", async () => {
+		resolveWith();
+		expect(await run()).toBe(EXIT.OK);
+		expect(JSON.parse(stdout())).toEqual(FIXTURE);
+		expect(stderrLines()).toContain(
+			"Next: ax deep-journey example.com --json  # send a real agent at the site on a task, then read its result",
+		);
+	});
+
+	it("below --min-score, the Next line is a forced rescan through the same gate", async () => {
+		resolveWith();
+		expect(await run({ minScore: "70" })).toBe(EXIT.BELOW_MIN_SCORE);
+		expect(stderrLines()).toContain(
+			"Next: ax audit example.com --json --force --min-score 70  # after you apply the Top fixes above, rescan",
+		);
+	});
+
+	it("ends the human report with the Next line on stdout", async () => {
+		resolveWith();
+		expect(await run({ json: false })).toBe(EXIT.OK);
+		expect(console.log).toHaveBeenLastCalledWith(
+			"Next: ax deep-journey example.com  # send a real agent at the site on a task, then read its result",
+		);
+	});
+
+	it("MCP_AUTH_REQUIRED keeps the raw frame on stdout and points at the site that serves it", async () => {
+		rejectWithMcpAuth();
+		expect(await run({ url: "https://example.com/mcp" })).toBe(EXIT.OK);
+		expect(JSON.parse(stdout())).toEqual(MCP_AUTH_FRAME);
+		expect(stderrLines()).toContain(
+			"Next: ax audit example.com --json  # ora cannot inspect an MCP server that needs credentials; score the site that serves it",
+		);
+	});
+
+	it("MCP_AUTH_REQUIRED at a host root asks for the site rather than repeating the call", async () => {
+		rejectWithMcpAuth();
+		expect(await run({ url: "api.example.com" })).toBe(EXIT.OK);
+		expect(stderrLines().find((line) => line.startsWith("Next:"))).toMatch(
+			/^Next: ax audit <site domain> --json {2}#/,
+		);
+	});
+});
+
 describe("auditCommand tunnels", () => {
 	const TUNNEL_VARS = ["ORA_TUNNEL_CMD", "ORA_TUNNEL", "ORA_API_KEY"] as const;
 	const saved: Partial<Record<(typeof TUNNEL_VARS)[number], string>> = {};

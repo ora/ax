@@ -85,13 +85,40 @@ describe("generateFilesCommand", () => {
 		expect(await run()).toBe(EXIT.API);
 	});
 
-	it("--json prints ora's error body on a refusal", async () => {
+	it("--json prints the error envelope, with ora's code and message, on a refusal", async () => {
 		vi.mocked(api.fetchAgentFiles).mockRejectedValueOnce(
 			new api.AgentFilesApiError(invalidDomain.message, { status: 400, payload: invalidDomain }),
 		);
 		expect(await run({ domain: "localhost", json: true })).toBe(EXIT.USAGE);
-		expect(process.stdout.write).toHaveBeenCalledWith(
-			`${JSON.stringify(invalidDomain, null, 2)}\n`,
+		expect(process.stdout.write).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(String(vi.mocked(process.stdout.write).mock.calls[0][0]))).toEqual({
+			error: {
+				code: invalidDomain.errorCode,
+				message: invalidDomain.message,
+				next: "ax generate-files <domain> --json",
+			},
+		});
+	});
+
+	it("--json reports any other failure as API_ERROR with a retry of the same call", async () => {
+		vi.mocked(api.fetchAgentFiles).mockRejectedValueOnce(
+			new api.AgentFilesApiError("could not reach ora at https://ora.ai: fetch failed"),
+		);
+		expect(await run({ json: true })).toBe(EXIT.API);
+		const envelope = JSON.parse(String(vi.mocked(process.stdout.write).mock.calls[0][0]));
+		expect(envelope.error.code).toBe("API_ERROR");
+		expect(envelope.error.next).toBe(`ax generate-files stripe.com --json --out ${out}`);
+	});
+
+	it("ends a write with a Next line to rescan, and a refusal to overwrite with --force", async () => {
+		expect(await run()).toBe(EXIT.OK);
+		expect(console.log).toHaveBeenLastCalledWith(
+			"Next: ax audit stripe.com --force  # after you publish them, rescan to verify",
+		);
+
+		expect(await run()).toBe(EXIT.USAGE);
+		expect(console.error).toHaveBeenLastCalledWith(
+			`Next: ax generate-files stripe.com --out ${out} --force  # overwrite them, or pass --out <dir> to write somewhere else`,
 		);
 	});
 
