@@ -42,7 +42,16 @@ vi.mock("../api/deep-journey", async (importOriginal) => {
 	};
 });
 
-import { DeepJourneyApiError, fetchJourneyIntents, performDeepJourney } from "../api/deep-journey";
+import realDetail from "../api/__fixtures__/deep-journey-detail.json";
+import runningDetail from "../api/__fixtures__/deep-journey-detail-running.json";
+import refusals from "../api/__fixtures__/deep-journey-refusals.json";
+import {
+	DeepJourneyApiError,
+	type DeepJourneyOutcome,
+	fetchJourneyIntents,
+	performDeepJourney,
+} from "../api/deep-journey";
+import type { JourneyNextAction } from "../contract";
 
 const BASE = { url: "zapier.com", json: true, noStream: false };
 
@@ -406,6 +415,125 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		expect(await deepJourneyCommand({ ...BASE, json: false, noStream: true })).toBe(EXIT.OK);
 		expect(writes.at(-1)).toBe(
 			"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit",
+		);
+	});
+});
+
+// Real 1.42.0 responses (provenance in src/api/deep-journey.test.ts). No local
+// run is flagged, so the raised flag is a delta carrying the reason ora writes
+// for a first request refused with a 403.
+describe("deepJourneyCommand - flags and the next action ora served", () => {
+	const writes: string[] = [];
+	const BLOCKED_REASON = "The site refused the agent's first request with HTTP 403";
+	const blockedDetail = {
+		...realDetail,
+		flags: { ...realDetail.flags, blocked: { flagged: true, reason: BLOCKED_REASON } },
+	};
+	const STREAM_NEXT = runningDetail.next_action as JourneyNextAction;
+	const STREAM_LINE = `Next: curl -s https://ora.ai${runningDetail.stream_url}  # ${STREAM_NEXT.reason}`;
+	const AUDIT_LINE =
+		"Next: ax audit linear.app --json  # the readiness audit: which checks explain what the agent hit";
+	const outcomeWith = (detail: object) =>
+		({
+			record: { id: realDetail.id, status: "succeeded" },
+			cached: false,
+			allowance: {},
+			detail,
+		}) as unknown as DeepJourneyOutcome;
+	const RUN = { url: "linear.app", intent: "pricing", json: true, noStream: false };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		writes.length = 0;
+		vi.stubEnv("ORA_PARTNER_API_KEY", "");
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.stubEnv("ORA_API_URL", "https://ora.ai");
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+			writes.push(String(line ?? ""));
+		});
+		vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+			writes.push(String(chunk));
+			return true;
+		});
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
+	});
+
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+	const stdoutJson = () => JSON.parse(writes.join(""));
+
+	it("prints a raised flag in ora's words, right under the verdict", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(blockedDetail));
+		expect(await deepJourneyCommand({ ...RUN, json: false, noStream: true })).toBe(EXIT.OK);
+		const flag = writes.findIndex((line) => line.includes(BLOCKED_REASON));
+		expect(writes[flag]).toMatch(/!.* The site refused the agent's first request with HTTP 403$/);
+		const verdict = writes.findIndex((line) => line.includes("task satisfied"));
+		expect(flag).toBeGreaterThan(verdict);
+		expect(flag - verdict).toBeLessThanOrEqual(2);
+	});
+
+	it("--json keeps ora's detail unchanged on stdout and puts a raised flag on stderr", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(blockedDetail));
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.OK);
+		expect(stdoutJson()).toEqual(blockedDetail);
+		expect(stderrLines()).toEqual([
+			expect.stringMatching(/!.* The site refused the agent's first request with HTTP 403$/),
+			AUDIT_LINE,
+		]);
+	});
+
+	it("prints no note when ora raised no flag", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(realDetail));
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.OK);
+		expect(stdoutJson()).toEqual(realDetail);
+		expect(stderrLines()).toEqual([AUDIT_LINE]);
+	});
+
+	it("a run left running ends on the stream ora named, --no-stream included", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError(`run ${realDetail.id} is still executing`, {
+				code: "RUN_STILL_RUNNING",
+				runUrl: `https://ora.ai/api/journey/runs/${realDetail.id}`,
+				nextAction: STREAM_NEXT,
+			}),
+		);
+		expect(await deepJourneyCommand({ ...RUN, json: false, noStream: true })).toBe(EXIT.API);
+		expect(stderrLines().at(-1)).toBe(STREAM_LINE);
+	});
+
+	it("a failed run ends on the stream ora named for it", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(
+			outcomeWith({ ...runningDetail, status: "failed" }),
+		);
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.RUN_FAILED);
+		expect(stderrLines().at(-1)).toBe(STREAM_LINE);
+	});
+
+	it("a refusal that asks for a new run ends on the same ax call, with ora's reason", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora journey request failed: Invalid input", {
+				payload: refusals.INVALID_DOMAIN,
+			}),
+		);
+		expect(await deepJourneyCommand({ ...RUN, url: "localhost" })).toBe(EXIT.API);
+		expect(stdoutJson()).toEqual(refusals.INVALID_DOMAIN);
+		expect(stderrLines().at(-1)).toBe(
+			`Next: ax deep-journey localhost --intent pricing --agent cas-haiku --json  # ${refusals.INVALID_DOMAIN.next_action.reason}`,
+		);
+	});
+
+	it("a refusal that names another request writes it as curl", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora journey request failed: Unsupported agent", {
+				payload: refusals.UNSUPPORTED_AGENT,
+			}),
+		);
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.API);
+		expect(stderrLines().at(-1)).toBe(
+			`Next: curl -s https://ora.ai/api/journey/agents  # ${refusals.UNSUPPORTED_AGENT.next_action.reason}`,
 		);
 	});
 });
