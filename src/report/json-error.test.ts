@@ -52,4 +52,32 @@ describe("reportError", () => {
 			["Next: ax audit <domain>  # a public URL or domain"],
 		]);
 	});
+
+	it("under --json passes a served error body through unchanged instead of the envelope", () => {
+		const served = {
+			error: "invalid_domain",
+			message: "not a public domain",
+			next_action: { call: "ax audit <domain>" },
+		};
+		reportError(ERROR, { json: true, served });
+		expect(process.stdout.write).toHaveBeenCalledTimes(1);
+		expect(process.stdout.write).toHaveBeenCalledWith(`${JSON.stringify(served, null, 2)}\n`);
+		expect(console.log).not.toHaveBeenCalled();
+		expect(vi.mocked(console.error).mock.calls).toEqual([
+			['Not a scannable URL or domain: "not-a-domain"'],
+			["Next: ax audit <domain>  # a public URL or domain"],
+		]);
+	});
+
+	it("under --json falls back to the envelope when the served body is null", () => {
+		reportError(ERROR, { json: true, served: null });
+		expect(JSON.parse(String(vi.mocked(process.stdout.write).mock.calls[0][0]))).toEqual(
+			jsonErrorEnvelope(ERROR),
+		);
+	});
+
+	it("without --json ignores a served body", () => {
+		reportError(ERROR, { json: false, served: { error: "invalid_domain" } });
+		expect(process.stdout.write).not.toHaveBeenCalled();
+	});
 });

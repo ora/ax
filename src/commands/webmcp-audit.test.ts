@@ -234,6 +234,20 @@ describe("Next lines and the --json error envelope", () => {
 		});
 	});
 
+	it("--json prints ora's refusal body unchanged and keeps the upgrade Next line on stderr", async () => {
+		const served = { error: "capture shim 3 is no longer scored", code: "SHIM_VERSION_MISMATCH" };
+		vi.mocked(ingestCapture).mockRejectedValue(
+			new WebmcpIngestError("upgrade ax", { code: "SHIM_VERSION_MISMATCH", payload: served }),
+		);
+		expect(await webmcpAuditCommand({ ...BASE })).toBe(EXIT.API);
+		expect(process.stdout.write).toHaveBeenCalledTimes(1);
+		expect(process.stdout.write).toHaveBeenCalledWith(`${JSON.stringify(served, null, 2)}\n`);
+		expect(stderrLines()).toEqual([
+			"upgrade ax",
+			"Next: npm i -g ax@latest  # this ax captures with a shim ora no longer scores; then run it again",
+		]);
+	});
+
 	it("keeps stdout the raw payload and suggests a re-run for a local page on stderr", async () => {
 		expect(await webmcpAuditCommand({ ...BASE })).toBe(EXIT.OK);
 		expect(console.log).toHaveBeenCalledTimes(1);

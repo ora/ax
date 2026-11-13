@@ -4,6 +4,7 @@ import {
 	type JourneyRun,
 	type JourneyStep,
 	launchJourney,
+	PlatformApiError,
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
@@ -211,7 +212,11 @@ export async function journeyCommand(input: JourneyCommandInput): Promise<number
 	};
 	const fail = (cause: unknown): number => {
 		const error = launchFailure(input, cause);
-		reportError(error, { json: input.json, display: `Journey failed: ${error.message}` });
+		reportError(error, {
+			json: input.json,
+			display: `Journey failed: ${error.message}`,
+			served: cause instanceof PlatformApiError ? cause.payload : undefined,
+		});
 		return 2;
 	};
 

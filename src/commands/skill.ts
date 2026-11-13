@@ -103,7 +103,11 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 					? { call: axCall(["skill"]), why: "list the skills the registry has" }
 					: { call: retry, why: "retry; the registry may be briefly unreachable" },
 			},
-			{ json: input.json, display: `Skill command failed: ${message}` },
+			{
+				json: input.json,
+				display: `Skill command failed: ${message}`,
+				served: cause instanceof SkillApiError ? cause.payload : undefined,
+			},
 		);
 		return unknown ? EXIT.USAGE : EXIT.API;
 	}

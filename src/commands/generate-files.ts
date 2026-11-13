@@ -174,7 +174,17 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 		bundle = await fetchAgentFiles(input.domain, { baseUrl: input.baseUrl });
 	} catch (cause) {
 		const error = fetchFailure(input, cause);
-		reportError(error, { json: input.json, display: `generate-files failed: ${error.message}` });
+		// Only an HTTP error body is ora's error contract. A 2xx bundle ax refused
+		// would read as success on stdout, so that one gets the envelope.
+		const served =
+			cause instanceof AgentFilesApiError && cause.status !== null && cause.status >= 400
+				? cause.payload
+				: undefined;
+		reportError(error, {
+			json: input.json,
+			display: `generate-files failed: ${error.message}`,
+			served,
+		});
 		return cause instanceof AgentFilesApiError && cause.status === 400 ? EXIT.USAGE : EXIT.API;
 	}
 

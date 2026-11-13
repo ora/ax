@@ -210,7 +210,10 @@ describe("performDeepJourney", () => {
 
 		const failure = performDeepJourney("vercel.com", OPTIONS);
 		await expect(failure).rejects.toThrow(DeepJourneyApiError);
-		await expect(failure).rejects.toMatchObject({ code: "RATE_LIMITED" });
+		await expect(failure).rejects.toMatchObject({
+			code: "RATE_LIMITED",
+			payload: { error: "Too many requests", retry_after_ms: 86_400_000 },
+		});
 	});
 
 	it("names the key's monthly journey limit on a usage_limit_reached 429", async () => {
@@ -235,7 +238,10 @@ describe("performDeepJourney", () => {
 
 		const failure = performDeepJourney("vercel.com", { ...OPTIONS, apiKey: "k" });
 		await expect(failure).rejects.toThrow(/journeys limit for the month \(200 of 200\)/);
-		await expect(failure).rejects.toMatchObject({ code: "USAGE_LIMIT_REACHED" });
+		await expect(failure).rejects.toMatchObject({
+			code: "USAGE_LIMIT_REACHED",
+			payload: { error: "usage_limit_reached", used: 200, limit: 200 },
+		});
 	});
 
 	it("refuses to treat a never-settling run as terminal (truncated stream)", async () => {
@@ -461,7 +467,13 @@ describe("performDeepJourney - keyed tier", () => {
 			task: "Find the docs",
 		});
 		await expect(failure).rejects.toThrow(/ORA_PARTNER_API_KEY|--api-key/);
-		await expect(failure).rejects.toMatchObject({ code: "NEEDS_KEY" });
+		await expect(failure).rejects.toMatchObject({
+			code: "NEEDS_KEY",
+			payload: {
+				error: "Custom intents require a partner API key",
+				code: "CUSTOM_INTENT_REQUIRES_KEY",
+			},
+		});
 	});
 
 	it("sends the partner key on the stream too, which lifts its per-IP limit", async () => {

@@ -10,7 +10,7 @@ import { type CommandError, reportError } from "../report/json-error";
 import { toReport } from "../report/model";
 import { axCall, type NextStep, placeholder, printNext, type Word } from "../report/next-line";
 import { MCP_AUTH_REQUIRED_NOTICE, renderReport } from "../report/terminal";
-import { isLocalTarget, openTunnel, type Tunnel } from "../tunnel";
+import { isLocalTarget, openTunnel, type Tunnel, TunnelError } from "../tunnel";
 import { MISSING_KEY_HINT, openOraTunnel } from "../tunnel/ora";
 import { spinner } from "../ui/spinner";
 
@@ -191,8 +191,8 @@ function resultNext(
 }
 
 export async function auditCommand(input: AuditCommandInput): Promise<number> {
-	const fail = (error: CommandError, exit: number, display?: string): number => {
-		reportError(error, { json: input.json, display });
+	const fail = (error: CommandError, exit: number, display?: string, served?: unknown): number => {
+		reportError(error, { json: input.json, display, served });
 		return exit;
 	};
 	const target = normalizeTarget(input.url);
@@ -334,6 +334,8 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 					next: { call: sameCall.call, why: "retry, or bring your own tunnel with --tunnel-cmd" },
 				},
 				EXIT.USAGE,
+				undefined,
+				cause instanceof TunnelError ? cause.payload : undefined,
 			);
 		}
 		auditTarget = tunnel.url;
@@ -390,6 +392,7 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			},
 			apiError ? EXIT.API : EXIT.USAGE,
 			`Audit failed: ${message}`,
+			apiError ? cause.payload : undefined,
 		);
 	} finally {
 		await closeTunnel();

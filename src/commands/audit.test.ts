@@ -255,6 +255,27 @@ describe("auditCommand Next lines and the --json error envelope", () => {
 		expect(`${stdout()}${stderrLines().join("\n")}`).not.toContain("sk_live_not_for_echo");
 	});
 
+	it("--json prints ora's error body unchanged on an API error, the notes on stderr", async () => {
+		const served = {
+			error: "usage_limit_reached",
+			kind: "scans",
+			period: "month",
+			used: 500,
+			limit: 500,
+		};
+		vi.mocked(api.performAudit).mockRejectedValue(
+			new api.AuditApiError("ora usage limit reached: this API key has used its scans limit", {
+				payload: served,
+			}),
+		);
+		expect(await run()).toBe(EXIT.API);
+		expect(stdout()).toBe(`${JSON.stringify(served, null, 2)}\n`);
+		expect(stderrLines()).toEqual([
+			"Audit failed: ora usage limit reached: this API key has used its scans limit",
+			"Next: ax audit example.com --json  # retry; if ora rate limited you, wait as long as the message says first",
+		]);
+	});
+
 	it("--json keeps stdout the raw payload and puts the Next line on stderr", async () => {
 		resolveWith();
 		expect(await run()).toBe(EXIT.OK);
@@ -399,6 +420,22 @@ describe("auditCommand tunnels", () => {
 		vi.mocked(oraTunnel.openOraTunnel).mockRejectedValue(new tunnel.TunnelError("refused"));
 		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.USAGE);
 		expect(api.performAudit).not.toHaveBeenCalled();
+	});
+
+	it("--json passes the platform's error body through when --tunnel ora is refused", async () => {
+		process.env.ORA_API_KEY = "ora_sk_test";
+		const served = { error: "insufficient_scope", required: ["tunnels:write"] };
+		vi.mocked(oraTunnel.openOraTunnel).mockRejectedValue(
+			new tunnel.TunnelError("ora refused the tunnel (403): insufficient_scope", {
+				payload: served,
+			}),
+		);
+		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.USAGE);
+		const printed = vi
+			.mocked(process.stdout.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+		expect(printed).toBe(`${JSON.stringify(served, null, 2)}\n`);
 	});
 
 	it("ORA_TUNNEL=ora selects the ora tunnel, and --tunnel-cmd wins over it", async () => {

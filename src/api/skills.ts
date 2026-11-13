@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { errorBody } from "./shared";
 
 // Client for ora's digest-bound skill registry at
 // /.well-known/agent-skills/index.json. Skill content is NEVER bundled into
@@ -14,14 +15,20 @@ export type SkillErrorCode =
 	| "UNKNOWN_SKILL"
 	| "DIGEST_MISMATCH";
 
-/** Any failure to get a skill from the registry; `code` says which. */
+/**
+ * Any failure to get a skill from the registry; `code` says which. `payload`
+ * is the registry's error body exactly as served when it was JSON (what
+ * `--json` prints), null or undefined otherwise.
+ */
 export class SkillApiError extends Error {
 	readonly code: SkillErrorCode;
+	readonly payload: unknown;
 
-	constructor(message: string, code: SkillErrorCode) {
+	constructor(message: string, code: SkillErrorCode, options: { payload?: unknown } = {}) {
 		super(message);
 		this.name = "SkillApiError";
 		this.code = code;
+		this.payload = options.payload;
 	}
 }
 
@@ -54,7 +61,10 @@ export async function fetchSkillIndex(baseUrl?: string): Promise<SkillEntry[]> {
 		);
 	}
 	if (!res.ok) {
-		throw new SkillApiError(`skill registry answered HTTP ${res.status}`, "REGISTRY_ERROR");
+		const { payload } = await errorBody(res);
+		throw new SkillApiError(`skill registry answered HTTP ${res.status}`, "REGISTRY_ERROR", {
+			payload,
+		});
 	}
 	const body = (await res.json()) as { skills?: SkillEntry[] };
 	if (!Array.isArray(body.skills)) {
@@ -101,7 +111,12 @@ export async function fetchSkill(name: string, baseUrl?: string): Promise<Fetche
 		);
 	}
 	if (!res.ok) {
-		throw new SkillApiError(`skill fetch answered HTTP ${res.status} for ${url}`, "REGISTRY_ERROR");
+		const { payload } = await errorBody(res);
+		throw new SkillApiError(
+			`skill fetch answered HTTP ${res.status} for ${url}`,
+			"REGISTRY_ERROR",
+			{ payload },
+		);
 	}
 	const bytes = new Uint8Array(await res.arrayBuffer());
 
