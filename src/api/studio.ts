@@ -1,18 +1,33 @@
 import pkg from "../../package.json";
-import { plain } from "../ui/ansi";
 import type { JourneyStep } from "./platform";
 import { exchangeKeyGrant, jsonOrNull, PlatformApiError, platformBase } from "./platform";
+import {
+	expectShape,
+	failuresOf,
+	isRecord,
+	type StudioAnswer,
+	StudioConnectionError,
+	StudioShapeError,
+	stringList,
+	studioError,
+} from "./studio-errors";
 import type {
 	CancelResult,
-	CreateFailure,
 	JourneyDetail,
-	NotStartedJourney,
 	StudioAgent,
 	StudioClient,
 	StudioClientOptions,
 	StudioUsage,
 	TrajectoryProfile,
 } from "./studio-types";
+
+export {
+	isStudioFailure,
+	notStartedJourney,
+	StudioApiError,
+	StudioConnectionError,
+	StudioShapeError,
+} from "./studio-errors";
 
 // Client for the Studio endpoints a trial calls on the ora platform: agents, usage, journey
 // create and read, a run's trajectory and insight, and the batch cancel. It holds one bearer from
@@ -25,6 +40,8 @@ export const STUDIO_USER_AGENT = `ax/${pkg.version} (trial)`;
 const REFRESH_MARGIN_MS = 60_000;
 /** How long a bearer is used when the exchange gives no lifetime. */
 const UNDATED_TOKEN_MS = 10 * 60_000;
+/** How long one Studio request may take; a create fans out every agent before it answers. */
+const REQUEST_TIMEOUT_MS = 60_000;
 /** `POST /studio/v1/runs/cancel` takes 1 to 500 run ids. */
 const MAX_CANCEL_IDS = 500;
 /** The insight read's 404 while the judge has not written it (run-spine artifact-serve.ts:21). */
@@ -39,36 +56,6 @@ const INSIGHT_NOT_READY = "insight_not_ready";
  */
 export const TRAJECTORY_PROFILE: TrajectoryProfile | undefined = undefined;
 
-/**
- * Studio answered with an HTTP error. `code` is the Error body's `code`, or the snake_case
- * `error` a runs route answers with instead (`run_not_found`); `missingScopes` is a 403's
- * `details.missing`, empty otherwise.
- */
-export class StudioApiError extends PlatformApiError {
-	readonly code: string | null;
-	readonly missingScopes: string[];
-
-	constructor(
-		message: string,
-		options: { status: number; payload: unknown; code: string | null; missingScopes: string[] },
-	) {
-		super(message, options);
-		this.name = "StudioApiError";
-		this.code = options.code;
-		this.missingScopes = options.missingScopes;
-	}
-
-	/** A 502 without Studio's own body: a gateway failed, so runs may have started. */
-	get gateway(): boolean {
-		return this.status === 502 && notStartedJourney(this) === null;
-	}
-}
-
-interface Answer {
-	status: number;
-	payload: unknown;
-}
-
 export function createStudioClient(options: StudioClientOptions = {}): StudioClient {
 	const secret = options.apiKey || process.env.ORA_API_KEY;
 	if (!secret) {
@@ -79,19 +66,25 @@ export function createStudioClient(options: StudioClientOptions = {}): StudioCli
 	const base = platformBase(options.baseUrl);
 	const bearer = tokenKeeper(base, secret, options.now ?? Date.now);
 
-	async function send(method: "GET" | "POST", path: string, body?: unknown): Promise<Answer> {
+	// Only the network sits in each try, so any rejection there is the connection's, never a bug.
+	async function send(method: "GET" | "POST", path: string, body?: unknown): Promise<StudioAnswer> {
 		const headers: Record<string, string> = {
 			authorization: `Bearer ${await bearer()}`,
 			accept: "application/json",
 			"user-agent": STUDIO_USER_AGENT,
 		};
 		if (body !== undefined) headers["content-type"] = "application/json";
-		const res = await fetch(`${base}${path}`, {
-			method,
-			headers,
-			body: body === undefined ? undefined : JSON.stringify(body),
-		});
-		return { status: res.status, payload: jsonOrNull(await res.text()) };
+		try {
+			const res = await fetch(`${base}${path}`, {
+				method,
+				headers,
+				body: body === undefined ? undefined : JSON.stringify(body),
+				signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+			});
+			return { status: res.status, payload: jsonOrNull(await res.text()) };
+		} catch (cause) {
+			throw new StudioConnectionError(base, cause);
+		}
 	}
 
 	async function expectOk(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
@@ -202,25 +195,6 @@ export function createStudioClient(options: StudioClientOptions = {}): StudioCli
 	};
 }
 
-/**
- * Studio's own 502 on create: no agent started, and the body still names the journey and each
- * agent that failed (apps/studio-service/src/journeys/journeys-router.ts:340). Null for any other
- * error, a gateway's 502 included, since that does not prove nothing started.
- */
-export function notStartedJourney(error: unknown): NotStartedJourney | null {
-	if (!(error instanceof StudioApiError) || error.status !== 502) return null;
-	const data = isRecord(error.payload) ? error.payload.data : undefined;
-	if (
-		!isRecord(data) ||
-		typeof data.journeyId !== "string" ||
-		!Array.isArray(data.runIds) ||
-		data.runIds.length > 0
-	) {
-		return null;
-	}
-	return { journeyId: data.journeyId, failed: failuresOf(data.failed) };
-}
-
 /** One bearer for the client, shared by calls that start together, exchanged again before expiry. */
 function tokenKeeper(base: string, secret: string, now: () => number): () => Promise<string> {
 	type Held = { token: string; refreshAt: number };
@@ -229,7 +203,15 @@ function tokenKeeper(base: string, secret: string, now: () => number): () => Pro
 
 	const exchange = async (): Promise<Held> => {
 		const startedAt = now();
-		const grant = await exchangeKeyGrant(base, secret);
+		const grant = await exchangeKeyGrant(base, secret).catch((cause: unknown) => {
+			// The shared exchange throws PlatformApiError on an HTTP error, lets fetch's rejection
+			// through, and throws a plain Error only for a 200 that carries no token.
+			if (cause instanceof PlatformApiError) throw cause;
+			if (cause instanceof TypeError || cause instanceof DOMException) {
+				throw new StudioConnectionError(base, cause);
+			}
+			throw new StudioShapeError("POST /auth/token", "a token");
+		});
 		const usable =
 			grant.expiresIn === undefined ? UNDATED_TOKEN_MS : grant.expiresIn * 1000 - REFRESH_MARGIN_MS;
 		return { token: grant.token, refreshAt: startedAt + usable };
@@ -256,60 +238,8 @@ function scopesClaim(token: string): string[] {
 	return isRecord(claims) ? stringList(claims.scopes) : [];
 }
 
-function studioError({ status, payload }: Answer): StudioApiError {
-	const code = errorCode(payload);
-	const details = isRecord(payload) ? payload.details : undefined;
-	const missingScopes = status === 403 && isRecord(details) ? stringList(details.missing) : [];
-	const message = plain(failureMessage(status, code, payload, missingScopes));
-	return new StudioApiError(message, { status, payload, code, missingScopes });
-}
-
-// 402 and 502 are told apart by status alone: the quota guard's body is not in the public spec,
-// and a gateway's 502 has no Studio body at all.
-function failureMessage(
-	status: number,
-	code: string | null,
-	payload: unknown,
-	missingScopes: string[],
-): string {
-	if (status === 401) return "ora rejected the request (401). Check ORA_API_KEY.";
-	if (status === 402) return "Your ora plan has no runs left for this (402).";
-	if (missingScopes.length > 0) return `The ora API key lacks ${missingScopes.join(", ")} (403).`;
-	const said = isRecord(payload) ? stringField(payload.message) || stringField(payload.error) : "";
-	return `ora request failed (${status}${code ? ` ${code}` : ""})${said ? `: ${said}` : ""}`;
-}
-
-function errorCode(payload: unknown): string | null {
-	if (!isRecord(payload)) return null;
-	if (typeof payload.code === "string") return payload.code;
-	const error = stringField(payload.error);
-	return /^[a-z][a-z0-9_]*$/.test(error) ? error : null;
-}
-
 /** Studio's `{ success, data }` envelope, unwrapped in this one place. */
 function unwrap(payload: unknown, what: string): Record<string, unknown> {
 	expectShape(isRecord(payload) && isRecord(payload.data), what, "its { success, data } envelope");
 	return (payload as { data: Record<string, unknown> }).data;
-}
-
-function expectShape(ok: boolean, what: string, expected: string): void {
-	if (!ok) throw new Error(`ora answered ${what} without ${expected}.`);
-}
-
-function failuresOf(value: unknown): CreateFailure[] {
-	return Array.isArray(value) ? (value as CreateFailure[]) : [];
-}
-
-function stringList(value: unknown): string[] {
-	return Array.isArray(value)
-		? value.filter((item): item is string => typeof item === "string")
-		: [];
-}
-
-function stringField(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

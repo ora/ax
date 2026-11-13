@@ -14,9 +14,12 @@ import usageUnlimited from "./__fixtures__/studio/usage-unlimited.json";
 import { exchangeKeyGrant, PlatformApiError } from "./platform";
 import {
 	createStudioClient,
+	isStudioFailure,
 	notStartedJourney,
 	STUDIO_USER_AGENT,
 	StudioApiError,
+	StudioConnectionError,
+	StudioShapeError,
 	TRAJECTORY_PROFILE,
 } from "./studio";
 
@@ -415,6 +418,94 @@ describe("errors", () => {
 		);
 		await expect(client().agents()).rejects.toMatchObject({ status: 401 });
 		await expect(client().agents()).rejects.toThrow(/API key/i);
+	});
+});
+
+describe("transport failures", () => {
+	it("gives a Studio request a timeout", async () => {
+		studioMock({ "GET /studio/v1/agents": () => asJson(agents) });
+		await client().agents();
+		const [, init] = vi.mocked(fetch).mock.calls[1];
+		expect(init?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("a request that cannot reach the platform is a connection error naming it", async () => {
+		studioMock({
+			"GET /studio/v1/journeys/j-1": () => {
+				throw new TypeError("fetch failed");
+			},
+		});
+		const failure = await client()
+			.journey("j-1")
+			.catch((err: unknown) => err);
+		expect(failure).toBeInstanceOf(StudioConnectionError);
+		expect((failure as Error).message).toContain(BASE);
+		expect((failure as Error).message).toContain("fetch failed");
+		expect(isStudioFailure(failure)).toBe(true);
+	});
+
+	it("a timed out request is a connection error", async () => {
+		studioMock({
+			"GET /studio/v1/usage": () => {
+				throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+			},
+		});
+		await expect(client().usage()).rejects.toBeInstanceOf(StudioConnectionError);
+	});
+
+	it("a key exchange that cannot reach the platform is a connection error", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				throw new TypeError("fetch failed");
+			}),
+		);
+		const failure = await client()
+			.agents()
+			.catch((err: unknown) => err);
+		expect(failure).toBeInstanceOf(StudioConnectionError);
+		expect(isStudioFailure(failure)).toBe(true);
+	});
+
+	it("a key exchange that answers 200 without a token is a shape error", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => asJson({ tokenType: "Bearer" })),
+		);
+		await expect(client().agents()).rejects.toBeInstanceOf(StudioShapeError);
+	});
+
+	it("an answer without the expected shape is a shape error", async () => {
+		studioMock({ "GET /studio/v1/journeys/j-1": () => asJson({ success: true, data: {} }) });
+		const failure = await client()
+			.journey("j-1")
+			.catch((err: unknown) => err);
+		expect(failure).toBeInstanceOf(StudioShapeError);
+		expect((failure as Error).message).toMatch(/agents list/);
+		expect(isStudioFailure(failure)).toBe(true);
+	});
+
+	it("a gateway page answered with 200 is a shape error", async () => {
+		studioMock({
+			"GET /studio/v1/journeys/j-1": () =>
+				new Response("<html>maintenance</html>", { status: 200 }),
+		});
+		await expect(client().journey("j-1")).rejects.toBeInstanceOf(StudioShapeError);
+	});
+
+	it("isStudioFailure names the platform's failures and nothing else", () => {
+		const http = new StudioApiError("x", {
+			status: 500,
+			payload: null,
+			code: null,
+			missingScopes: [],
+		});
+		expect(isStudioFailure(http)).toBe(true);
+		expect(isStudioFailure(new PlatformApiError("x", { status: 401, payload: null }))).toBe(true);
+		expect(isStudioFailure(new TypeError("cannot read properties of undefined"))).toBe(false);
+		expect(isStudioFailure(new RangeError("x"))).toBe(false);
+		expect(isStudioFailure(new Error("x"))).toBe(false);
+		expect(isStudioFailure("x")).toBe(false);
 	});
 });
 
