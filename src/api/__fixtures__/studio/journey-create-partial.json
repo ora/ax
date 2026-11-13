@@ -1,0 +1,19 @@
+{
+	"success": true,
+	"data": {
+		"journeyId": "e17b5c90-2a4d-4f6e-8b13-9d0c7a5e3f21",
+		"runIds": [
+			"7a2d4e81-5c3f-4b90-9e6a-1f8b0c2d7e45"
+		],
+		"streamUrls": [
+			"/studio/v1/runs/7a2d4e81-5c3f-4b90-9e6a-1f8b0c2d7e45/stream"
+		],
+		"failed": [
+			{
+				"harness": "claude-code",
+				"model": "claude-sonnet-5-5",
+				"reason": "Could not resolve your plan tier (billing service unavailable). Retry shortly."
+			}
+		]
+	}
+}

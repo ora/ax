@@ -1,0 +1,150 @@
+{
+	"steps": [
+		{
+			"id": 0,
+			"type": "text"
+		},
+		{
+			"id": 1,
+			"type": "text"
+		},
+		{
+			"id": 2,
+			"type": "tool_call"
+		},
+		{
+			"id": 3,
+			"type": "tool_call",
+			"url_host": "ora-api.readme.io"
+		},
+		{
+			"id": 4,
+			"type": "tool_call",
+			"url_host": "ora-api.readme.io"
+		},
+		{
+			"id": 5,
+			"type": "tool_call"
+		},
+		{
+			"id": 6,
+			"type": "text"
+		},
+		{
+			"id": 7,
+			"type": "tool_call"
+		},
+		{
+			"id": 8,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 9,
+			"type": "tool_call",
+			"url_host": "ora-api.readme.io"
+		},
+		{
+			"id": 10,
+			"type": "tool_call",
+			"url_host": "api.ora.ai",
+			"status": 404
+		},
+		{
+			"id": 11,
+			"type": "text"
+		},
+		{
+			"id": 12,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 13,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 14,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 15,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 16,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 17,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 18,
+			"type": "tool_call"
+		},
+		{
+			"id": 19,
+			"type": "text"
+		},
+		{
+			"id": 20,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 21,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 22,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 23,
+			"type": "tool_call",
+			"url_host": "ora.ai",
+			"status": 200
+		},
+		{
+			"id": 24,
+			"type": "tool_call",
+			"url_host": "api.ora.ai",
+			"status": 404
+		},
+		{
+			"id": 25,
+			"type": "tool_call",
+			"url_host": "ora-api.readme.io"
+		},
+		{
+			"id": 26,
+			"type": "tool_call",
+			"url_host": "ora-api.readme.io"
+		},
+		{
+			"id": 27,
+			"type": "tool_call",
+			"url_host": "ora-api.readme.io"
+		},
+		{
+			"id": 28,
+			"type": "text"
+		}
+	]
+}

@@ -1,0 +1,70 @@
+{
+	"success": true,
+	"data": {
+		"id": "8d3f6a2e-41c7-4b9a-9e25-7f0c1d4b6a83",
+		"goal": "Find how to create an issue from the API. Use Linear.",
+		"targetDomain": "linear.app",
+		"status": "running",
+		"outcome": null,
+		"competitors": [],
+		"layer": null,
+		"intentId": null,
+		"intentTitle": null,
+		"createdAt": "2026-11-13T14:02:11.482Z",
+		"updatedAt": "2026-11-13T14:02:19.907Z",
+		"agents": [
+			{
+				"runId": "2b7e9c41-6d0a-4f38-8a1e-5c9d3f7b2e64",
+				"harness": "claude-code",
+				"model": "claude-haiku-4-5-20251001",
+				"status": "running",
+				"targetDomain": "linear.app",
+				"provider": "anthropic",
+				"executionKind": "harness",
+				"intentText": "Find how to create an issue from the API. Use Linear.",
+				"startedAt": "2026-11-13T14:02:14.120Z",
+				"finishedAt": null,
+				"createdAt": "2026-11-13T14:02:11.530Z",
+				"usage": {
+					"durationMs": null,
+					"totalTokens": null,
+					"inputTokens": null,
+					"cacheReadTokens": null,
+					"cacheCreationTokens": null,
+					"outputTokens": null,
+					"numTurns": null,
+					"costUsd": null
+				},
+				"targetCheck": null,
+				"skillUse": null,
+				"verdict": null
+			},
+			{
+				"runId": "c40a8f16-93be-4d27-b5f1-0e6a2d8c9b37",
+				"harness": "claude-code",
+				"model": "claude-sonnet-5-5",
+				"status": "queued",
+				"targetDomain": "linear.app",
+				"provider": "anthropic",
+				"executionKind": "harness",
+				"intentText": "Find how to create an issue from the API. Use Linear.",
+				"startedAt": null,
+				"finishedAt": null,
+				"createdAt": "2026-11-13T14:02:11.561Z",
+				"usage": {
+					"durationMs": null,
+					"totalTokens": null,
+					"inputTokens": null,
+					"cacheReadTokens": null,
+					"cacheCreationTokens": null,
+					"outputTokens": null,
+					"numTurns": null,
+					"costUsd": null
+				},
+				"targetCheck": null,
+				"skillUse": null,
+				"verdict": null
+			}
+		]
+	}
+}

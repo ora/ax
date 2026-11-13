@@ -2,9 +2,9 @@ import { pause, watchdog } from "./shared";
 
 // Client for ora's authenticated platform API — the machinery behind `journey`.
 // One journey == one run: an agent harness pursuing an intent against a domain.
-// (The separate POST /studio/v1/journeys endpoint is a server-side multi-agent
-// fan-out needing the journeys:write scope; a runs:read + runs:write key is all
-// this client requires, so it stays away from that endpoint on purpose.)
+// A runs:read + runs:write key is all `journey` requires. The multi-agent
+// fan-out at POST /studio/v1/journeys needs journeys:write and belongs to
+// `ax trial`, through ./studio.ts, which reuses this file's key exchange.
 
 const PLATFORM_BASE = "https://api.agentfront.sh";
 
@@ -30,7 +30,7 @@ export class PlatformApiError extends Error {
 }
 
 /** A response body parsed as JSON, or null when it is not JSON. */
-function jsonOrNull(text: string): unknown {
+export function jsonOrNull(text: string): unknown {
 	try {
 		return JSON.parse(text);
 	} catch (err) {
@@ -97,6 +97,8 @@ export interface JourneyStep {
 	summary?: string;
 	label?: string;
 	status?: number;
+	/** The host a URL-bearing step requested; absent on steps that name no URL. */
+	url_host?: string;
 	duration_ms?: number;
 	is_error?: boolean;
 	output_structured?: { body?: string; links?: Array<{ title?: string; url?: string }> };
@@ -175,7 +177,17 @@ export interface JourneyRun {
 // The ora_sk_ secret goes in the authorization HEADER (never the body) and is
 // exchanged for a ~15-minute bearer token used on every later call.
 
+/** The key exchange's answer: the bearer and, for an ora_sk_ key, its lifetime in seconds. */
+export interface KeyGrant {
+	token: string;
+	expiresIn?: number;
+}
+
 export async function exchangeKey(base: string, secret: string): Promise<string> {
+	return (await exchangeKeyGrant(base, secret)).token;
+}
+
+export async function exchangeKeyGrant(base: string, secret: string): Promise<KeyGrant> {
 	const res = await fetch(`${base}/auth/token`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
@@ -188,11 +200,14 @@ export async function exchangeKey(base: string, secret: string): Promise<string>
 			payload: body,
 		});
 	}
-	const payload = (body ?? {}) as { token?: string; error?: string };
+	const payload = (body ?? {}) as { token?: string; expiresIn?: unknown; error?: string };
 	const failed = `ora auth failed (${res.status})${payload.error ? `: ${payload.error}` : ""}`;
 	if (!res.ok) throw new PlatformApiError(failed, { status: res.status, payload: body });
 	if (!payload.token) throw new Error(failed);
-	return payload.token;
+	const { expiresIn } = payload;
+	return typeof expiresIn === "number" && expiresIn > 0
+		? { token: payload.token, expiresIn }
+		: { token: payload.token };
 }
 
 // --- Run creation ---

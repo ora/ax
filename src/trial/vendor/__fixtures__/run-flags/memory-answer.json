@@ -1,0 +1,61 @@
+{
+  "run_id": "0201b819-0f11-4ab7-b8c0-b09e0ff20ca1",
+  "domain": "bino.church",
+  "trajectory": {
+    "steps": [
+      {
+        "id": 0,
+        "type": "tool_call",
+        "url_host": "bino.church",
+        "status": 200
+      },
+      {
+        "id": 1,
+        "type": "text"
+      },
+      {
+        "id": 2,
+        "type": "tool_call",
+        "url_host": "bino.church",
+        "status": 404
+      },
+      {
+        "id": 3,
+        "type": "tool_call",
+        "url_host": "bino.church",
+        "status": 404
+      },
+      {
+        "id": 4,
+        "type": "tool_call",
+        "url_host": "bino.church",
+        "status": 404
+      },
+      {
+        "id": 5,
+        "type": "tool_call"
+      },
+      {
+        "id": 6,
+        "type": "tool_call",
+        "url_host": "github.com",
+        "status": 200
+      },
+      {
+        "id": 7,
+        "type": "text"
+      }
+    ]
+  },
+  "run_signals": {
+    "answer_basis": {
+      "sections_total": 6,
+      "from_site": 1,
+      "from_external": 1,
+      "from_search": 1,
+      "from_memory": 3,
+      "site_share": 0.17,
+      "memory_share": 0.5
+    }
+  }
+}

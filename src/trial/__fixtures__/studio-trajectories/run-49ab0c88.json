@@ -1,0 +1,99 @@
+{
+	"steps": [
+		{
+			"id": 0,
+			"type": "text"
+		},
+		{
+			"id": 1,
+			"type": "tool_call"
+		},
+		{
+			"id": 2,
+			"type": "text"
+		},
+		{
+			"id": 3,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 4,
+			"type": "text"
+		},
+		{
+			"id": 5,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 6,
+			"type": "text"
+		},
+		{
+			"id": 7,
+			"type": "tool_call"
+		},
+		{
+			"id": 8,
+			"type": "text"
+		},
+		{
+			"id": 9,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 10,
+			"type": "text"
+		},
+		{
+			"id": 11,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 12,
+			"type": "text"
+		},
+		{
+			"id": 13,
+			"type": "tool_call",
+			"url_host": "ora.run",
+			"status": 308
+		},
+		{
+			"id": 14,
+			"type": "text"
+		},
+		{
+			"id": 15,
+			"type": "tool_call",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 16,
+			"type": "text"
+		},
+		{
+			"id": 17,
+			"type": "tool_call"
+		},
+		{
+			"id": 18,
+			"type": "text"
+		},
+		{
+			"id": 19,
+			"type": "tool_call"
+		},
+		{
+			"id": 20,
+			"type": "text"
+		},
+		{
+			"id": 21,
+			"type": "text"
+		}
+	]
+}
