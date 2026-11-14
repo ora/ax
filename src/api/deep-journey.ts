@@ -24,7 +24,7 @@ import { errorBody, pause, usageLimitMessage, watchdog } from "./shared";
 // shared from there.
 
 const PUBLIC_BASE = "https://ora.ai";
-/** Where a run is started: `ax deep-journey` is the ax call that sends this POST. */
+/** Where a run is started: `ax journey --domain <site>` is the ax call that sends this POST. */
 export const JOURNEY_RUNS_PATH = "/api/journey/runs";
 // A live engine run can take several minutes end to end, but frames arrive at
 // least every few seconds while it works; this bounds SILENCE, not the run.

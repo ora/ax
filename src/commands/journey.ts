@@ -189,7 +189,7 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 			message,
 			next: {
 				call: `ORA_API_KEY=<platform key> ${axCall(words)}`,
-				why: "ax journey runs on ora's platform API and needs a platform key",
+				why: "a goal of your own runs on ora's platform and needs a platform key; with no goal, ax journey --domain <site> runs one of ora's curated tasks free",
 			},
 		};
 	}

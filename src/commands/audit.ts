@@ -185,7 +185,7 @@ function resultNext(
 		return { call: axCall(rescan), why: "after you apply the Top fixes above, rescan" };
 	}
 	return {
-		call: axCall(["deep-journey", result.domain, ...jsonWords(input)]),
+		call: axCall(["journey", "--domain", result.domain, ...jsonWords(input)]),
 		why: "send a real agent at the site on a task, then read its result",
 	};
 }

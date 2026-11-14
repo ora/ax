@@ -330,14 +330,14 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		expect(envelope().error).toEqual({
 			code: "NEEDS_KEY",
 			message: expect.stringContaining("--task needs an ora partner API key"),
-			next: "ORA_PARTNER_API_KEY=<partner key> ax deep-journey zapier.com --task 'Find the pricing page' --json",
+			next: "ORA_PARTNER_API_KEY=<partner key> ax journey 'Find the pricing page' --domain zapier.com --json",
 		});
 	});
 
 	it("an unknown intent suggests the default one", async () => {
 		expect(await deepJourneyCommand({ ...BASE, intent: "nope" })).toBe(EXIT.USAGE);
 		expect(envelope().error.code).toBe("UNKNOWN_INTENT");
-		expect(envelope().error.next).toBe("ax deep-journey zapier.com --intent pricing --json");
+		expect(envelope().error.next).toBe("ax journey --domain zapier.com --intent pricing --json");
 	});
 
 	it("a run still executing is read, never started again", async () => {
@@ -365,7 +365,7 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 			await deepJourneyCommand({ ...BASE, intent: "pricing", apiKey: "pk_live_not_for_echo" }),
 		).toBe(EXIT.API);
 		expect(envelope().error.next).toBe(
-			"ax deep-journey zapier.com --intent pricing --agent cas-haiku --json --api-key <key>",
+			"ax journey --domain zapier.com --intent pricing --agent cas-haiku --json --api-key <key>",
 		);
 		expect(`${writes.join("")}${stderrLines().join("\n")}`).not.toContain("pk_live_not_for_echo");
 	});
@@ -390,7 +390,7 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		expect(writes).toEqual([`${JSON.stringify(served, null, 2)}\n`]);
 		expect(stderrLines()).toEqual([
 			expect.stringContaining("ora usage limit reached"),
-			"Next: ax deep-journey zapier.com --intent pricing --agent cas-haiku --json  # after the wait the message names",
+			"Next: ax journey --domain zapier.com --intent pricing --agent cas-haiku --json  # after the wait the message names",
 		]);
 	});
 
@@ -521,7 +521,7 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 		expect(await deepJourneyCommand({ ...RUN, url: "localhost" })).toBe(EXIT.API);
 		expect(stdoutJson()).toEqual(refusals.INVALID_DOMAIN);
 		expect(stderrLines().at(-1)).toBe(
-			`Next: ax deep-journey localhost --intent pricing --agent cas-haiku --json  # ${refusals.INVALID_DOMAIN.next_action.reason}`,
+			`Next: ax journey --domain localhost --intent pricing --agent cas-haiku --json  # ${refusals.INVALID_DOMAIN.next_action.reason}`,
 		);
 	});
 
