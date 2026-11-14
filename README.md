@@ -333,12 +333,27 @@ For local development, copy `.env.example` to `.env`. The CLI reads a `.env` in 
 ### A set of journeys
 
 ```
-npx ax journey "Find how to create an issue from the API" --domain linear.app --exact https://linear.app/developers --repeat 3
+npx ax journey "Find how to create an issue from the API" --domain linear.app --agents claude-code,codex --exact https://linear.app/developers --repeat 3
 ```
 
 A set sends real agents at one site on goals you write and counts how often the platform judges each goal done. With levels on, each run gets a different amount of help, and the gap between two levels points at the layer where agents lose your site: Discovery, or Access and Usability. With levels off, every run gets the goal as you wrote it, so the set compares agents and repeats on one prompt.
 
-The example above is 1 goal at 3 levels (the goal names no site, so Need only runs; there is no `--docs`, so Docs linked does not), with 1 agent and 3 repeats: 9 runs. The preview says so before anything launches.
+The example above is 1 goal at 3 levels (the goal names no site, so Need only runs; there is no `--docs`, so Docs linked does not), with 2 agents side by side and 3 repeats: 18 runs. The preview says so before anything launches. A bare harness such as `codex` takes the first model your plan offers for it, and the report names each column `harness/model`:
+
+```
+linear.app  set j-4f1c9a27be
+
+Goal 1: Find how to create an issue from the API
+  Level         claude-code/claude-sonnet-5-5  codex/gpt-5.6-luna
+  Need only     1 of 3                         2 of 3
+  Brand named   3 of 3                         2 of 3
+  Exact target  3 of 3                         3 of 3
+
+  linear.app loses agents at the Discovery layer: 3 of 6 runs satisfied at Need only, 5 of 6 at Brand named.
+  No --docs URL, so the docs level is skipped. Add --docs <url> to include it.
+```
+
+That report is shortened: a real one goes on to the Need only note and the list of journeys.
 
 A set needs `--domain`. It is one site, 1 to 5 goals, up to 4 levels of help, 1 to 4 agents and 1 to 10 repeats, and never more than 200 runs. ax counts runs per cell (a goal, a level and an agent) and shows a rate from 5 gradable runs. Below that it shows the counts alone.
 
