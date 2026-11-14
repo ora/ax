@@ -11,14 +11,14 @@ export class KeyDestinationError extends Error {
 	}
 }
 
+function isLoopback(hostname: string): boolean {
+	return hostname === "localhost" || hostname === "[::1]" || /^127(\.\d{1,3}){3}$/.test(hostname);
+}
+
 // `*.localhost` resolves to this machine (RFC 6761), which is how ora runs in development.
+// Some Linux resolvers still ask the network for it, so a `.env` may name only `isLoopback` hosts.
 function isThisMachine(hostname: string): boolean {
-	return (
-		hostname === "localhost" ||
-		hostname.endsWith(".localhost") ||
-		hostname === "[::1]" ||
-		/^127(\.\d{1,3}){3}$/.test(hostname)
-	);
+	return isLoopback(hostname) || hostname.endsWith(".localhost");
 }
 
 /**
@@ -45,7 +45,11 @@ export function keyDestinationProblem(
 	if (url.protocol !== "https:" && !local) {
 		return `${variable} is ${url.origin}. ax sends your key only over https, or over plain http to this machine.`;
 	}
-	if (!local && fromLocalEnvFile(variable) && sameOrigin(process.env[variable], url)) {
+	if (
+		!isLoopback(url.hostname) &&
+		fromLocalEnvFile(variable) &&
+		sameOrigin(process.env[variable], url)
+	) {
 		return `${variable} in ./.env points at ${url.host}, so ax did not send your key there. To use that host, export ${variable} in your shell.`;
 	}
 	return undefined;

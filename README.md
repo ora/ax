@@ -562,7 +562,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |
 | `AX_WEBMCP_NO_SANDBOX` | webmcp-audit | — (unset) | `1` launches Chrome without its sandbox. Containers only: the audited page is untrusted and the sandbox contains it |
 
-`ORA_API_URL` and `ORA_PLATFORM_URL` decide where your keys go, so ax checks them before it sends one. Their defaults always work. Any other host gets a key only over https (plain http only to this machine, such as `localhost`), and only when you set the variable in your shell: a `.env` belongs to whatever directory you run in, so a host named there is refused before anything is sent (`ax journey` exits 2 with `KEY_DESTINATION_REFUSED`). Requests that carry no key are not checked.
+`ORA_API_URL` and `ORA_PLATFORM_URL` decide where your keys go, so ax checks them before it sends one. Their defaults always work. Any other host gets a key only over https (plain http only to this machine, such as `localhost`), and only when you set the variable in your shell: a `.env` belongs to whatever directory you run in, so a host named there is refused before anything is sent (`ax journey` exits 2 with `KEY_DESTINATION_REFUSED`). The exceptions are `localhost`, `127.0.0.1` and `[::1]`. Requests that carry no key are not checked.
 
 ## Contract versioning
 
