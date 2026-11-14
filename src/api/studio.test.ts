@@ -24,7 +24,7 @@ import {
 } from "./studio";
 
 // Fixture provenance: shapes from oramono develop (deb82e2, 2026-11-13). Values are placeholders
-// in those shapes; M9.1 replaces them with responses recorded from a live trial.
+// in those shapes; M9.1 replaces them with responses recorded from a live set.
 // - agents.json: openapi/ora-public.openapi.json line 38025 (GET /studio/v1/agents). Ids and names
 //   from packages/node/harness-catalog/src/catalog.ts; the reason wording from
 //   apps/studio-service/src/plan/agent-availability.ts:20.
@@ -166,7 +166,7 @@ describe("createStudioClient", () => {
 		expect(() => createStudioClient({ baseUrl: BASE })).toThrow(/ORA_API_KEY/);
 	});
 
-	it("exchanges the key once, then sends the bearer and the trial user agent to Studio", async () => {
+	it("exchanges the key once, then sends the bearer and the set's user agent to Studio", async () => {
 		const mock = studioMock({
 			"GET /studio/v1/agents": () => asJson(agents),
 			"GET /studio/v1/usage": () => asJson(usage),
@@ -181,7 +181,7 @@ describe("createStudioClient", () => {
 			headers: { authorization: `Bearer ${KEY}` },
 		});
 		expect(mock.exchanges()).toBe(1);
-		expect(STUDIO_USER_AGENT).toBe(`ax/${pkg.version} (trial)`);
+		expect(STUDIO_USER_AGENT).toBe(`ax/${pkg.version} (journey set)`);
 		for (const call of mock.studioCalls()) {
 			expect(call.headers.authorization).toBe(`Bearer ${TOKEN}`);
 			expect(call.headers["user-agent"]).toBe(STUDIO_USER_AGENT);

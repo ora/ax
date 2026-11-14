@@ -56,7 +56,7 @@ import type { JourneyNextAction } from "../contract";
 const BASE = { url: "zapier.com", json: true, noStream: false };
 
 const KEYLESS_HINT =
-	"Repeat this goal across agents and levels of help with `ax trial run`; needs a Front account.";
+	"Repeat this goal across agents and levels of help with `ax journey --levels`; needs a Front API key.";
 
 describe("deepJourneyCommand - keyed tier flags", () => {
 	beforeEach(() => {
@@ -417,7 +417,7 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 
 	it("ends the human result with the Next line on stdout", async () => {
 		expect(await deepJourneyCommand({ ...BASE, json: false, noStream: true })).toBe(EXIT.OK);
-		// The keyless hint is the one dim line after Next (see the trial describe).
+		// The keyless hint is the one dim line after Next (see the set describe).
 		expect(writes.at(-2)).toBe(
 			"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit",
 		);
@@ -546,14 +546,14 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 	});
 });
 
-describe("deepJourneyCommand - the trial Next line after a free run", () => {
+describe("deepJourneyCommand - the set Next line after a free run", () => {
 	const writes: string[] = [];
 	const NAMING_LINE =
-		"This goal names Zapier, so it runs at the brand level. Add `--exact <url>` for the exact level, or write the goal without Zapier for the need level.";
+		"This goal names Zapier, so --levels runs it at the brand level. Add `--exact <url>` for the exact level, or write the goal without Zapier for the need level.";
 	const AUDIT_LINE =
 		"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit";
-	const trialNext = (goal: string) =>
-		`Next: ax trial run zapier.com --task '${goal}'  # the same goal, repeated across agents and levels of help, with counts`;
+	const setNext = (goal: string) =>
+		`Next: ax journey '${goal}' --domain zapier.com --levels  # the same goal at each level of help, with the verdicts counted`;
 	const PLAIN_GOAL = "Find the pricing page.";
 	const withTemplate = (template: string, hint = "find pricing") =>
 		vi.mocked(fetchJourneyIntents).mockResolvedValueOnce({
@@ -584,10 +584,10 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
 	const human = { ...BASE, json: false, noStream: true };
 
-	it("with a Front key and a curated goal that names the site, points at trial run and adds the levels line", async () => {
+	it("with a Front key and a curated goal that names the site, points at a set and adds the levels line", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
-		expect(writes.slice(-2)).toEqual([trialNext("Find pricing for zapier.com."), NAMING_LINE]);
+		expect(writes.slice(-2)).toEqual([setNext("Find pricing for zapier.com."), NAMING_LINE]);
 		expect(writes.join("\n")).not.toContain("ax audit");
 		expect(writes.join("\n")).not.toContain(KEYLESS_HINT);
 	});
@@ -598,31 +598,31 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 		expect(await deepJourneyCommand({ ...human, task, apiKey: "pk_live_demo_0123456789" })).toBe(
 			EXIT.OK,
 		);
-		expect(writes.at(-1)).toBe(trialNext(task));
+		expect(writes.at(-1)).toBe(setNext(task));
 		expect(stderrLines().join("\n")).not.toContain("names Zapier");
 	});
 
-	it("reduces a URL target to the trial's site, so the brand and the call match what the trial runs", async () => {
+	it("reduces a URL target to the set's site, so the brand and the call match what the set runs", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		expect(await deepJourneyCommand({ ...human, url: "https://www.zapier.com/pricing" })).toBe(
 			EXIT.OK,
 		);
-		expect(writes.at(-2)).toMatch(/^Next: ax trial run zapier\.com --task /);
+		expect(writes.at(-2)).toMatch(/^Next: ax journey '.+' --domain zapier\.com --levels /);
 		expect(writes.at(-1)).toBe(NAMING_LINE);
 	});
 
-	it("offers no trial for a target the trial would refuse, and keeps the audit Next", async () => {
+	it("offers no set for a target a set would refuse, and keeps the audit Next", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		expect(await deepJourneyCommand({ ...human, url: "localhost" })).toBe(EXIT.OK);
 		expect(writes.at(-1)).toMatch(/^Next: ax audit localhost /);
-		expect(writes.join("\n")).not.toContain("trial");
+		expect(writes.join("\n")).not.toContain("--levels");
 	});
 
-	it("never adds --agents to the trial call, and quotes the goal as one shell word", async () => {
+	it("never adds --agents to the set call, and quotes the goal as one shell word", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		withTemplate(PLAIN_GOAL);
 		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
-		expect(writes.at(-1)).toBe(trialNext(PLAIN_GOAL));
+		expect(writes.at(-1)).toBe(setNext(PLAIN_GOAL));
 		expect(writes.at(-1)).not.toContain("--agents");
 	});
 
@@ -630,21 +630,21 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 		withTemplate(PLAIN_GOAL);
 		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
 		expect(writes.slice(-2)).toEqual([AUDIT_LINE, expect.stringContaining(KEYLESS_HINT)]);
-		expect(writes.join("\n")).not.toContain("ax trial run zapier.com");
+		expect(writes.join("\n")).not.toContain("--domain zapier.com --levels");
 	});
 
 	it("a --task run with a Front key never gets the hint", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		await deepJourneyCommand({ ...human, task: PLAIN_GOAL, apiKey: "pk_live_demo_0123456789" });
-		expect(writes.join("\n")).not.toContain("needs a Front account");
+		expect(writes.join("\n")).not.toContain("needs a Front API key");
 	});
 
-	it("a goal that fell back to the intent hint keeps the audit Next and prints no trial lines", async () => {
+	it("a goal that fell back to the intent hint keeps the audit Next and prints no set lines", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		withTemplate("", "find pricing");
 		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
 		expect(writes.at(-1)).toBe(AUDIT_LINE);
-		expect(writes.join("\n")).not.toContain("trial");
+		expect(writes.join("\n")).not.toContain("--levels");
 	});
 
 	it("a fallback goal prints no keyless hint either", async () => {
@@ -658,7 +658,7 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
 		expect(JSON.parse(writes.join(""))).toMatchObject({ id: "run_1" });
-		expect(stderrLines()).toEqual([trialNext("Find pricing for zapier.com."), NAMING_LINE]);
+		expect(stderrLines()).toEqual([setNext("Find pricing for zapier.com."), NAMING_LINE]);
 	});
 
 	it("--json puts the keyless hint on stderr", async () => {
@@ -671,7 +671,7 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 		]);
 	});
 
-	it("a failed run keeps its own Next line and gets no trial lines", async () => {
+	it("a failed run keeps its own Next line and gets no set lines", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		vi.mocked(performDeepJourney).mockResolvedValueOnce({
 			record: { id: "run_1", status: "failed" },
@@ -681,10 +681,10 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 		} as unknown as DeepJourneyOutcome);
 		expect(await deepJourneyCommand(BASE)).toBe(EXIT.RUN_FAILED);
 		expect(stderrLines().at(-1)).toContain("Next: ax deep-journey zapier.com");
-		expect(stderrLines().join("\n")).not.toContain("trial");
+		expect(stderrLines().join("\n")).not.toContain("--levels");
 	});
 
-	it("a served next action keeps its Next line and gets no trial lines", async () => {
+	it("a served next action keeps its Next line and gets no set lines", async () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
 		vi.mocked(performDeepJourney).mockResolvedValueOnce({
 			record: { id: "run_1", status: "succeeded" },
@@ -704,6 +704,6 @@ describe("deepJourneyCommand - the trial Next line after a free run", () => {
 		} as unknown as DeepJourneyOutcome);
 		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
 		expect(stderrLines().at(-1)).toContain("curl -s");
-		expect(stderrLines().join("\n")).not.toContain("trial");
+		expect(stderrLines().join("\n")).not.toContain("--levels");
 	});
 });

@@ -29,12 +29,13 @@ export {
 	StudioShapeError,
 } from "./studio-errors";
 
-// Client for the Studio endpoints a trial calls on the ora platform: agents, usage, journey
-// create and read, a run's trajectory and insight, and the batch cancel. It holds one bearer from
-// platform.ts's key exchange and exchanges the key again shortly before the bearer expires, so a
-// long follow never runs on a stale token. Every Studio request names itself as a trial.
+// Client for the Studio endpoints a set of journeys calls on the ora platform: agents, usage,
+// journey create and read, a run's trajectory and insight, and the batch cancel. It holds one
+// bearer from platform.ts's key exchange and exchanges the key again shortly before the bearer
+// expires, so a long follow never runs on a stale token. Every Studio request names itself as a
+// set of journeys.
 
-export const STUDIO_USER_AGENT = `ax/${pkg.version} (trial)`;
+export const STUDIO_USER_AGENT = `ax/${pkg.version} (journey set)`;
 
 /** Exchange the key again once less than this remains of the bearer's lifetime. */
 const REFRESH_MARGIN_MS = 60_000;

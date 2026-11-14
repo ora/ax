@@ -4,7 +4,7 @@ import { pause, watchdog } from "./shared";
 // One journey == one run: an agent harness pursuing an intent against a domain.
 // A runs:read + runs:write key is all `journey` requires. The multi-agent
 // fan-out at POST /studio/v1/journeys needs journeys:write and belongs to
-// `ax trial`, through ./studio.ts, which reuses this file's key exchange.
+// a set of journeys, through ./studio.ts, which reuses this file's key exchange.
 
 const PLATFORM_BASE = "https://api.agentfront.sh";
 

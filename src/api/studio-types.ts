@@ -1,12 +1,12 @@
 import type { JourneyStep } from "./platform";
 
-// Wire shapes of the Studio endpoints a trial calls on the ora platform, read from the public
-// OpenAPI spec (`/studio/v1/*`). Where the spec is loose (the trajectory and insight bodies are
-// `{}`, a create's 502 and the quota guard's 402 are not listed) the shape comes from the service
-// code and is named where it is used, in ./studio.ts.
+// Wire shapes of the Studio endpoints a set of journeys calls on the ora platform, read from the
+// public OpenAPI spec (`/studio/v1/*`). Where the spec is loose (the trajectory and insight bodies
+// are `{}`, a create's 502 and the quota guard's 402 are not listed) the shape comes from the
+// service code and is named where it is used, in ./studio.ts.
 
 /**
- * Every scope a trial needs, one per call: create (`journeys:write`), journey reads
+ * Every scope a set of journeys needs, one per call: create (`journeys:write`), journey reads
  * (`journeys:read`), trajectory and insight reads (`runs:read`), cancel (`runs:write`), and the
  * agents and usage reads (`intents:read`).
  */
@@ -100,7 +100,7 @@ export interface JourneyAgentRun {
 	runId: string;
 	harness: string;
 	model: string | null;
-	/** Raw run status; the trial's outcome rules classify it. */
+	/** Raw run status; the set's outcome rules classify it. */
 	status: string;
 	targetDomain: string | null;
 	provider: string | null;

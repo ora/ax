@@ -38,7 +38,7 @@
 			"!src/contract/types.gen.ts",
 			"!src/webmcp/vendor",
 			"!src/tunnel/vendor",
-			"!src/trial/vendor"
+			"!src/journey-set/vendor"
 		]
 	}
 }

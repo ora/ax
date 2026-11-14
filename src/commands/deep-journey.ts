@@ -18,6 +18,8 @@ import type {
 	JourneyRunResult,
 	JourneyTrajectoryStep,
 } from "../contract";
+import { defaultBrand, namesSite } from "../journey-set/levels";
+import { parseSetSite } from "../journey-set/spec";
 import { type CommandError, reportError } from "../report/json-error";
 import {
 	axCall,
@@ -28,8 +30,6 @@ import {
 	shellWord,
 	type Word,
 } from "../report/next-line";
-import { defaultBrand, namesSite } from "../trial/levels";
-import { parseTrialSite } from "../trial/spec";
 import { flow, plain, stdoutWidth } from "../ui/ansi";
 import { buildJourneyTree, drawJourneyTree, journeySummary } from "../ui/graph";
 import { LivePanel } from "../ui/panel";
@@ -76,28 +76,29 @@ export interface DeepJourneyCommandInput {
 	noStream: boolean;
 }
 
-const TRIAL_KEYLESS_HINT =
-	"Repeat this goal across agents and levels of help with `ax trial run`; needs a Front account.";
+const SET_KEYLESS_HINT =
+	"Repeat this goal across agents and levels of help with `ax journey --levels`; needs a Front API key.";
 
 /**
  * The lines that follow a finished free run whose goal came from a public
- * template or `--task`: with a Front API key, `ax trial run` as the Next step
- * (plus a note when the goal names the site, since the need level is then
- * skipped); without one, a dim hint. `extra` prints after the Next line.
- * Nothing when the target is not a site the trial accepts.
+ * template or `--task`: with a Front API key, the same goal as a set of
+ * journeys with `--levels` as the Next step (plus a note when the goal names
+ * the site, since the need level is then skipped); without one, a dim hint.
+ * `extra` prints after the Next line. Nothing when the target is not a site a
+ * set accepts.
  */
-function trialFollowUp(
+function setFollowUp(
 	goal: string,
 	target: string,
 	hasFrontKey: boolean,
 ): { next?: NextStep; extra: string[] } | undefined {
-	const parsed = parseTrialSite(target);
+	const parsed = parseSetSite(target);
 	if ("error" in parsed) return undefined;
 	const site = parsed.value;
-	if (!hasFrontKey) return { extra: [pc.dim(TRIAL_KEYLESS_HINT)] };
+	if (!hasFrontKey) return { extra: [pc.dim(SET_KEYLESS_HINT)] };
 	const next: NextStep = {
-		call: axCall(["trial", "run", site, "--task", goal]),
-		why: "the same goal, repeated across agents and levels of help, with counts",
+		call: axCall(["journey", goal, "--domain", site, "--levels"]),
+		why: "the same goal at each level of help, with the verdicts counted",
 	};
 	const brand = defaultBrand(site);
 	if (!namesSite(goal, site, brand)) return { next, extra: [] };
@@ -105,7 +106,7 @@ function trialFollowUp(
 		next,
 		extra: [
 			plain(
-				`This goal names ${brand}, so it runs at the brand level. Add \`--exact <url>\` for the exact level, or write the goal without ${brand} for the need level.`,
+				`This goal names ${brand}, so --levels runs it at the brand level. Add \`--exact <url>\` for the exact level, or write the goal without ${brand} for the need level.`,
 			),
 		],
 	};
@@ -598,9 +599,9 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// The goal drawn at the graph's root: the free-text task verbatim, or the
 	// curated intent's own phrasing (template › hint › label), never a bare id.
 	let intentText = task ?? "journey";
-	// The goal a trial can repeat: the --task text or the curated template, never
+	// The goal a set can repeat: the --task text or the curated template, never
 	// the hint, label, id or "journey" fallbacks intentText may settle on.
-	let trialGoal = task;
+	let setGoal = task;
 	try {
 		const [intents, agents] = await Promise.all([
 			task ? undefined : fetchJourneyIntents(),
@@ -636,7 +637,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 				intentId ||
 				"journey"
 			).replace(/\{domain\}/g, target);
-			if (chosen?.template) trialGoal = chosen.template.replace(/\{domain\}/g, target);
+			if (chosen?.template) setGoal = chosen.template.replace(/\{domain\}/g, target);
 		}
 		// The selectable set: the live roster plus our haiku default (prepended so
 		// it is both the default and resolvable via --agent). A roster that already
@@ -760,11 +761,11 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 
 	const failed = outcome.detail.status === "failed";
 	const servedNext = servedNextAction(outcome.detail);
-	// Only the branch that ends on the audit offers a trial; a served next action
+	// Only the branch that ends on the audit offers a set; a served next action
 	// and a failed run keep their own Next lines.
-	const trial =
-		!servedNext && !failed && trialGoal
-			? trialFollowUp(trialGoal, target, Boolean(process.env.ORA_API_KEY))
+	const followUp =
+		!servedNext && !failed && setGoal
+			? setFollowUp(setGoal, target, Boolean(process.env.ORA_API_KEY))
 			: undefined;
 	const next: NextStep = servedNext
 		? served(intentId, agent.id)(servedNext)
@@ -773,7 +774,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 					call: sameCall(intentId, agent.id),
 					why: "the run ended in an engine error; re-running is free to try",
 				}
-			: (trial?.next ?? {
+			: (followUp?.next ?? {
 					call: axCall(["audit", target, ...json]),
 					why: "the readiness audit: which checks explain what the agent hit",
 				});
@@ -782,7 +783,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 		console.log(JSON.stringify(outcome.detail, null, 2));
 		for (const line of flagLines(outcome.detail.flags)) console.error(line);
 		printNext(next, { stderr: true });
-		for (const line of trial?.extra ?? []) console.error(line);
+		for (const line of followUp?.extra ?? []) console.error(line);
 		return failed ? EXIT.RUN_FAILED : EXIT.OK;
 	}
 
@@ -814,6 +815,6 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 
 	for (const line of renderOutcome(outcome, target)) console.log(line);
 	printNext(next, { stderr: false });
-	for (const line of trial?.extra ?? []) console.log(line);
+	for (const line of followUp?.extra ?? []) console.log(line);
 	return failed ? EXIT.RUN_FAILED : EXIT.OK;
 }

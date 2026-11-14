@@ -6,10 +6,9 @@ import { resolveBase } from "./api/skills";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
-import { journeyCommand } from "./commands/journey";
+import { journey, journeyUsage } from "./commands/journey-cli";
 import { learnCommand } from "./commands/learn";
 import { skillCommand } from "./commands/skill";
-import { trial, trialCancel, trialList, trialRun, trialView } from "./commands/trial-cli";
 import { webmcpAuditCommand } from "./commands/webmcp-audit";
 import { loadLocalEnv } from "./env";
 import { axCall, type NextStep, placeholder, printNext } from "./report/next-line";
@@ -87,38 +86,6 @@ const audit = defineCommand({
 			tunnelCmd: args["tunnel-cmd"] as string | undefined,
 			tunnel: args.tunnel as string | undefined,
 			apiKey: args["api-key"] as string | undefined,
-		});
-	},
-});
-
-const journey = defineCommand({
-	meta: {
-		name: "journey",
-		description: "Send a real AI agent at a site and watch it navigate live",
-	},
-	args: {
-		intent: {
-			type: "positional",
-			description: 'Goal for the agent (e.g. "Find the API docs and how to auth")',
-			required: true,
-		},
-		domain: { type: "string", description: "Site the agent targets (e.g. stripe.com)" },
-		harness: {
-			type: "string",
-			description: "Agent harness: claude-code, codex, openclaw, hermess, claude-agent, eve, …",
-			default: "claude-code",
-		},
-		model: { type: "string", description: "Model override (harness default when omitted)" },
-		json: { type: "boolean", description: "Output as JSON", default: false },
-	},
-	async run({ args }) {
-		// Same exitCode-over-exit rule as audit: let stdout drain before exiting.
-		process.exitCode = await journeyCommand({
-			intent: args.intent as string,
-			domain: args.domain as string | undefined,
-			harness: args.harness as string,
-			model: args.model as string | undefined,
-			json: Boolean(args.json),
 		});
 	},
 });
@@ -336,6 +303,8 @@ function workflowLines(): string[] {
 
 interface CommandHelp {
 	talksTo: () => string;
+	/** Replaces citty's generated usage, for a command whose forms it cannot show. */
+	usage?: () => string;
 	/** The call to suggest when citty rejects the arguments (a missing positional). */
 	usageNext: NextStep;
 }
@@ -365,45 +334,14 @@ const COMMAND_HELP = new Map<unknown, CommandHelp>([
 	[
 		journey,
 		{
-			talksTo: frontAccount,
+			talksTo: () =>
+				`${frontAccount()}; journey list reads the set records in ~/.ax/journeys and calls nothing`,
+			usage: journeyUsage,
 			usageNext: {
-				call: axCall(["journey", placeholder("intent"), "--domain", placeholder("domain")]),
-				why: "quote the intent",
+				call: axCall(["journey", placeholder("goal"), "--domain", placeholder("domain")]),
+				why: "quote the goal",
 			},
 		},
-	],
-	[
-		trial,
-		{
-			talksTo: frontAccount,
-			usageNext: {
-				call: axCall(["trial", "run", placeholder("site"), "--task", placeholder("task")]),
-			},
-		},
-	],
-	[
-		trialRun,
-		{
-			talksTo: frontAccount,
-			usageNext: {
-				call: axCall(["trial", "run", placeholder("site"), "--task", placeholder("task")]),
-			},
-		},
-	],
-	[
-		trialView,
-		{ talksTo: frontAccount, usageNext: { call: axCall(["trial", "view", placeholder("id")]) } },
-	],
-	[
-		trialList,
-		{
-			talksTo: () => "the trial records in ~/.ax/trials on this machine, with no API call",
-			usageNext: { call: "ax trial list" },
-		},
-	],
-	[
-		trialCancel,
-		{ talksTo: frontAccount, usageNext: { call: axCall(["trial", "cancel", placeholder("id")]) } },
 	],
 	[
 		generateFiles,
@@ -438,9 +376,8 @@ function helpScreen(): string {
 		`    audit ${d("<url>")}         ${d("Score a site's agent readiness")}`,
 		`    webmcp-audit ${d("<url>")}  ${d("Audit a WebMCP surface in a real browser, localhost included")}`,
 		`    deep-journey ${d("<url>")}  ${d("Run a real agent at a site on a curated or free-text task")}`,
-		`    journey ${d("<intent>")}    ${d("Send a real agent at a site and watch it live (needs a Front API key)")}`,
-		`    trial run ${d("<site>")}    ${d("Run tasks on a site at levels of help and count how often agents finish (needs a Front API key)")}`,
-		`    trial ${d("view|list|cancel")} ${d("Pick up, list, or stop a recorded trial")}`,
+		`    journey ${d("<goal>")}      ${d("Send a real agent at a site and draw it live; --levels, --agents or --repeat run a set of journeys and count the verdicts (needs a Front API key)")}`,
+		`    journey ${d("view|list|cancel")} ${d("Pick up, list, or stop a recorded set of journeys")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
 		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
 		`    learn                ${d("Print the ax workflow from ora's skill")}`,
@@ -449,7 +386,7 @@ function helpScreen(): string {
 		`    ${oraSite()}`,
 		`      ${d("audit, webmcp-audit, deep-journey, generate-files, skill, learn")}`,
 		`    ${frontAccount()}`,
-		`      ${d("journey, trial, and audit --tunnel ora")}`,
+		`      ${d("journey and audit --tunnel ora")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -459,7 +396,7 @@ function helpScreen(): string {
 		`    ${g} ${NAME} webmcp-audit http://localhost:3000`,
 		`    ${g} ${NAME} deep-journey stripe.com --intent pricing`,
 		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
-		`    ${g} ${NAME} trial run linear.app --task "Find how to create an issue from the API" --exact https://linear.app/developers --repeat 3`,
+		`    ${g} ${NAME} journey "Find how to create an issue from the API" --domain linear.app --exact https://linear.app/developers --repeat 3`,
 		`    ${g} ${NAME} generate-files example.com --out public`,
 		`    ${g} ${NAME} learn`,
 		"",
@@ -509,27 +446,24 @@ function helpScreen(): string {
 		`    --dir <path>     ${d("Install directory (default .claude/skills)")}`,
 		`    --json           ${d("Print the raw registry index as JSON")}`,
 		"",
-		`  ${d("trial run options:")}`,
-		`    --task <text>    ${d("What the agents should do, in plain words; repeat the flag for up to 5 tasks")}`,
-		`    --agents <list>  ${d("Agents as harness or harness/model, separated by commas (up to 4; default: the first your plan offers)")}`,
-		`    --brand <name>   ${d("Brand for the brand level (default: the site's name)")}`,
-		`    --docs <url>     ${d("Documentation URL; adds the docs level")}`,
-		`    --exact <url>    ${d("URL the agent starts at; adds the exact level")}`,
-		`    --repeat <n>     ${d("Runs for each task, level and agent (1 to 10; default 1)")}`,
-		`    --yes            ${d("Launch without asking after the preview")}`,
-		`    --wait <min>     ${d("Minutes to follow the runs before printing what has finished (default 60)")}`,
-		`    --json           ${d("Print one JSON document on stdout instead of the report")}`,
-		`    ${d("needs a Front API key as ORA_API_KEY; sign up at app.ora.ai")}`,
-		`    ${d("the preview shows what the trial will use; nothing runs until you say yes")}`,
-		`    ${d("ax trial view <id> [--wait <min>] [--json]   ax trial list [--json]   ax trial cancel <id> [--json]")}`,
-		`    ${d("exit codes: 0 report printed, even when runs are unfinished · 2 usage or refusal before launch · 3 API error · 130 Ctrl-C")}`,
-		"",
 		`  ${d("journey options:")}`,
-		`    --domain <d>     ${d("Site the agent targets (e.g. stripe.com)")}`,
+		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com); a set of journeys needs it")}`,
 		`    --harness <h>    ${d("Agent harness: claude-code (default), codex, openclaw, hermess, claude-agent, eve, …")}`,
 		`    --model <m>      ${d("Model override (harness default when omitted)")}`,
+		`    --agents <list>  ${d("Agents as harness or harness/model, comma separated (up to 4; a set defaults to your plan's Claude Code agent)")}`,
+		`    --levels         ${d("Run each goal at the levels of help: need only, brand named, docs linked, exact target")}`,
+		`    --brand <name>   ${d("Brand for the brand level (default: the site's name); turns levels on")}`,
+		`    --docs <url>     ${d("Documentation URL; adds the docs level and turns levels on")}`,
+		`    --exact <url>    ${d("URL the agent starts at; adds the exact level and turns levels on")}`,
+		`    --repeat <n>     ${d("Runs for each goal, level and agent (1 to 10; default 1)")}`,
+		`    --yes            ${d("Launch a set without asking after the preview")}`,
+		`    --wait <min>     ${d("Minutes to follow a set's runs before printing what has finished (default 60)")}`,
 		`    --json           ${d("Output as JSON")}`,
-		`    ${d("requires ORA_API_KEY (see .env.example)")}`,
+		`    ${d("one goal and one agent run one journey, drawn live; more goals or agents, --repeat or levels run a set")}`,
+		`    ${d("ax journey view <id> [--wait <min>] [--json]   ax journey list [--json]   ax journey cancel <id> [--json]")}`,
+		`    ${d("requires ORA_API_KEY, a Front API key (see .env.example); sign up at app.ora.ai")}`,
+		`    ${d("exit codes, one journey: 0 success · 1 finished otherwise · 2 error")}`,
+		`    ${d("exit codes, a set: 0 report printed · 2 usage or refusal before launch · 3 API error · 130 Ctrl-C")}`,
 		"",
 		...workflowLines(),
 	].join("\n");
@@ -546,7 +480,6 @@ const root = defineCommand({
 		"webmcp-audit": webmcpAudit,
 		"deep-journey": deepJourney,
 		journey,
-		trial,
 		skill,
 		"generate-files": generateFiles,
 		learn,
@@ -569,19 +502,21 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 
 // citty intercepts --help itself and prints its generated usage, so the root
 // command's help is routed to the curated screen here. Subcommand --help
-// (`ax audit --help`) keeps citty's per-command usage, followed by what the
-// command talks to and the workflow. citty also lands here when it rejects
-// the arguments (a missing positional), before printing its error and exiting
-// 1; that path gets a Next line on stderr instead of the footer.
+// (`ax audit --help`) keeps citty's per-command usage, or the command's own
+// (`ax journey`), followed by what the command talks to and the workflow.
+// citty also lands here when it rejects the arguments (a missing positional),
+// before printing its error and exiting 1; that path gets a Next line on
+// stderr instead of the footer.
 runMain(root, {
 	showUsage: async (cmd, parent) => {
 		const asked = process.argv.slice(2).some((arg) => HELP_FLAGS.has(arg));
 		const help = COMMAND_HELP.get(cmd);
 		if (cmd === root) console.log(helpScreen());
 		else if (asked && help) {
-			const usage = (await renderUsage(cmd, parent)).trimEnd();
+			const usage = help.usage ? help.usage() : (await renderUsage(cmd, parent)).trimEnd();
 			console.log(`${usage}\n\n${commandFooter(help)}`);
-		} else await showUsage(cmd, parent);
+		} else if (help?.usage) console.log(`${help.usage()}\n`);
+		else await showUsage(cmd, parent);
 		if (!asked) {
 			printNext(help?.usageNext ?? { call: axCall(["audit", placeholder("domain")]) }, {
 				stderr: true,
