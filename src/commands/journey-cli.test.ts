@@ -1,15 +1,17 @@
 import { runCommand } from "citty";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { deepJourneyCommand } from "./deep-journey";
 import { journeyCommand } from "./journey";
-import { firstPositional, journey, journeyUsage } from "./journey-cli";
+import { firstPositional, journey, journeyRoute, journeyUsage } from "./journey-cli";
 import { journeySetRunCommand, journeySetViewCommand } from "./journey-set";
 import { journeySetCancelCommand, journeySetListCommand } from "./journey-set-records";
 
-// The five command functions are mocked: these tests pin which one a typed `ax journey` reaches,
+// The six command functions are mocked: these tests pin which one a typed `ax journey` reaches,
 // how its arguments map onto that input, and that each exit code reaches process.exitCode.
 // Arguments go through citty's own parser (runCommand), so positionals and flag values are the
 // real ones.
 vi.mock("./journey", () => ({ journeyCommand: vi.fn() }));
+vi.mock("./deep-journey", () => ({ deepJourneyCommand: vi.fn() }));
 vi.mock("./journey-set", () => ({ journeySetRunCommand: vi.fn(), journeySetViewCommand: vi.fn() }));
 vi.mock("./journey-set-records", () => ({
 	journeySetListCommand: vi.fn(),
@@ -21,6 +23,7 @@ const setMock = vi.mocked(journeySetRunCommand);
 const viewMock = vi.mocked(journeySetViewCommand);
 const listMock = vi.mocked(journeySetListCommand);
 const cancelMock = vi.mocked(journeySetCancelCommand);
+const freeMock = vi.mocked(deepJourneyCommand);
 
 const savedExitCode = process.exitCode;
 const GOAL = "Find how to create an issue from the API";
@@ -31,11 +34,16 @@ beforeEach(() => {
 	viewMock.mockResolvedValue(0);
 	listMock.mockReturnValue(0);
 	cancelMock.mockResolvedValue(0);
+	freeMock.mockResolvedValue(0);
+	// A partner key in the shell would send a lone goal to the free path.
+	vi.stubEnv("ORA_PARTNER_API_KEY", "");
+	vi.stubEnv("ORA_SCAN_API_KEY", "");
 	vi.spyOn(console, "error").mockImplementation(() => {});
 	vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
 
 afterEach(() => {
+	vi.unstubAllEnvs();
 	vi.clearAllMocks();
 	vi.restoreAllMocks();
 	process.exitCode = savedExitCode;
@@ -47,7 +55,7 @@ const setInput = () => setMock.mock.calls[0][0];
 const errored = () => vi.mocked(console.error).mock.calls.map((call) => String(call[0]));
 
 function expectOnly(mock: { mock: { calls: unknown[] } }) {
-	for (const other of [oneMock, setMock, viewMock, listMock, cancelMock]) {
+	for (const other of [oneMock, setMock, viewMock, listMock, cancelMock, freeMock]) {
 		expect(other.mock.calls).toHaveLength(other === mock ? 1 : 0);
 	}
 }
@@ -247,6 +255,129 @@ describe("view, list and cancel", () => {
 		expect(viewMock).not.toHaveBeenCalled();
 		expect(oneInput()).toMatchObject({ intent: GOAL, domain: "list" });
 		expect(setInput().goals).toEqual([GOAL, "view"]);
+	});
+});
+
+describe("a free journey, with no goal of its own", () => {
+	const FREE = {
+		url: "stripe.com",
+		intent: undefined,
+		task: undefined,
+		apiKey: undefined,
+		agent: undefined,
+		json: false,
+		noStream: false,
+		via: "journey",
+	};
+	const freeInput = () => freeMock.mock.calls[0][0];
+
+	it("runs ora's curated task on the public journeys when no goal is given", async () => {
+		process.exitCode = undefined;
+		freeMock.mockResolvedValue(1);
+		await argv("--domain", "stripe.com");
+		expectOnly(freeMock);
+		expect(freeInput()).toEqual(FREE);
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("maps the public flags onto the free run", async () => {
+		await argv(
+			"--domain=stripe.com",
+			"--intent",
+			"pricing",
+			"--agent",
+			"cas-sonnet",
+			"--no-stream",
+			"--json",
+		);
+		expectOnly(freeMock);
+		expect(freeInput()).toEqual({
+			...FREE,
+			intent: "pricing",
+			agent: "cas-sonnet",
+			noStream: true,
+			json: true,
+		});
+	});
+
+	it("sends a goal with a public flag to the free path as its task", async () => {
+		await argv(GOAL, "--domain", "stripe.com", "--api-key", "k");
+		expectOnly(freeMock);
+		expect(freeInput()).toEqual({ ...FREE, task: GOAL, apiKey: "k" });
+	});
+
+	it("takes a lone goal to the partner tier when only a partner key is set", async () => {
+		vi.stubEnv("ORA_API_KEY", "");
+		vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
+		await argv(GOAL, "--domain", "stripe.com");
+		expectOnly(freeMock);
+		expect(freeInput().task).toBe(GOAL);
+	});
+
+	it("keeps a goal on the Front account when a Front key is set too", async () => {
+		vi.stubEnv("ORA_API_KEY", "front");
+		vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
+		await argv(GOAL, "--domain", "stripe.com");
+		expectOnly(oneMock);
+	});
+
+	it("refuses public and Front flags together, exit 2, with the call for Front", async () => {
+		process.exitCode = undefined;
+		await argv(GOAL, "--domain", "stripe.com", "--intent", "pricing", "--no-stream", "--levels");
+		expect(process.exitCode).toBe(2);
+		expect(errored()).toEqual([
+			"--intent, --no-stream are for ora's free journeys and --levels for your Front account's; use one kind",
+			`Next: ax journey '${GOAL}' --domain stripe.com --levels  # for your Front account`,
+		]);
+		expect(freeMock).not.toHaveBeenCalled();
+		expect(setMock).not.toHaveBeenCalled();
+	});
+
+	it("needs --domain, exit 2", async () => {
+		process.exitCode = undefined;
+		await argv("--intent", "pricing");
+		expect(process.exitCode).toBe(2);
+		expect(errored()).toEqual([
+			"--domain names the site the agent works on",
+			"Next: ax journey --domain <domain>  # ora picks the task",
+		]);
+		expect(freeMock).not.toHaveBeenCalled();
+	});
+
+	it("refuses several goals with a public flag, since a free run takes one", async () => {
+		process.exitCode = undefined;
+		await argv(GOAL, "Find the pricing page", "--domain", "stripe.com", "--agent", "cas-haiku");
+		expect(process.exitCode).toBe(2);
+		expect(errored()[0]).toBe(
+			"a free run takes one goal; several goals run a set, on your Front account",
+		);
+		expect(freeMock).not.toHaveBeenCalled();
+	});
+
+	it("sends no goal with a Front flag to the Front path, where the set asks for a goal", async () => {
+		await argv("--domain", "stripe.com", "--levels");
+		expectOnly(setMock);
+		expect(setInput().goals).toEqual([]);
+	});
+});
+
+describe("journeyRoute", () => {
+	const base = { goals: [], publicFlags: [], frontFlags: [], frontKey: false, partnerKey: false };
+
+	it("routes by the flags first, then by the goal and the keys", () => {
+		expect(journeyRoute(base)).toEqual({ route: "public" });
+		expect(journeyRoute({ ...base, goals: ["g"] })).toEqual({ route: "front" });
+		expect(journeyRoute({ ...base, goals: ["g"], partnerKey: true })).toEqual({ route: "public" });
+		expect(journeyRoute({ ...base, goals: ["g", "h"], partnerKey: true })).toEqual({
+			route: "front",
+		});
+		expect(journeyRoute({ ...base, goals: ["g"], frontKey: true, partnerKey: true })).toEqual({
+			route: "front",
+		});
+		expect(journeyRoute({ ...base, goals: ["g"], publicFlags: ["agent"] })).toEqual({
+			route: "public",
+		});
+		expect(journeyRoute({ ...base, frontFlags: ["levels"] })).toEqual({ route: "front" });
 	});
 });
 

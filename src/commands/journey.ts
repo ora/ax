@@ -190,7 +190,7 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 			message,
 			next: {
 				call: `ORA_API_KEY=<Front API key> ${axCall(words)}`,
-				why: "ax journey runs on your Front account and needs a Front API key (see the README's Get a key)",
+				why: "a goal of your own runs on your Front account and needs a Front API key (see the README's Get a key); with no goal, ax journey --domain <site> runs one of ora's curated tasks free",
 			},
 		};
 	}

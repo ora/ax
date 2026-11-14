@@ -6,7 +6,7 @@ import { resolveBase } from "./api/skills";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
-import { journey, journeyUsage } from "./commands/journey-cli";
+import { journey, journeyUsage, noStreamFlag } from "./commands/journey-cli";
 import { learnCommand } from "./commands/learn";
 import { skillCommand } from "./commands/skill";
 import { webmcpAuditCommand } from "./commands/webmcp-audit";
@@ -90,11 +90,14 @@ const audit = defineCommand({
 	},
 });
 
+// The older name for `ax journey` with no goal of its own. It keeps working, flags and exit codes
+// unchanged, with a note on stderr naming the new call, until a future major release removes it.
 const deepJourney = defineCommand({
 	meta: {
 		name: "deep-journey",
 		description:
-			"Run a real AI agent at a site on a curated task — or, with a partner API key, a free-text one — via ora's public API (exit codes: 0 ok, 1 run failed, 2 usage, 3 API error)",
+			"Deprecated: now ax journey --domain <url>. Runs a real AI agent at a site on a curated task, or with a partner API key a free-text one, via ora's public API (exit codes: 0 ok, 1 run failed, 2 usage, 3 API error)",
+		hidden: true,
 	},
 	args: {
 		url: {
@@ -133,6 +136,22 @@ const deepJourney = defineCommand({
 		},
 	},
 	async run({ args }) {
+		const task = args.task as string | undefined;
+		const intent = args.intent as string | undefined;
+		const agent = args.agent as string | undefined;
+		const now = axCall([
+			"journey",
+			...(task ? [task] : []),
+			"--domain",
+			args.url as string,
+			...(intent && !task ? ["--intent", intent] : []),
+			...(agent ? ["--agent", agent] : []),
+		]);
+		console.error(
+			pc.dim(
+				`ax deep-journey is now ${now}. This name keeps working and will be removed in a future major release.`,
+			),
+		);
 		// Same exitCode-over-exit rule as audit: let stdout drain before exiting.
 		process.exitCode = await deepJourneyCommand({
 			url: args.url as string,
@@ -141,7 +160,8 @@ const deepJourney = defineCommand({
 			apiKey: args["api-key"] as string | undefined,
 			agent: args.agent as string | undefined,
 			json: Boolean(args.json),
-			noStream: Boolean(args["no-stream"]),
+			noStream: noStreamFlag(args),
+			via: "deep-journey",
 		});
 	},
 });
@@ -293,7 +313,7 @@ function workflowLines(): string[] {
 		`  ${d("Workflow:")}`,
 		`    1. ax audit <domain>          ${d("score the site and list what to fix")}`,
 		`    2. read the report            ${d("start with its Top fixes, ranked by ora")}`,
-		`    3. ax deep-journey <domain>   ${d("send a real agent at the site on a task")}`,
+		`    3. ax journey --domain <domain> ${d("send a real agent at the site on a task")}`,
 		`    4. read its result            ${d("whether the agent finished, and where it got stuck")}`,
 		`    ${d("Every result and error ends with a Next: line, the call to make next.")}`,
 		`    ${d("ax learn prints these steps from ora's skill.")}`,
@@ -328,14 +348,14 @@ const COMMAND_HELP = new Map<unknown, CommandHelp>([
 		deepJourney,
 		{
 			talksTo: oraSite,
-			usageNext: { call: axCall(["deep-journey", placeholder("domain")]) },
+			usageNext: { call: axCall(["journey", "--domain", placeholder("domain")]) },
 		},
 	],
 	[
 		journey,
 		{
 			talksTo: () =>
-				`${frontAccount()}; journey list reads the set records in ~/.ax/journeys and calls nothing`,
+				`${oraSite()} with no goal of your own (free); ${frontAccount()} with a goal; journey list reads the set records in ~/.ax/journeys and calls nothing`,
 			usage: journeyUsage,
 			usageNext: {
 				call: axCall(["journey", placeholder("goal"), "--domain", placeholder("domain")]),
@@ -375,8 +395,8 @@ function helpScreen(): string {
 		`  ${d("Commands:")}`,
 		`    audit ${d("<url>")}         ${d("Score a site's agent readiness")}`,
 		`    webmcp-audit ${d("<url>")}  ${d("Audit a WebMCP surface in a real browser, localhost included")}`,
-		`    deep-journey ${d("<url>")}  ${d("Run a real agent at a site on a curated or free-text task")}`,
-		`    journey ${d("<goal>")}      ${d("Send a real agent at a site and draw it live; --levels, --agents or --repeat run a set of journeys and count the verdicts (needs a Front API key)")}`,
+		`    journey ${d("--domain <d>")} ${d("Send a real agent at a site on one of ora's curated tasks, drawn live; free, no key")}`,
+		`    journey ${d("<goal>")}      ${d("The same on a goal of your own; --levels, --agents or --repeat run a set of journeys and count the verdicts (needs a Front API key)")}`,
 		`    journey ${d("view|list|cancel")} ${d("Pick up, list, or stop a recorded set of journeys")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
 		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
@@ -384,9 +404,9 @@ function helpScreen(): string {
 		"",
 		`  ${d("Talks to:")}`,
 		`    ${oraSite()}`,
-		`      ${d("audit, webmcp-audit, deep-journey, generate-files, skill, learn")}`,
+		`      ${d("audit, webmcp-audit, journey with no goal, generate-files, skill, learn")}`,
 		`    ${frontAccount()}`,
-		`      ${d("journey and audit --tunnel ora")}`,
+		`      ${d("journey with a goal, and audit --tunnel ora")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -394,7 +414,7 @@ function helpScreen(): string {
 		`    ${g} ${NAME} audit https://docs.example.com --json`,
 		`    ${g} ${NAME} audit localhost:3000 --tunnel ora   ${d("# audit a local dev server")}`,
 		`    ${g} ${NAME} webmcp-audit http://localhost:3000`,
-		`    ${g} ${NAME} deep-journey stripe.com --intent pricing`,
+		`    ${g} ${NAME} journey --domain stripe.com --intent pricing   ${d("# free, no key")}`,
 		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
 		`    ${g} ${NAME} journey "Find how to create an issue from the API" --domain linear.app --exact https://linear.app/developers --repeat 3`,
 		`    ${g} ${NAME} generate-files example.com --out public`,
@@ -424,16 +444,6 @@ function helpScreen(): string {
 		`    ${d("scored by ora, stored nowhere: the result is never published or ranked")}`,
 		`    ${d("exit codes: 0 ok · 1 below --min-score · 2 usage · 3 API error")}`,
 		"",
-		`  ${d("deep-journey options:")}`,
-		`    --intent <id>    ${d("Curated task id, e.g. pricing, signup, api-docs (server default when omitted)")}`,
-		`    --task <text>    ${d("Free-text task (needs a partner API key; replaces --intent)")}`,
-		`    --api-key <k>    ${d("ora partner API key: unlocks --task + 1000 runs/24h; also read from ORA_PARTNER_API_KEY, then ORA_SCAN_API_KEY")}`,
-		`    --agent <id>     ${d("Agent to run (default: cas-haiku — Claude Code on the Haiku model ora's roster lists)")}`,
-		`    --no-stream      ${d("Hide the live trajectory view and print only the final result")}`,
-		`    --json           ${d("Print the terminal run detail as JSON")}`,
-		`    ${d("no key needed · public caps: 100 runs/24h per target and task, 20 runs/24h per IP")}`,
-		`    ${d("exit codes: 0 run succeeded (any verdict) · 1 run failed · 2 usage · 3 API unreachable/rate-limited")}`,
-		"",
 		`  ${d("generate-files options:")}`,
 		`    --out <dir>      ${d("Your site's web root: writes .well-known/*, robots.txt, llms.txt there (default: .)")}`,
 		`    --force          ${d("Overwrite files that already exist (otherwise nothing is written)")}`,
@@ -446,7 +456,18 @@ function helpScreen(): string {
 		`    --dir <path>     ${d("Install directory (default .claude/skills)")}`,
 		`    --json           ${d("Print the raw registry index as JSON")}`,
 		"",
-		`  ${d("journey options:")}`,
+		`  ${d("journey options, free (no goal of your own):")}`,
+		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com)")}`,
+		`    --intent <id>    ${d("Curated task id, e.g. pricing, signup, api-docs (server default when omitted)")}`,
+		`    --agent <id>     ${d("Agent to run (default: cas-haiku, Claude Code on the Haiku model ora's roster lists)")}`,
+		`    --api-key <k>    ${d("ora partner API key: a goal of your own + 1000 runs/24h; also read from ORA_PARTNER_API_KEY, then ORA_SCAN_API_KEY")}`,
+		`    --no-stream      ${d("Hide the live trajectory view and print only the final result")}`,
+		`    --json           ${d("Print the terminal run detail as JSON")}`,
+		`    ${d("public caps: 100 runs/24h per target and task, 20 runs/24h per IP")}`,
+		`    ${d("exit codes: 0 run succeeded (any verdict) · 1 run failed · 2 usage · 3 API unreachable/rate-limited")}`,
+		`    ${d("ax deep-journey <url> still runs this, and will be removed in a future major release")}`,
+		"",
+		`  ${d("journey options, on your Front account (a goal of your own):")}`,
 		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com); a set of journeys needs it")}`,
 		`    --harness <h>    ${d("Agent harness: claude-code (default), codex, openclaw, hermess, claude-agent, eve, …")}`,
 		`    --model <m>      ${d("Model override (harness default when omitted)")}`,

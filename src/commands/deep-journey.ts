@@ -35,9 +35,10 @@ import { buildJourneyTree, drawJourneyTree, journeySummary } from "../ui/graph";
 import { LivePanel } from "../ui/panel";
 import { spinner } from "../ui/spinner";
 
-// `ax deep-journey <url>`: run a real agent at a site through ora's PUBLIC
-// journey API (no key, no workspace - unlike `ax journey`, which drives the
-// authenticated platform). Thin client: verdict, step_count, and insight are
+// `ax journey --domain <site>` with no goal of its own (and the older
+// `ax deep-journey <url>`): run a real agent at a site through ora's PUBLIC
+// journey API (no key, no workspace - unlike `ax journey "<goal>"`, which
+// drives the authenticated platform). Thin client: verdict, step_count, and insight are
 // rendered exactly as the contract delivers them; nothing is re-judged here.
 
 export const EXIT = { OK: 0, RUN_FAILED: 1, USAGE: 2, API: 3 } as const;
@@ -74,6 +75,8 @@ export interface DeepJourneyCommandInput {
 	agent?: string;
 	json: boolean;
 	noStream: boolean;
+	/** The command typed: `ax journey` with no goal of its own, or the older `ax deep-journey`. */
+	via?: "journey" | "deep-journey";
 }
 
 const SET_KEYLESS_HINT =
@@ -505,7 +508,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// Usage mistakes print plain, API failures in red, both prefixed. `cause`
 	// is the thrown error, whose served body (if any) is what --json prints.
 	const fail = (error: CommandError, exit: number, cause?: unknown): number => {
-		const prefixed = (message: string) => `ax deep-journey: ${message}`;
+		const prefixed = (message: string) => `ax ${input.via ?? "deep-journey"}: ${message}`;
 		reportError(error, {
 			json: input.json,
 			display: (message) => (exit === EXIT.API ? pc.red(prefixed(message)) : prefixed(message)),
@@ -521,7 +524,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "INVALID_TARGET",
 				message: "a target URL or domain is required",
-				next: { call: axCall(["deep-journey", placeholder("domain"), ...json]) },
+				next: { call: axCall(["journey", "--domain", placeholder("domain"), ...json]) },
 			},
 			EXIT.USAGE,
 		);
@@ -538,10 +541,13 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// The run as a call, for the Next line. The key is never echoed: a key
 	// passed as a flag comes back as a placeholder, one from the environment
 	// needs no flag at all.
+	// Written as `ax journey`, the name this run has now, whichever name was typed.
 	const runWords = (intent: string | undefined, agentId: string | undefined): Word[] => [
-		"deep-journey",
+		"journey",
+		...(task ? [task] : []),
+		"--domain",
 		target,
-		...(task ? ["--task", task] : intent ? ["--intent", intent] : []),
+		...(!task && intent ? ["--intent", intent] : []),
 		...(agentId ? ["--agent", agentId] : []),
 		...json,
 		...(input.noStream ? ["--no-stream"] : []),
@@ -569,7 +575,9 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "INVALID_FLAG",
 				message:
-					"--task and --intent are mutually exclusive — a free-text task replaces the curated intent",
+					input.via === "journey"
+						? "a goal of your own and --intent cannot be combined: --intent picks one of ora's curated tasks"
+						: "--task and --intent are mutually exclusive — a free-text task replaces the curated intent",
 				next: { call: sameCall(undefined, input.agent), why: "the task alone" },
 			},
 			EXIT.USAGE,
@@ -580,7 +588,9 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "NEEDS_KEY",
 				message:
-					"--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
+					input.via === "journey"
+						? "a goal of your own on ora's public journeys needs an ora partner API key (set ORA_PARTNER_API_KEY or pass --api-key); without --agent, --intent or --no-stream it runs on your Front account with ORA_API_KEY"
+						: "--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
 				next: {
 					call: keyedCall(undefined, input.agent),
 					why: "or drop --task to run a curated task without a key",

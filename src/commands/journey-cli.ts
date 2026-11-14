@@ -10,14 +10,17 @@ import {
 	MAX_REPEAT,
 } from "../journey-set/spec";
 import { reportError } from "../report/json-error";
-import { axCall } from "../report/next-line";
+import { axCall, placeholder } from "../report/next-line";
 import { EXIT } from "./audit";
+import { deepJourneyCommand } from "./deep-journey";
 import { journeyCommand } from "./journey";
 import { journeySetRunCommand, journeySetViewCommand } from "./journey-set";
 import { journeySetCancelCommand, journeySetListCommand } from "./journey-set-records";
 
-// The citty definition of `ax journey`: one journey drawn live, or a set of journeys, as
-// journeyMode reads the flags, plus `view`, `list` and `cancel` for recorded sets. Those three
+// The citty definition of `ax journey`. With no goal of its own it runs one of ora's curated
+// tasks on ora.ai's public journeys, free (journeyRoute); with a goal, one journey drawn live or
+// a set of journeys on your Front account, as journeyMode reads the flags; plus `view`, `list`
+// and `cancel` for recorded sets. Those three
 // are words the run dispatches on, not citty subcommands: citty refuses a first positional that
 // names no subcommand, so a goal in plain words could not sit beside them. Every command function
 // returns its exit code; the runs assign it to process.exitCode and never call process.exit()
@@ -92,8 +95,8 @@ function isSetCommand(word: string | undefined): word is keyof typeof SET_COMMAN
 const JOURNEY_ARGS = {
 	goal: {
 		type: "positional",
-		description: `What the agent should do, in plain words; up to ${MAX_GOALS} goals run a set`,
-		required: true,
+		description: `What the agent should do, in plain words; up to ${MAX_GOALS} goals run a set. Leave it out to run one of ora's curated tasks, free`,
+		required: false,
 	},
 	domain: {
 		type: "string",
@@ -122,8 +125,102 @@ const JOURNEY_ARGS = {
 	},
 	yes: { type: "boolean", description: "Launch a set without asking", default: false },
 	wait: WAIT_ARG,
+	intent: {
+		type: "string",
+		description: "One of ora's curated tasks, e.g. pricing, signup, api-docs (a free run)",
+	},
+	agent: {
+		type: "string",
+		description:
+			"Agent from ora's public roster for a free run (default cas-haiku, Claude Code on Haiku)",
+	},
+	"api-key": {
+		type: "string",
+		description:
+			"ora partner API key: lets a free run take a goal of your own; also read from ORA_PARTNER_API_KEY, then ORA_SCAN_API_KEY",
+	},
+	"no-stream": {
+		type: "boolean",
+		description: "A free run prints only its result, not the live view",
+		default: false,
+	},
 	json: JSON_ARG,
 } as const;
+
+/**
+ * Whether `--no-stream` was given. citty reads `--no-<name>` as `<name>: false`, so the flag
+ * arrives as `stream: false` and the declared `no-stream` arg keeps its default.
+ */
+export function noStreamFlag(args: Record<string, unknown>): boolean {
+	return args.stream === false || args["no-stream"] === true;
+}
+
+/** Flags only ora.ai's public journeys read. */
+const PUBLIC_FLAGS = ["intent", "agent", "api-key", "no-stream"] as const;
+/** Flags only your Front account's journeys read. */
+const FRONT_FLAGS = [
+	"harness",
+	"model",
+	"agents",
+	"levels",
+	"brand",
+	"docs",
+	"exact",
+	"repeat",
+	"yes",
+	"wait",
+] as const;
+
+export type JourneyRoute =
+	| { route: "public" }
+	| { route: "front" }
+	| { error: string; drop: readonly string[] };
+
+/**
+ * Which system a journey runs on. A public flag, or no goal at all, means ora.ai's public
+ * journeys: a curated task, free, or a goal of your own with a partner key. Otherwise a goal runs
+ * on your Front account, except that a goal with only a partner key set (no ORA_API_KEY) takes the
+ * partner tier, which is what `ax deep-journey --task` did. `drop` names the flags to remove when
+ * both kinds were given.
+ */
+export function journeyRoute(input: {
+	goals: readonly string[];
+	publicFlags: readonly string[];
+	frontFlags: readonly string[];
+	frontKey: boolean;
+	partnerKey: boolean;
+}): JourneyRoute {
+	const { goals, publicFlags, frontFlags } = input;
+	if (publicFlags.length > 0 && frontFlags.length > 0) {
+		const pub = publicFlags.map((f) => `--${f}`).join(", ");
+		const front = frontFlags.map((f) => `--${f}`).join(", ");
+		return {
+			error: `${pub} ${publicFlags.length === 1 ? "is" : "are"} for ora's free journeys and ${front} for your Front account's; use one kind`,
+			drop: publicFlags.map((f) => `--${f}`),
+		};
+	}
+	if (publicFlags.length > 0) return { route: "public" };
+	if (frontFlags.length > 0) return { route: "front" };
+	if (goals.length === 0) return { route: "public" };
+	if (goals.length === 1 && !input.frontKey && input.partnerKey) return { route: "public" };
+	return { route: "front" };
+}
+
+/** The flag names present in the raw args, in the order of `names`. */
+function present(rawArgs: readonly string[], names: readonly string[]): string[] {
+	const typed = new Set<string>();
+	for (const arg of rawArgs) {
+		if (arg === "--") break;
+		if (arg.startsWith("--"))
+			typed.add(
+				arg
+					.slice(2)
+					.split("=")[0]
+					.replace(/^no-(?!stream)/, ""),
+			);
+	}
+	return names.filter((name) => typed.has(name));
+}
 
 /** The flags that take a value, so the scans below skip it. */
 const VALUE_FLAGS: ReadonlySet<string> = new Set(
@@ -158,13 +255,17 @@ function withoutFlags(rawArgs: readonly string[], names: readonly string[]): str
 		}
 		const name = arg.includes("=") ? arg.slice(0, arg.indexOf("=")) : arg;
 		if (!names.includes(name)) kept.push(arg);
-		else if (!arg.includes("=")) i++;
+		else if (!arg.includes("=") && VALUE_FLAGS.has(name)) i++;
 	}
 	return kept;
 }
 
 interface JourneyArgs {
 	goals: string[];
+	intent?: string;
+	agent?: string;
+	apiKey?: string;
+	noStream: boolean;
 	domain?: string;
 	harness?: string;
 	model?: string;
@@ -186,9 +287,59 @@ function agentEntry(harness: string | undefined, model: string | undefined): str
 	return model === undefined ? named : `${named}/${model}`;
 }
 
+/** A free run on ora.ai's public journeys: a curated task, or a goal of your own with a partner key. */
+function runFree(input: JourneyArgs): Promise<number> | number {
+	const { goals, json } = input;
+	const next = (why: string) => ({
+		call: axCall(["journey", "--domain", placeholder("domain"), ...(json ? ["--json"] : [])]),
+		why,
+	});
+	if (goals.length > 1) {
+		const message = "a free run takes one goal; several goals run a set, on your Front account";
+		reportError(
+			{ code: "INVALID_SPEC", message, next: { call: SET_USAGE_CALL, why: "for a set" } },
+			{ json },
+		);
+		return EXIT.USAGE;
+	}
+	if (!input.domain?.trim()) {
+		const message = "--domain names the site the agent works on";
+		reportError({ code: "INVALID_TARGET", message, next: next("ora picks the task") }, { json });
+		return EXIT.USAGE;
+	}
+	return deepJourneyCommand({
+		url: input.domain,
+		intent: input.intent,
+		task: goals[0],
+		apiKey: input.apiKey,
+		agent: input.agent,
+		json,
+		noStream: input.noStream,
+		via: "journey",
+	});
+}
+
 /** One journey or a set; --yes and --wait only mean something to a set, so one journey ignores them. */
 async function runJourney(input: JourneyArgs, rawArgs: readonly string[]): Promise<number> {
 	const { goals, harness, model, agents, json } = input;
+	const route = journeyRoute({
+		goals,
+		publicFlags: present(rawArgs, PUBLIC_FLAGS),
+		frontFlags: present(rawArgs, FRONT_FLAGS),
+		frontKey: Boolean(process.env.ORA_API_KEY),
+		partnerKey: Boolean(
+			input.apiKey || process.env.ORA_PARTNER_API_KEY || process.env.ORA_SCAN_API_KEY,
+		),
+	});
+	if ("error" in route) {
+		const next = {
+			call: axCall(["journey", ...withoutFlags(rawArgs, route.drop)]),
+			why: "for your Front account",
+		};
+		reportError({ code: "INVALID_FLAG", message: route.error, next }, { json });
+		return EXIT.USAGE;
+	}
+	if (route.route === "public") return runFree(input);
 	if (agents !== undefined && (harness !== undefined || model !== undefined)) {
 		const flag = harness !== undefined ? "--harness" : "--model";
 		const message = `--agents cannot be combined with ${flag}: name each agent in --agents as harness or harness/model`;
@@ -231,7 +382,7 @@ async function runJourney(input: JourneyArgs, rawArgs: readonly string[]): Promi
 }
 
 const JOURNEY_DESCRIPTION =
-	"Send a real AI agent at a site and watch it live, or run a set of journeys and count the verdicts";
+	"Send a real AI agent at a site and watch it live: free on one of ora's curated tasks, or on a goal of your own with a Front API key, one journey or a set with the verdicts counted";
 
 export const journey = defineCommand({
 	meta: { name: "journey", description: JOURNEY_DESCRIPTION },
@@ -248,6 +399,10 @@ export const journey = defineCommand({
 		process.exitCode = await runJourney(
 			{
 				goals: args._,
+				intent: args.intent as string | undefined,
+				agent: args.agent as string | undefined,
+				apiKey: args["api-key"] as string | undefined,
+				noStream: noStreamFlag(args),
 				domain: args.domain as string | undefined,
 				harness: args.harness as string | undefined,
 				model: args.model as string | undefined,
@@ -275,6 +430,7 @@ export function journeyUsage(): string {
 		"",
 		h("USAGE"),
 		"",
+		"  ax journey --domain <site> [--intent <id>] [--agent <id>] [--no-stream] [--json]",
 		`  ax journey "<goal>" [--domain <site>] [--harness <h>] [--model <m>] [--json]`,
 		`  ax journey "<goal>" ["<goal>" ...] --domain <site> [--agents <list>] [--levels]`,
 		"    [--brand <name>] [--docs <url>] [--exact <url>] [--repeat <n>] [--yes] [--wait <min>] [--json]",
@@ -282,10 +438,25 @@ export function journeyUsage(): string {
 		"  ax journey list [--json]",
 		"  ax journey cancel <id> [--json]",
 		"",
+		"  With no goal, ax runs one of ora's curated tasks on ora.ai's public journeys: free, no key.",
+		"  With a goal, the journey runs on your Front account.",
+		"",
 		"  One goal and one agent, with no --repeat and no levels: ax runs one journey and draws it",
 		"  live. Ask for more (several goals or agents, --repeat, or levels with --levels, --docs,",
 		"  --exact or --brand) and ax runs a set of journeys: it previews the set, asks before",
 		"  launching, waits for the platform's verdicts and counts them.",
+		"",
+		h("FREE, NO GOAL OF YOUR OWN"),
+		"",
+		`  --domain <site>  ${d("Site the agent works on (required)")}`,
+		`  --intent <id>    ${d("Curated task id, e.g. pricing, signup, api-docs (ora picks one when omitted)")}`,
+		`  --agent <id>     ${d("Agent from ora's public roster (default cas-haiku, Claude Code on Haiku)")}`,
+		`  --api-key <k>    ${d("ora partner API key: allows a goal of your own here; also read from ORA_PARTNER_API_KEY, then ORA_SCAN_API_KEY")}`,
+		`  --no-stream      ${d("Print only the result, not the live view")}`,
+		`  --json           ${d("Print the finished run as JSON")}`,
+		`  ${d("these flags cannot be combined with the Front flags below")}`,
+		`  ${d("exit codes: 0 the run finished (any verdict) · 1 the run failed · 2 usage · 3 API error")}`,
+		`  ${d("ax deep-journey <url> is the older name for this; it still works and will be removed in a future major release")}`,
 		"",
 		h("ONE JOURNEY"),
 		"",
@@ -321,6 +492,6 @@ export function journeyUsage(): string {
 		`  ${d("a goal cannot be just view, list or cancel: ax runs the command of that name")}`,
 		"",
 		`  ${d("--yes and --wait apply to a set; one journey ignores them.")}`,
-		`  ${d("Needs a Front API key as ORA_API_KEY; sign up at app.ora.ai (see the README's Get a key).")}`,
+		`  ${d("A goal of your own needs a Front API key as ORA_API_KEY; sign up at app.ora.ai (see the README's Get a key).")}`,
 	].join("\n");
 }

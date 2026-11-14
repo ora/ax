@@ -102,7 +102,7 @@ function isHttp(url: URL): boolean {
 	return url.protocol === "http:" || url.protocol === "https:";
 }
 
-/** The set's site from a domain or URL; `ax deep-journey` reduces its target with it too. */
+/** The set's site from a domain or URL; a free `ax journey` reduces its target with it too. */
 export function parseSetSite(raw: string): Parsed<string> {
 	const trimmed = raw.trim();
 	const url =
