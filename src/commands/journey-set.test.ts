@@ -394,6 +394,25 @@ describe("a set from ax journey, before anything launches", () => {
 		noRecord();
 	});
 
+	it("over the allowance when only --repeat made it a set, the Next line is one journey", async () => {
+		const usage = { ...usageFixture.data, runs: { used: 49, limit: 50, remaining: 1 } };
+		const mock = platform({ usage: () => asJson({ ...usageFixture, data: usage }) });
+		const agent = "claude-code/claude-haiku-4-5-20251001";
+
+		await exits(run({ agents: agent, levels: false, repeat: "5" }), EXIT.USAGE);
+
+		expect(stderr()).toEqual([
+			"This set needs 5 runs and your plan has 1 run left this month (resets Dec 1).",
+			"1 run fits. Without --repeat, ax runs it as one journey and draws it live.",
+			nextLine(
+				`ax journey '${GOAL}' --domain linear.app --agents ${agent}`,
+				"one run fits what your plan has left; without --repeat this is one journey",
+			),
+		]);
+		expect(mock.creates).toEqual([]);
+		noRecord();
+	});
+
 	it("with no terminal and no --yes, prints the preview and refuses, exit 2", async () => {
 		const mock = platform();
 

@@ -144,6 +144,17 @@ function runCall(input: JourneySetRunInput, swap: Swap = {}) {
 	]);
 }
 
+/** The set's goal, site and agent as one journey: no --repeat, and no set-only flags. */
+function oneJourneyCall(input: JourneySetRunInput) {
+	return axCall([
+		"journey",
+		...input.goals,
+		...(input.site === undefined ? [] : ["--domain", input.site]),
+		...(input.agents === undefined ? [] : ["--agents", input.agents]),
+		...jsonWords(input),
+	]);
+}
+
 function jsonWords(input: { json: boolean }): string[] {
 	return input.json ? ["--json"] : [];
 }
@@ -198,6 +209,10 @@ function refusalNext(lead: Refusal, input: JourneySetRunInput): NextStep {
 			return keyStep(runCall(input));
 		case "over_allowance": {
 			if (!lead.fits) return { call: runCall(input), why: "after your plan's runs reset" };
+			if (lead.oneJourney) {
+				const why = "one run fits what your plan has left; without --repeat this is one journey";
+				return { call: oneJourneyCall(input), why };
+			}
 			const repeat = String(lead.fits.repeat);
 			const why = "the largest repeat that fits what your plan has left";
 			return { call: runCall(input, { repeat }), why };

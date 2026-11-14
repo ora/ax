@@ -131,6 +131,10 @@ function overAllowanceLines(refusal: Extract<Refusal, { kind: "over_allowance" }
 		);
 		return lines;
 	}
+	if (refusal.oneJourney) {
+		lines.push("1 run fits. Without --repeat, ax runs it as one journey and draws it live.");
+		return lines;
+	}
 	const verb = fits.repeat === 1 ? "fits" : "fit";
 	lines.push(
 		`${count(fits.repeat, "repeat")} ${verb}: ${count(fits.runs, "run")}. Try --repeat ${fits.repeat}.`,

@@ -193,6 +193,8 @@ describe("previewSet allowance", () => {
 				remaining: 38,
 				resetsAt: "2026-12-01T00:00:00.000Z",
 				fits: { repeat: 1, runs: 20 },
+				// Levels are on, so --repeat 1 is still a set.
+				oneJourney: false,
 			},
 		]);
 	});

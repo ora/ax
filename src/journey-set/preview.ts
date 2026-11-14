@@ -68,6 +68,11 @@ export type Refusal =
 			resetsAt: string | null;
 			/** The largest repeat count that fits, with its runs; null when not even one repeat fits. */
 			fits: { repeat: number; runs: number } | null;
+			/**
+			 * True when only --repeat made this a set and the repeat that fits is 1: the call that fits
+			 * is one journey, so the hint says so instead of suggesting --repeat 1.
+			 */
+			oneJourney: boolean;
 	  };
 
 export type PreviewResult =
@@ -173,18 +178,24 @@ function allowanceOf(usage: StudioUsage): Allowance {
 	return { kind: "limited", limit, remaining, resetsAt: usage.resetsAt };
 }
 
-function limitRefusals(totals: PreviewTotals, repeat: number, allowance: Allowance): Refusal[] {
+function limitRefusals(
+	totals: PreviewTotals,
+	spec: Pick<SetSpec, "repeat" | "levels">,
+	allowance: Allowance,
+): Refusal[] {
 	const refusals: Refusal[] = [];
 	if (exceedsRunCap(totals.runs)) {
 		refusals.push({ kind: "over_cap", runs: totals.runs, maxRuns: MAX_RUNS });
 	}
 	if (allowance.kind === "limited" && allowance.remaining < totals.runs) {
+		const fits = largestFittingRepeat(totals.runsPerRepeat, allowance.remaining, spec.repeat);
 		refusals.push({
 			kind: "over_allowance",
 			runs: totals.runs,
 			remaining: allowance.remaining,
 			resetsAt: allowance.resetsAt,
-			fits: largestFittingRepeat(totals.runsPerRepeat, allowance.remaining, repeat),
+			fits,
+			oneJourney: fits?.repeat === 1 && !spec.levels && totals.runsPerRepeat === 1,
 		});
 	}
 	return refusals;
@@ -218,9 +229,7 @@ export function previewSet(input: PreviewInput): PreviewResult {
 	};
 	const allowance = usage ? allowanceOf(usage) : undefined;
 	// Without usage the allowance check is skipped, but the cap still applies.
-	refusals.push(
-		...limitRefusals(totals, spec.repeat, allowance ?? { kind: "unlimited", resetsAt: null }),
-	);
+	refusals.push(...limitRefusals(totals, spec, allowance ?? { kind: "unlimited", resetsAt: null }));
 	if (refusals.length > 0 || !allowance) return { ok: false, refusals };
 
 	return {
