@@ -187,8 +187,8 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 			code: "MISSING_API_KEY",
 			message,
 			next: {
-				call: `ORA_API_KEY=<platform key> ${axCall(words)}`,
-				why: "ax journey runs on ora's platform API and needs a platform key",
+				call: `ORA_API_KEY=<Front API key> ${axCall(words)}`,
+				why: "ax journey runs on your Front account and needs a Front API key (see the README's Get a key)",
 			},
 		};
 	}
