@@ -17,6 +17,7 @@ import { listRecords, readRecord, type SetRecord } from "../journey-set/record";
 import {
 	confirmPrompt,
 	GET_A_KEY,
+	KEY_DESTINATION_WHY,
 	PRODUCT_NOT_GRANTED_MESSAGE,
 } from "../journey-set/render-preview";
 import { NEED_LEVEL_NOTE } from "../journey-set/render-report";
@@ -298,6 +299,20 @@ describe("a set from ax journey, before anything launches", () => {
 		expect(mock.calls).toEqual([]);
 		expect(stdout()).toEqual([]);
 		expect(stderr()).toEqual([GET_A_KEY, keyed(`${RUN_CALL} --yes`)]);
+	});
+
+	it("refuses to send the key to a platform URL over plain http, before any call, exit 2", async () => {
+		const mock = platform();
+		vi.stubEnv("ORA_PLATFORM_URL", "http://collector.example");
+
+		await exits(run(), EXIT.USAGE);
+
+		expect(mock.calls).toEqual([]);
+		expect(stdout()).toEqual([]);
+		const [message, next] = stderr();
+		expect(message).toMatch(/ORA_PLATFORM_URL.*https/);
+		expect(next).toBe(nextLine(`${RUN_CALL} --yes`, KEY_DESTINATION_WHY));
+		noRecord();
 	});
 
 	it("refuses a key whose token lacks scopes without reading the catalog, exit 2", async () => {
@@ -777,5 +792,19 @@ describe("ax journey view", () => {
 		await exits(view(id, { wait: "5" }), EXIT.USAGE);
 
 		expect(stderr()).toEqual([GET_A_KEY, keyed(`ax journey view ${id} --wait 5`)]);
+	});
+
+	it("refuses to send the key to a platform URL over plain http, exit 2", async () => {
+		const mock = platform();
+		await run();
+		const { id } = theRecord();
+		const before = mock.calls.length;
+		vi.mocked(console.error).mockClear();
+		vi.stubEnv("ORA_PLATFORM_URL", "http://collector.example");
+
+		await exits(view(id, { wait: "5" }), EXIT.USAGE);
+
+		expect(mock.calls).toHaveLength(before);
+		expect(stderr()[1]).toBe(nextLine(`ax journey view ${id} --wait 5`, KEY_DESTINATION_WHY));
 	});
 });

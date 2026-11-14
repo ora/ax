@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { PlatformApiError } from "../api/platform";
+import { PlatformApiError, platformKeyProblem } from "../api/platform";
 import { createStudioClient, isStudioFailure, StudioApiError } from "../api/studio";
 import { STUDIO_SCOPES, type StudioClient } from "../api/studio-types";
 import { abortableSleep } from "../journey-set/follow";
@@ -10,6 +10,7 @@ import {
 	confirmPrompt,
 	GET_A_KEY,
 	isProductNotGranted,
+	KEY_DESTINATION_WHY,
 	PRODUCT_NOT_GRANTED_MESSAGE,
 	renderPreview,
 	renderRefusal,
@@ -105,6 +106,14 @@ const keyStep = (call: string): NextStep => ({
 	call: `ORA_API_KEY=<Front API key> ${call}`,
 	why: "a Front API key with the scopes a set of journeys needs",
 });
+
+/** Exit 2 before any call when the key must not go to the platform URL; undefined when it may. */
+function keyRefusal(call: string, json: boolean): number | undefined {
+	const problem = platformKeyProblem();
+	if (problem === undefined) return undefined;
+	const next = { call, why: KEY_DESTINATION_WHY };
+	return fail({ code: "KEY_DESTINATION_REFUSED", message: problem, next }, EXIT.USAGE, json);
+}
 
 /** The key exchange or a read failed on the platform: exit 3, with the key named on a 401. */
 function platformFailure(error: unknown, call: string, json: boolean): number {
@@ -278,6 +287,8 @@ export async function journeySetRunCommand(input: JourneySetRunInput): Promise<n
 		const next = keyStep(runCall(input));
 		return fail({ code: "MISSING_API_KEY", message: GET_A_KEY, next }, EXIT.USAGE, json);
 	}
+	const refused = keyRefusal(runCall(input), json);
+	if (refused !== undefined) return refused;
 	const { spec } = parsed;
 	const { cells, skipped } = planCells(spec);
 	const { client, now, sleep } = seams(input);
@@ -322,6 +333,8 @@ export async function journeySetViewCommand(input: JourneySetViewInput): Promise
 		const missing = { code: "MISSING_API_KEY", message: GET_A_KEY, next: keyStep(call) };
 		return fail(missing, EXIT.USAGE, json);
 	}
+	const refused = keyRefusal(call, json);
+	if (refused !== undefined) return refused;
 	const { client, now, sleep } = seams(input);
 	try {
 		// The key exchange up front, so a rejected key fails here and not after three read rounds.

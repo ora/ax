@@ -1,10 +1,11 @@
-import { PlatformApiError } from "../api/platform";
+import { PlatformApiError, platformKeyProblem } from "../api/platform";
 import { createStudioClient, isStudioFailure, StudioApiError } from "../api/studio";
 import type { CancelResult, StudioClient } from "../api/studio-types";
 import { listRecords } from "../journey-set/record";
 import {
 	GET_A_KEY,
 	isProductNotGranted,
+	KEY_DESTINATION_WHY,
 	PRODUCT_NOT_GRANTED_MESSAGE,
 } from "../journey-set/render-preview";
 import { failureCode, pickUpRecord, SET_USAGE_CALL } from "../journey-set/report-flow";
@@ -172,6 +173,12 @@ export async function journeySetCancelCommand(input: JourneySetCancelInput): Pro
 			EXIT.USAGE,
 			{ json },
 		);
+	}
+	const refused = platformKeyProblem();
+	if (refused !== undefined) {
+		const call = axCall(["journey", "cancel", id, ...jsonWords(json)]);
+		const next = { call, why: KEY_DESTINATION_WHY };
+		return fail("KEY_DESTINATION_REFUSED", refused, next, EXIT.USAGE, { json });
 	}
 
 	let result: CancelResult;

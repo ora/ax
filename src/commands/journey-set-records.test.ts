@@ -11,7 +11,11 @@ import {
 	type JourneyEntry,
 	type SetRecord,
 } from "../journey-set/record";
-import { GET_A_KEY, PRODUCT_NOT_GRANTED_MESSAGE } from "../journey-set/render-preview";
+import {
+	GET_A_KEY,
+	KEY_DESTINATION_WHY,
+	PRODUCT_NOT_GRANTED_MESSAGE,
+} from "../journey-set/render-preview";
 import { parseSetSpec, planCells } from "../journey-set/spec";
 import { EXIT } from "./audit";
 import {
@@ -243,6 +247,19 @@ describe("journeySetCancelCommand refusals", () => {
 
 		expect(errored()[0]).toBe(GET_A_KEY);
 		expect(errored()[1]).toMatch(new RegExp(`^Next: ${KEY_NEXT} ${record.id} {2}# `));
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("exits 2 without a call when the platform URL would carry the key over plain http", async () => {
+		const { record } = launchedSet();
+		vi.stubEnv("ORA_PLATFORM_URL", "http://collector.example");
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+
+		expect(await cancelIt(record.id)).toBe(EXIT.USAGE);
+
+		expect(errored()[0]).toMatch(/ORA_PLATFORM_URL.*https/);
+		expect(errored()[1]).toBe(`Next: ax journey cancel ${record.id}  # ${KEY_DESTINATION_WHY}`);
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 

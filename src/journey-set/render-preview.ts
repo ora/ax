@@ -15,6 +15,9 @@ import { DEFAULT_HARNESS, type PlannedCell, type SetSpec, type SkippedCell } fro
 export const GET_A_KEY =
 	"`ax journey` runs on your Front account. Sign up at app.ora.ai with a work email (personal addresses are not accepted), then create an API key in your account settings with these scopes: `journeys:write`, `journeys:read`, `runs:read`, `runs:write`, `intents:read`. Set it as `ORA_API_KEY`. The Free plan includes a monthly number of runs; before a set of journeys launches, its preview shows what is left.";
 
+/** The Next line's reason when ax refused the platform URL a key would go to. */
+export const KEY_DESTINATION_WHY = "once ORA_PLATFORM_URL is fixed as said above";
+
 /** The code of a 403 that says the key was made for another product. */
 export const PRODUCT_NOT_GRANTED_CODE = "PRODUCT_NOT_GRANTED";
 

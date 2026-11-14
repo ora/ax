@@ -164,7 +164,7 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 					]),
 				},
 			},
-			{ json: input.json, display: "Usage: ax generate-files <domain>" },
+			{ json: input.json, display: () => "Usage: ax generate-files <domain>" },
 		);
 		return EXIT.USAGE;
 	}
@@ -182,7 +182,7 @@ export async function generateFilesCommand(input: GenerateFilesCommandInput): Pr
 				: undefined;
 		reportError(error, {
 			json: input.json,
-			display: `generate-files failed: ${error.message}`,
+			display: (message) => `generate-files failed: ${message}`,
 			served,
 		});
 		return cause instanceof AgentFilesApiError && cause.status === 400 ? EXIT.USAGE : EXIT.API;

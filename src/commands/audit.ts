@@ -191,7 +191,12 @@ function resultNext(
 }
 
 export async function auditCommand(input: AuditCommandInput): Promise<number> {
-	const fail = (error: CommandError, exit: number, display?: string, served?: unknown): number => {
+	const fail = (
+		error: CommandError,
+		exit: number,
+		display?: (message: string) => string,
+		served?: unknown,
+	): number => {
 		reportError(error, { json: input.json, display, served });
 		return exit;
 	};
@@ -391,7 +396,7 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 				next: sameCall,
 			},
 			apiError ? EXIT.API : EXIT.USAGE,
-			`Audit failed: ${message}`,
+			(cleaned) => `Audit failed: ${cleaned}`,
 			apiError ? cause.payload : undefined,
 		);
 	} finally {

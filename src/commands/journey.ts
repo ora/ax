@@ -1,4 +1,5 @@
 import pc from "picocolors";
+import { KeyDestinationError } from "../api/key-destination";
 import {
 	type JourneyInsight,
 	type JourneyRun,
@@ -8,6 +9,7 @@ import {
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
+import { KEY_DESTINATION_WHY } from "../journey-set/render-preview";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { flow, squeeze, stdoutWidth } from "../ui/ansi";
@@ -192,6 +194,13 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 			},
 		};
 	}
+	if (cause instanceof KeyDestinationError) {
+		return {
+			code: "KEY_DESTINATION_REFUSED",
+			message,
+			next: { call: axCall(words), why: KEY_DESTINATION_WHY },
+		};
+	}
 	return {
 		code: "PLATFORM_ERROR",
 		message,
@@ -214,7 +223,7 @@ export async function journeyCommand(input: JourneyCommandInput): Promise<number
 		const error = launchFailure(input, cause);
 		reportError(error, {
 			json: input.json,
-			display: `Journey failed: ${error.message}`,
+			display: (message) => `Journey failed: ${message}`,
 			served: cause instanceof PlatformApiError ? cause.payload : undefined,
 		});
 		return 2;

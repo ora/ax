@@ -6,6 +6,7 @@ import { BUILT_AGAINST, resetContractWarning } from "../contract";
 // hand-rolled - tests derive variations from it with explicit deltas.
 import realAuditScan from "./__fixtures__/audit-scan.json";
 import { AuditApiError, isMcpAuthRequired, MCP_AUTH_REQUIRED, performAudit } from "./audit";
+import { KeyDestinationError } from "./key-destination";
 
 const FIXTURE = realAuditScan as unknown as AuditScanResult;
 
@@ -392,5 +393,31 @@ describe("performAudit", () => {
 			}),
 		);
 		await expect(performAudit("example.com", { idleMs: 40 })).rejects.toThrow(/timed out/i);
+	});
+});
+
+describe("performAudit key destination", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.unstubAllEnvs();
+	});
+
+	it("never sends a scan key over plain http to a host other than this machine", async () => {
+		const fetchMock = vi.fn(async () => new Response("{}"));
+		vi.stubGlobal("fetch", fetchMock);
+		const keyed = { apiKey: "sk_test", baseUrl: "http://collector.example" };
+		await expect(performAudit("example.com", keyed)).rejects.toThrow(KeyDestinationError);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("still audits without a key against any host the caller named", async () => {
+		const fetchMock = vi.fn(async () => {
+			throw new TypeError("fetch failed");
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		const keyless = { apiKey: "", baseUrl: "http://collector.example" };
+		await expect(performAudit("example.com", keyless)).rejects.not.toThrow(KeyDestinationError);
+		expect(fetchMock).toHaveBeenCalled();
 	});
 });

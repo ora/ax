@@ -6,6 +6,7 @@ import type {
 	JourneyTrajectoryStep,
 } from "../contract";
 import { warnOnNewerContract } from "../contract";
+import { assertKeyDestination } from "./key-destination";
 import { decodeEventBlock } from "./platform";
 import { errorBody, pause, usageLimitMessage, watchdog } from "./shared";
 
@@ -549,6 +550,7 @@ export async function performDeepJourney(
 			process.env.ORA_SCAN_API_KEY ||
 			undefined,
 	};
+	if (options.apiKey) assertKeyDestination(base, "ORA_API_URL", PUBLIC_BASE);
 
 	const triggered = await triggerRun(base, target, options);
 	const { record } = triggered;

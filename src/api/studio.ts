@@ -1,4 +1,5 @@
 import pkg from "../../package.json";
+import { KeyDestinationError } from "./key-destination";
 import type { JourneyStep } from "./platform";
 import { exchangeKeyGrant, jsonOrNull, PlatformApiError, platformBase } from "./platform";
 import {
@@ -207,7 +208,7 @@ function tokenKeeper(base: string, secret: string, now: () => number): () => Pro
 		const grant = await exchangeKeyGrant(base, secret).catch((cause: unknown) => {
 			// The shared exchange throws PlatformApiError on an HTTP error, lets fetch's rejection
 			// through, and throws a plain Error only for a 200 that carries no token.
-			if (cause instanceof PlatformApiError) throw cause;
+			if (cause instanceof PlatformApiError || cause instanceof KeyDestinationError) throw cause;
 			if (cause instanceof TypeError || cause instanceof DOMException) {
 				throw new StudioConnectionError(base, cause);
 			}
