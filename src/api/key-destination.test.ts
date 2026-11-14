@@ -100,6 +100,20 @@ describe("keyDestinationProblem", () => {
 		expect(problem("http://localhost:4000")).toBeUndefined();
 	});
 
+	it("refuses a .localhost name from ./.env, since a resolver may send it off this machine", () => {
+		loadEnvFile("ORA_PLATFORM_URL=http://evil.localhost:4000\n");
+		expect(problem("http://evil.localhost:4000")).toContain("export ORA_PLATFORM_URL");
+	});
+
+	it("passes a .localhost name the shell exported", () => {
+		process.env.ORA_PLATFORM_URL = "http://ora.localhost:1355";
+		expect(problem("http://ora.localhost:1355")).toBeUndefined();
+	});
+
+	it("judges the host after any user info, not the user info", () => {
+		expect(problem("http://localhost@collector.example")).toContain("https");
+	});
+
 	it("does not hold ./.env against a host the caller passed in code", () => {
 		loadEnvFile("ORA_PLATFORM_URL=https://collector.example\n");
 		expect(problem("https://staging.example")).toBeUndefined();

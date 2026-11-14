@@ -26,10 +26,10 @@ export function loadLocalEnv(): boolean {
 	// missing key, not die here with a TypeError.
 	if (typeof process.loadEnvFile !== "function") return false;
 
-	const exported = new Set(Object.keys(process.env));
+	const exported = new Set(Object.keys(process.env).map(envName));
 	try {
 		process.loadEnvFile();
-		for (const name of Object.keys(process.env)) {
+		for (const name of Object.keys(process.env).map(envName)) {
 			if (!exported.has(name)) fromFile.add(name);
 		}
 		return true;
@@ -41,7 +41,13 @@ export function loadLocalEnv(): boolean {
 
 const fromFile = new Set<string>();
 
+// Windows reads variables without regard to case, so `ora_api_url` in the file is
+// what `process.env.ORA_API_URL` returns there, while `Object.keys` keeps the file's case.
+function envName(name: string): string {
+	return process.platform === "win32" ? name.toUpperCase() : name;
+}
+
 /** Whether `name` came from the last `loadLocalEnv`'s file rather than the shell. */
 export function fromLocalEnvFile(name: string): boolean {
-	return fromFile.has(name);
+	return fromFile.has(envName(name));
 }
