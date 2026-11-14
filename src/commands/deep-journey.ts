@@ -467,10 +467,10 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// Usage mistakes print plain, API failures in red, both prefixed. `cause`
 	// is the thrown error, whose served body (if any) is what --json prints.
 	const fail = (error: CommandError, exit: number, cause?: unknown): number => {
-		const display = `ax deep-journey: ${error.message}`;
+		const prefixed = (message: string) => `ax deep-journey: ${message}`;
 		reportError(error, {
 			json: input.json,
-			display: exit === EXIT.API ? pc.red(display) : display,
+			display: (message) => (exit === EXIT.API ? pc.red(prefixed(message)) : prefixed(message)),
 			served: cause instanceof DeepJourneyApiError ? cause.payload : undefined,
 		});
 		return exit;

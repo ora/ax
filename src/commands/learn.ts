@@ -34,7 +34,7 @@ export async function learnCommand(input: LearnCommandInput = {}): Promise<numbe
 				message,
 				next: { call: axCall(["learn"]), why: `retry, or read ${docsUrl}` },
 			},
-			{ json: false, display: `ax learn: ${message}` },
+			{ json: false, display: (cleaned) => `ax learn: ${cleaned}` },
 		);
 		return EXIT.API;
 	}

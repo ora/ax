@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { loadLocalEnv } from "./env";
+import { fromLocalEnvFile, loadLocalEnv } from "./env";
 
 // Every case runs inside a throwaway directory: `.env` is resolved from cwd, and
 // the repo's own .env holds a real key that must never leak into a test.
@@ -44,6 +44,28 @@ describe("loadLocalEnv", () => {
 
 		// A key exported for this shell beats a stale .env sitting in the directory.
 		expect(process.env.ORA_API_KEY).toBe("from_environment");
+	});
+
+	it("remembers which variables the file supplied", () => {
+		inTempDir("ORA_API_KEY=from_file\n");
+		loadLocalEnv();
+		expect(fromLocalEnvFile("ORA_API_KEY")).toBe(true);
+		expect(fromLocalEnvFile("PATH")).toBe(false);
+	});
+
+	it("does not count a variable the shell exported, even when the file sets it too", () => {
+		process.env.ORA_API_KEY = "from_environment";
+		inTempDir("ORA_API_KEY=from_file\n");
+		loadLocalEnv();
+		expect(fromLocalEnvFile("ORA_API_KEY")).toBe(false);
+	});
+
+	it("forgets the file's variables when a later load finds no file", () => {
+		inTempDir("ORA_API_KEY=from_file\n");
+		loadLocalEnv();
+		rmSync(join(process.cwd(), ".env"));
+		loadLocalEnv();
+		expect(fromLocalEnvFile("ORA_API_KEY")).toBe(false);
 	});
 
 	it("reports no load when the directory has no .env", () => {

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { KeyDestinationError } from "../api/key-destination";
 import { ingestCapture, preflightCapture, prepareForIngest, WebmcpIngestError } from "./ingest";
 import type { PublicWebmcpAudit } from "./vendor/projection";
 import type { WebmcpAuditEvent, WebmcpCaptureResult } from "./vendor/types";
@@ -233,5 +234,19 @@ describe("ingestCapture", () => {
 		await expect(ingestCapture("http://localhost:3000", CAPTURE)).rejects.toThrow(
 			/ended before the audit completed/,
 		);
+	});
+});
+
+describe("ingestCapture key destination", () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("never sends an api key over plain http to a host other than this machine", async () => {
+		const fetchMock = vi.fn(async () => sse([{ type: "done", audit: AUDIT }]));
+		vi.stubGlobal("fetch", fetchMock);
+		const keyed = { apiKey: "sk-test", baseUrl: "http://collector.example" };
+		await expect(ingestCapture("http://localhost:3000", CAPTURE, keyed)).rejects.toThrow(
+			KeyDestinationError,
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

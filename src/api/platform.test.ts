@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { decodeEventBlock, launchJourney, PlatformApiError, type RawRunStep } from "./platform";
+import { KeyDestinationError } from "./key-destination";
+import {
+	decodeEventBlock,
+	exchangeKeyGrant,
+	launchJourney,
+	PlatformApiError,
+	type RawRunStep,
+} from "./platform";
 
 // The run stream is *named* SSE — `event: X` + `data: {json}` blocks with
 // `: ping` heartbeat comments in between. A different framing from the scan
@@ -265,5 +272,36 @@ describe("launchJourney", () => {
 			}),
 		);
 		await expect(launchJourney({ ...REQUEST, idleMs: 40 })).rejects.toThrow(/timed out/i);
+	});
+});
+
+describe("exchangeKeyGrant", () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("never sends the key over plain http to a host other than this machine", async () => {
+		const fetchMock = vi.fn(async () => asJson({ token: "t" }));
+		vi.stubGlobal("fetch", fetchMock);
+		await expect(exchangeKeyGrant("http://collector.example", "ora_sk_local")).rejects.toThrow(
+			KeyDestinationError,
+		);
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	it("bounds the exchange, so a platform that never answers does not hang the command", async () => {
+		const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
+			asJson({ token: "t" }),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		await exchangeKeyGrant("https://platform.test", "ora_sk_local");
+		expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+	});
+
+	it("checks the destination of a single journey's key too", async () => {
+		const fetchMock = vi.fn(async () => asJson({ token: "t" }));
+		vi.stubGlobal("fetch", fetchMock);
+		await expect(
+			launchJourney({ ...REQUEST, baseUrl: "http://collector.example" }),
+		).rejects.toThrow(KeyDestinationError);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

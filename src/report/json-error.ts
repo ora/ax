@@ -1,3 +1,4 @@
+import { plainLines } from "../ui/ansi";
 import { type NextStep, printNext } from "./next-line";
 
 // Under --json, stdout carries one JSON document and nothing else. When ora
@@ -29,12 +30,16 @@ export function jsonErrorEnvelope(error: CommandError): JsonErrorEnvelope {
  * form) and the Next line on stderr. Under --json, stdout gets `served`, the
  * error body the server answered with, when there is one (a body that parsed
  * to null carries nothing to pass through), and the envelope otherwise.
+ *
+ * The message can quote a server, so stderr gets it with the terminal control
+ * bytes dropped, and `display` paints that cleaned text rather than the raw one.
  */
 export function reportError(
 	error: CommandError,
-	options: { json: boolean; display?: string; served?: unknown },
+	options: { json: boolean; display?: (message: string) => string; served?: unknown },
 ): void {
-	console.error(options.display ?? error.message);
+	const message = plainLines(error.message);
+	console.error(options.display ? options.display(message) : message);
 	printNext(error.next, { stderr: true });
 	if (!options.json) return;
 	const document =

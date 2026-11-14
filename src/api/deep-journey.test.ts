@@ -9,6 +9,7 @@ import {
 	performDeepJourney,
 	servedNextAction,
 } from "./deep-journey";
+import { KeyDestinationError } from "./key-destination";
 
 // Fixture provenance, all real responses from a local dev server (contract
 // 1.42.0, mock engine): deep-journey-detail.json is the projected
@@ -665,5 +666,17 @@ describe("formatWait", () => {
 		expect(formatWait(90_000)).toBe("2m");
 		expect(formatWait(4_000)).toBe("4s");
 		expect(formatWait(0)).toBe("soon");
+	});
+});
+
+describe("performDeepJourney key destination", () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("never sends a partner key over plain http to a host other than this machine", async () => {
+		const fetchMock = vi.fn(async () => new Response("{}"));
+		vi.stubGlobal("fetch", fetchMock);
+		const keyed = { ...OPTIONS, apiKey: "pk_test", baseUrl: "http://collector.example" };
+		await expect(performDeepJourney("vercel.com", keyed)).rejects.toThrow(KeyDestinationError);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

@@ -110,7 +110,12 @@ function resultNext(input: WebmcpAuditCommandInput, target: string, belowGate: b
 }
 
 export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promise<number> {
-	const fail = (error: CommandError, exit: number, display?: string, served?: unknown): number => {
+	const fail = (
+		error: CommandError,
+		exit: number,
+		display?: (message: string) => string,
+		served?: unknown,
+	): number => {
 		reportError(error, { json: input.json, display, served });
 		return exit;
 	};
@@ -129,7 +134,7 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 				},
 			},
 			EXIT.USAGE,
-			`Not an auditable URL: ${JSON.stringify(input.url)}\nPass the page you want audited, e.g. http://localhost:3000`,
+			(cleaned) => `${cleaned}\nPass the page you want audited, e.g. http://localhost:3000`,
 		);
 	}
 
@@ -188,7 +193,7 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 				next: { call: axCall(sameCallWords(input)), why: "retry the capture" },
 			},
 			EXIT.API,
-			`Capture failed: ${message}`,
+			(cleaned) => `Capture failed: ${cleaned}`,
 		);
 	} finally {
 		// A Chrome we started is ours to stop, on every path out of the capture.
@@ -210,7 +215,7 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 				next: { call: axCall(sameCallWords(input)), why: "start the dev server first" },
 			},
 			EXIT.USAGE,
-			`Could not capture ${target}: ${page.error}\nIs the dev server running?`,
+			(cleaned) => `${cleaned}\nIs the dev server running?`,
 		);
 	}
 
@@ -255,7 +260,7 @@ export async function webmcpAuditCommand(input: WebmcpAuditCommandInput): Promis
 				next: ingestNext(input, err),
 			},
 			EXIT.API,
-			ingest ? message : `Scoring failed: ${message}`,
+			(cleaned) => (ingest ? cleaned : `Scoring failed: ${cleaned}`),
 			ingest ? err.payload : undefined,
 		);
 	}

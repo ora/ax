@@ -1,3 +1,4 @@
+import { assertKeyDestination, keyDestinationProblem } from "./key-destination";
 import { pause, watchdog } from "./shared";
 
 // Client for ora's authenticated platform API — the machinery behind `journey`.
@@ -12,6 +13,13 @@ const PLATFORM_BASE = "https://api.agentfront.sh";
 export function platformBase(override?: string): string {
 	return (override ?? process.env.ORA_PLATFORM_URL ?? PLATFORM_BASE).replace(/\/+$/, "");
 }
+
+/** Why the key must not go to the platform `platformBase()` names, checked before any call. */
+export function platformKeyProblem(): string | undefined {
+	return keyDestinationProblem(platformBase(), "ORA_PLATFORM_URL", PLATFORM_BASE);
+}
+
+const KEY_EXCHANGE_TIMEOUT_MS = 30_000;
 
 /**
  * The platform answered with an HTTP error. `payload` is the error body
@@ -176,10 +184,12 @@ export interface JourneyRun {
 // exchanged for a ~15-minute bearer token used on every later call.
 
 export async function exchangeKey(base: string, secret: string): Promise<string> {
+	assertKeyDestination(base, "ORA_PLATFORM_URL", PLATFORM_BASE);
 	const res = await fetch(`${base}/auth/token`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
 		body: "{}",
+		signal: AbortSignal.timeout(KEY_EXCHANGE_TIMEOUT_MS),
 	});
 	const body = jsonOrNull(await res.text());
 	if (res.status === 401) {

@@ -17,6 +17,7 @@
  * server would reject anyway.
  */
 
+import { assertKeyDestination } from "../api/key-destination";
 import { errorBodyText, watchdog } from "../api/shared";
 import { WEBMCP_SHIM_VERSION } from "./vendor/checks";
 import type { PublicWebmcpAudit } from "./vendor/projection";
@@ -182,6 +183,7 @@ export async function ingestCapture(
 	options: IngestOptions = {},
 ): Promise<PublicWebmcpAudit> {
 	const base = (options.baseUrl ?? process.env.ORA_API_URL ?? PUBLIC_BASE).replace(/\/+$/, "");
+	if (options.apiKey) assertKeyDestination(base, "ORA_API_URL", PUBLIC_BASE);
 	const idleMs = options.idleMs ?? STREAM_IDLE_MS;
 	const dog = watchdog(idleMs);
 	const timeoutError = () =>

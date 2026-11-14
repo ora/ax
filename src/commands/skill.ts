@@ -107,7 +107,7 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 			},
 			{
 				json: input.json,
-				display: `Skill command failed: ${message}`,
+				display: (cleaned) => `Skill command failed: ${cleaned}`,
 				served: cause instanceof SkillApiError ? cause.payload : undefined,
 			},
 		);
