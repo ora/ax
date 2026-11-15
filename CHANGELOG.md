@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/ora/ax/compare/v0.10.3...v0.11.0) (2026-11-15)
+
+
+### Features
+
+* **cli:** next lines, --json errors, ax learn, journey flags and a key destination check ([#98](https://github.com/ora/ax/issues/98)) ([7106e33](https://github.com/ora/ax/commit/7106e33d7dbdec6d60e6455a71e72c6a4a215f5f))
+* **journey:** one ax journey command, with deep-journey kept as a deprecated alias ([#99](https://github.com/ora/ax/issues/99)) ([d8ee8e1](https://github.com/ora/ax/commit/d8ee8e148ea821c3d7ec1654cbc62d68a3979daa))
+
+
+### Bug Fixes
+
+* **webmcp-audit:** regenerate contract 1.40.0 and re-sync the WebMCP engine ([#93](https://github.com/ora/ax/issues/93)) ([4868b46](https://github.com/ora/ax/commit/4868b4688d2b8f5ed7490e6db95ca989774aec45))
+
 ## [0.10.3](https://github.com/ora/ax/compare/v0.10.2...v0.10.3) (2026-10-28)
 
 
