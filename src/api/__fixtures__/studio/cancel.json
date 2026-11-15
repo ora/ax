@@ -1,0 +1,12 @@
+{
+	"requested": 3,
+	"canceled": [
+		"2b7e9c41-6d0a-4f38-8a1e-5c9d3f7b2e64"
+	],
+	"alreadyTerminal": [
+		"c40a8f16-93be-4d27-b5f1-0e6a2d8c9b37"
+	],
+	"skipped": [
+		"7a2d4e81-5c3f-4b90-9e6a-1f8b0c2d7e45"
+	]
+}

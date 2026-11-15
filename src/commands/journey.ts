@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { KEY_DESTINATION_WHY, KeyDestinationError } from "../api/key-destination";
+import { KeyDestinationError } from "../api/key-destination";
 import {
 	type JourneyInsight,
 	type JourneyRun,
@@ -9,6 +9,7 @@ import {
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
+import { KEY_DESTINATION_WHY } from "../journey-set/render-preview";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { flow, squeeze, stdoutWidth } from "../ui/ansi";
@@ -188,8 +189,8 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 			code: "MISSING_API_KEY",
 			message,
 			next: {
-				call: `ORA_API_KEY=<platform key> ${axCall(words)}`,
-				why: "ax journey runs on ora's platform API and needs a platform key",
+				call: `ORA_API_KEY=<Front API key> ${axCall(words)}`,
+				why: "a goal of your own runs on your Front account and needs a Front API key (see the README's Get a key); with no goal, ax journey --domain <site> runs one of ora's curated tasks free",
 			},
 		};
 	}

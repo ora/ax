@@ -55,6 +55,9 @@ import type { JourneyNextAction } from "../contract";
 
 const BASE = { url: "zapier.com", json: true, noStream: false };
 
+const KEYLESS_HINT =
+	"Repeat this goal across agents and levels of help with `ax journey --levels`; needs a Front API key.";
+
 describe("deepJourneyCommand - keyed tier flags", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -308,6 +311,7 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		writes.length = 0;
 		vi.stubEnv("ORA_PARTNER_API_KEY", "");
 		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.stubEnv("ORA_API_KEY", "");
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
 			writes.push(String(line ?? ""));
@@ -330,14 +334,14 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		expect(envelope().error).toEqual({
 			code: "NEEDS_KEY",
 			message: expect.stringContaining("--task needs an ora partner API key"),
-			next: "ORA_PARTNER_API_KEY=<partner key> ax deep-journey zapier.com --task 'Find the pricing page' --json",
+			next: "ORA_PARTNER_API_KEY=<partner key> ax journey 'Find the pricing page' --domain zapier.com --json",
 		});
 	});
 
 	it("an unknown intent suggests the default one", async () => {
 		expect(await deepJourneyCommand({ ...BASE, intent: "nope" })).toBe(EXIT.USAGE);
 		expect(envelope().error.code).toBe("UNKNOWN_INTENT");
-		expect(envelope().error.next).toBe("ax deep-journey zapier.com --intent pricing --json");
+		expect(envelope().error.next).toBe("ax journey --domain zapier.com --intent pricing --json");
 	});
 
 	it("a run still executing is read, never started again", async () => {
@@ -365,7 +369,7 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 			await deepJourneyCommand({ ...BASE, intent: "pricing", apiKey: "pk_live_not_for_echo" }),
 		).toBe(EXIT.API);
 		expect(envelope().error.next).toBe(
-			"ax deep-journey zapier.com --intent pricing --agent cas-haiku --json --api-key <key>",
+			"ax journey --domain zapier.com --intent pricing --agent cas-haiku --json --api-key <key>",
 		);
 		expect(`${writes.join("")}${stderrLines().join("\n")}`).not.toContain("pk_live_not_for_echo");
 	});
@@ -390,7 +394,7 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 		expect(writes).toEqual([`${JSON.stringify(served, null, 2)}\n`]);
 		expect(stderrLines()).toEqual([
 			expect.stringContaining("ora usage limit reached"),
-			"Next: ax deep-journey zapier.com --intent pricing --agent cas-haiku --json  # after the wait the message names",
+			"Next: ax journey --domain zapier.com --intent pricing --agent cas-haiku --json  # after the wait the message names",
 		]);
 	});
 
@@ -413,9 +417,11 @@ describe("deepJourneyCommand - Next lines and the --json error envelope", () => 
 
 	it("ends the human result with the Next line on stdout", async () => {
 		expect(await deepJourneyCommand({ ...BASE, json: false, noStream: true })).toBe(EXIT.OK);
-		expect(writes.at(-1)).toBe(
+		// The keyless hint is the one dim line after Next (see the set describe).
+		expect(writes.at(-2)).toBe(
 			"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit",
 		);
+		expect(writes.at(-1)).toContain(KEYLESS_HINT);
 	});
 });
 
@@ -447,6 +453,7 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 		writes.length = 0;
 		vi.stubEnv("ORA_PARTNER_API_KEY", "");
 		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.stubEnv("ORA_API_KEY", "");
 		vi.stubEnv("ORA_API_URL", "https://ora.ai");
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
@@ -482,6 +489,7 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 		expect(stderrLines()).toEqual([
 			expect.stringMatching(/!.* The site refused the agent's first request with HTTP 403$/),
 			AUDIT_LINE,
+			expect.stringContaining(KEYLESS_HINT),
 		]);
 	});
 
@@ -489,7 +497,7 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(realDetail));
 		expect(await deepJourneyCommand(RUN)).toBe(EXIT.OK);
 		expect(stdoutJson()).toEqual(realDetail);
-		expect(stderrLines()).toEqual([AUDIT_LINE]);
+		expect(stderrLines()).toEqual([AUDIT_LINE, expect.stringContaining(KEYLESS_HINT)]);
 	});
 
 	it("a run left running ends on the stream ora named, --no-stream included", async () => {
@@ -521,7 +529,7 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 		expect(await deepJourneyCommand({ ...RUN, url: "localhost" })).toBe(EXIT.API);
 		expect(stdoutJson()).toEqual(refusals.INVALID_DOMAIN);
 		expect(stderrLines().at(-1)).toBe(
-			`Next: ax deep-journey localhost --intent pricing --agent cas-haiku --json  # ${refusals.INVALID_DOMAIN.next_action.reason}`,
+			`Next: ax journey --domain localhost --intent pricing --agent cas-haiku --json  # ${refusals.INVALID_DOMAIN.next_action.reason}`,
 		);
 	});
 
@@ -535,5 +543,167 @@ describe("deepJourneyCommand - flags and the next action ora served", () => {
 		expect(stderrLines().at(-1)).toBe(
 			`Next: curl -s https://ora.ai/api/journey/agents  # ${refusals.UNSUPPORTED_AGENT.next_action.reason}`,
 		);
+	});
+});
+
+describe("deepJourneyCommand - the set Next line after a free run", () => {
+	const writes: string[] = [];
+	const NAMING_LINE =
+		"This goal names Zapier, so --levels runs it at the brand level. Add `--exact <url>` for the exact level, or write the goal without Zapier for the need level.";
+	const AUDIT_LINE =
+		"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit";
+	const setNext = (goal: string) =>
+		`Next: ax journey '${goal}' --domain zapier.com --levels  # the same goal at each level of help, with the verdicts counted`;
+	const PLAIN_GOAL = "Find the pricing page.";
+	const withTemplate = (template: string, hint = "find pricing") =>
+		vi.mocked(fetchJourneyIntents).mockResolvedValueOnce({
+			intents: [{ id: "pricing", label: "Pricing", hint, template }],
+			defaultId: "pricing",
+		});
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		writes.length = 0;
+		vi.stubEnv("ORA_PARTNER_API_KEY", "");
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.stubEnv("ORA_API_KEY", "");
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+			writes.push(String(line ?? ""));
+		});
+		vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+			writes.push(String(chunk));
+			return true;
+		});
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
+	});
+
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+	const human = { ...BASE, json: false, noStream: true };
+
+	it("with a Front key and a curated goal that names the site, points at a set and adds the levels line", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
+		expect(writes.slice(-2)).toEqual([setNext("Find pricing for zapier.com."), NAMING_LINE]);
+		expect(writes.join("\n")).not.toContain("ax audit");
+		expect(writes.join("\n")).not.toContain(KEYLESS_HINT);
+	});
+
+	it("with a Front key and a --task that does not name the site, prints Next and no second line", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		const task = "Find how to build a Slack to Sheets flow";
+		expect(await deepJourneyCommand({ ...human, task, apiKey: "pk_live_demo_0123456789" })).toBe(
+			EXIT.OK,
+		);
+		expect(writes.at(-1)).toBe(setNext(task));
+		expect(stderrLines().join("\n")).not.toContain("names Zapier");
+	});
+
+	it("reduces a URL target to the set's site, so the brand and the call match what the set runs", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		expect(await deepJourneyCommand({ ...human, url: "https://www.zapier.com/pricing" })).toBe(
+			EXIT.OK,
+		);
+		expect(writes.at(-2)).toMatch(/^Next: ax journey '.+' --domain zapier\.com --levels /);
+		expect(writes.at(-1)).toBe(NAMING_LINE);
+	});
+
+	it("offers no set for a target a set would refuse, and keeps the audit Next", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		expect(await deepJourneyCommand({ ...human, url: "localhost" })).toBe(EXIT.OK);
+		expect(writes.at(-1)).toMatch(/^Next: ax audit localhost /);
+		expect(writes.join("\n")).not.toContain("--levels");
+	});
+
+	it("never adds --agents to the set call, and quotes the goal as one shell word", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		withTemplate(PLAIN_GOAL);
+		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
+		expect(writes.at(-1)).toBe(setNext(PLAIN_GOAL));
+		expect(writes.at(-1)).not.toContain("--agents");
+	});
+
+	it("without a Front key, keeps the audit Next and adds the dim hint after it", async () => {
+		withTemplate(PLAIN_GOAL);
+		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
+		expect(writes.slice(-2)).toEqual([AUDIT_LINE, expect.stringContaining(KEYLESS_HINT)]);
+		expect(writes.join("\n")).not.toContain("--domain zapier.com --levels");
+	});
+
+	it("a --task run with a Front key never gets the hint", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		await deepJourneyCommand({ ...human, task: PLAIN_GOAL, apiKey: "pk_live_demo_0123456789" });
+		expect(writes.join("\n")).not.toContain("needs a Front API key");
+	});
+
+	it("a goal that fell back to the intent hint keeps the audit Next and prints no set lines", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		withTemplate("", "find pricing");
+		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
+		expect(writes.at(-1)).toBe(AUDIT_LINE);
+		expect(writes.join("\n")).not.toContain("--levels");
+	});
+
+	it("a fallback goal prints no keyless hint either", async () => {
+		withTemplate("", "find pricing");
+		expect(await deepJourneyCommand(human)).toBe(EXIT.OK);
+		expect(writes.at(-1)).toBe(AUDIT_LINE);
+		expect(writes.join("\n")).not.toContain(KEYLESS_HINT);
+	});
+
+	it("--json puts the Next line and the levels line on stderr and keeps stdout the run detail", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
+		expect(JSON.parse(writes.join(""))).toMatchObject({ id: "run_1" });
+		expect(stderrLines()).toEqual([setNext("Find pricing for zapier.com."), NAMING_LINE]);
+	});
+
+	it("--json puts the keyless hint on stderr", async () => {
+		withTemplate(PLAIN_GOAL);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
+		expect(JSON.parse(writes.join(""))).toMatchObject({ id: "run_1" });
+		expect(stderrLines()).toEqual([
+			"Next: ax audit zapier.com --json  # the readiness audit: which checks explain what the agent hit",
+			expect.stringContaining(KEYLESS_HINT),
+		]);
+	});
+
+	it("a failed run keeps its own Next line and gets no set lines", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		vi.mocked(performDeepJourney).mockResolvedValueOnce({
+			record: { id: "run_1", status: "failed" },
+			cached: false,
+			allowance: {},
+			detail: { id: "run_1", status: "failed", domain: "zapier.com", contractVersion: "1.15.0" },
+		} as unknown as DeepJourneyOutcome);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.RUN_FAILED);
+		expect(stderrLines().at(-1)).toContain("Next: ax journey --domain zapier.com");
+		expect(stderrLines().join("\n")).not.toContain("--levels");
+	});
+
+	it("a served next action keeps its Next line and gets no set lines", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_front_key");
+		vi.mocked(performDeepJourney).mockResolvedValueOnce({
+			record: { id: "run_1", status: "succeeded" },
+			cached: false,
+			allowance: {},
+			detail: {
+				id: "run_1",
+				status: "succeeded",
+				domain: "zapier.com",
+				contractVersion: "1.15.0",
+				next_action: {
+					method: "GET",
+					url: "/api/journey/runs/run_1",
+					reason: "read the run again",
+				},
+			},
+		} as unknown as DeepJourneyOutcome);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
+		expect(stderrLines().at(-1)).toContain("curl -s");
+		expect(stderrLines().join("\n")).not.toContain("--levels");
 	});
 });

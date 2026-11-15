@@ -1,0 +1,14 @@
+{
+	"success": true,
+	"data": {
+		"journeyId": "8d3f6a2e-41c7-4b9a-9e25-7f0c1d4b6a83",
+		"runIds": [
+			"2b7e9c41-6d0a-4f38-8a1e-5c9d3f7b2e64",
+			"c40a8f16-93be-4d27-b5f1-0e6a2d8c9b37"
+		],
+		"streamUrls": [
+			"/studio/v1/runs/2b7e9c41-6d0a-4f38-8a1e-5c9d3f7b2e64/stream",
+			"/studio/v1/runs/c40a8f16-93be-4d27-b5f1-0e6a2d8c9b37/stream"
+		]
+	}
+}

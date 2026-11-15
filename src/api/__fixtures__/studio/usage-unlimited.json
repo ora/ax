@@ -1,0 +1,16 @@
+{
+	"success": true,
+	"data": {
+		"runs": {
+			"used": 212,
+			"limit": null,
+			"remaining": null
+		},
+		"scans": {
+			"used": null,
+			"limit": null,
+			"remaining": null
+		},
+		"resetsAt": null
+	}
+}

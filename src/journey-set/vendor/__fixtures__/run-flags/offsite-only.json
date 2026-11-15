@@ -1,0 +1,47 @@
+{
+  "run_id": "a7aec281-5955-4291-8d44-173ace6d95d5",
+  "domain": "linear.com",
+  "trajectory": {
+    "steps": [
+      {
+        "id": 0,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 1,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 2,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 3,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 4,
+        "type": "text"
+      }
+    ]
+  },
+  "run_signals": {
+    "answer_basis": {
+      "sections_total": 5,
+      "from_site": 4,
+      "from_external": 0,
+      "from_search": 0,
+      "from_memory": 1,
+      "site_share": 0.8,
+      "memory_share": 0.2
+    }
+  }
+}

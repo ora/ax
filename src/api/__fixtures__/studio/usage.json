@@ -1,0 +1,16 @@
+{
+	"success": true,
+	"data": {
+		"runs": {
+			"used": 12,
+			"limit": 50,
+			"remaining": 38
+		},
+		"scans": {
+			"used": 4,
+			"limit": 30,
+			"remaining": 26
+		},
+		"resetsAt": "2026-12-01T00:00:00.000Z"
+	}
+}

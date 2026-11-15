@@ -1,0 +1,54 @@
+{
+  "run_id": "0cc1a662-4ab6-4dba-b4b2-8be2e2cb4ddd",
+  "domain": "fiverr.com",
+  "trajectory": {
+    "steps": [
+      {
+        "id": 0,
+        "type": "tool_call",
+        "url_host": "fiverr.com",
+        "status": 403
+      },
+      {
+        "id": 1,
+        "type": "tool_call",
+        "url_host": "developers.fiverr.com"
+      },
+      {
+        "id": 2,
+        "type": "tool_call"
+      },
+      {
+        "id": 3,
+        "type": "tool_call",
+        "url_host": "docs.enterprise.fiverr.com",
+        "status": 200
+      },
+      {
+        "id": 4,
+        "type": "tool_call"
+      },
+      {
+        "id": 5,
+        "type": "tool_call",
+        "url_host": "stoke.docs.apiary.io",
+        "status": 200
+      },
+      {
+        "id": 6,
+        "type": "text"
+      }
+    ]
+  },
+  "run_signals": {
+    "answer_basis": {
+      "sections_total": 7,
+      "from_site": 1,
+      "from_external": 3,
+      "from_search": 2,
+      "from_memory": 1,
+      "site_share": 0.14,
+      "memory_share": 0.14
+    }
+  }
+}

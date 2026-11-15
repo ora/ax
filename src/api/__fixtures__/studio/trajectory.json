@@ -1,0 +1,131 @@
+{
+	"steps": [
+		{
+			"id": 0,
+			"turn": 1,
+			"type": "text"
+		},
+		{
+			"id": 1,
+			"turn": 2,
+			"type": "tool_call",
+			"tool": "WebSearch"
+		},
+		{
+			"id": 2,
+			"turn": 3,
+			"type": "text"
+		},
+		{
+			"id": 3,
+			"turn": 4,
+			"type": "tool_call",
+			"tool": "WebFetch",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 4,
+			"turn": 5,
+			"type": "text"
+		},
+		{
+			"id": 5,
+			"turn": 6,
+			"type": "tool_call",
+			"tool": "WebFetch",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 6,
+			"turn": 7,
+			"type": "text"
+		},
+		{
+			"id": 7,
+			"turn": 8,
+			"type": "tool_call",
+			"tool": "WebSearch"
+		},
+		{
+			"id": 8,
+			"turn": 9,
+			"type": "text"
+		},
+		{
+			"id": 9,
+			"turn": 10,
+			"type": "tool_call",
+			"tool": "WebFetch",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 10,
+			"turn": 11,
+			"type": "text"
+		},
+		{
+			"id": 11,
+			"turn": 12,
+			"type": "tool_call",
+			"tool": "WebFetch",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 12,
+			"turn": 13,
+			"type": "text"
+		},
+		{
+			"id": 13,
+			"turn": 14,
+			"type": "tool_call",
+			"tool": "WebFetch",
+			"url_host": "ora.run",
+			"status": 308
+		},
+		{
+			"id": 14,
+			"turn": 15,
+			"type": "text"
+		},
+		{
+			"id": 15,
+			"turn": 16,
+			"type": "tool_call",
+			"tool": "WebFetch",
+			"url_host": "ora.ai"
+		},
+		{
+			"id": 16,
+			"turn": 17,
+			"type": "text"
+		},
+		{
+			"id": 17,
+			"turn": 18,
+			"type": "tool_call",
+			"tool": "WebSearch"
+		},
+		{
+			"id": 18,
+			"turn": 19,
+			"type": "text"
+		},
+		{
+			"id": 19,
+			"turn": 20,
+			"type": "tool_call",
+			"tool": "WebSearch"
+		},
+		{
+			"id": 20,
+			"turn": 21,
+			"type": "text"
+		},
+		{
+			"id": 21,
+			"turn": 22,
+			"type": "text"
+		}
+	]
+}

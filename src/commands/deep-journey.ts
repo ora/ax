@@ -18,6 +18,8 @@ import type {
 	JourneyRunResult,
 	JourneyTrajectoryStep,
 } from "../contract";
+import { defaultBrand, namesSite } from "../journey-set/levels";
+import { parseSetSite } from "../journey-set/spec";
 import { type CommandError, reportError } from "../report/json-error";
 import {
 	axCall,
@@ -33,9 +35,10 @@ import { buildJourneyTree, drawJourneyTree, journeySummary } from "../ui/graph";
 import { LivePanel } from "../ui/panel";
 import { spinner } from "../ui/spinner";
 
-// `ax deep-journey <url>`: run a real agent at a site through ora's PUBLIC
-// journey API (no key, no workspace - unlike `ax journey`, which drives the
-// authenticated platform). Thin client: verdict, step_count, and insight are
+// `ax journey --domain <site>` with no goal of its own (and the older
+// `ax deep-journey <url>`): run a real agent at a site through ora's PUBLIC
+// journey API (no key, no workspace - unlike `ax journey "<goal>"`, which
+// drives the authenticated platform). Thin client: verdict, step_count, and insight are
 // rendered exactly as the contract delivers them; nothing is re-judged here.
 
 export const EXIT = { OK: 0, RUN_FAILED: 1, USAGE: 2, API: 3 } as const;
@@ -72,6 +75,44 @@ export interface DeepJourneyCommandInput {
 	agent?: string;
 	json: boolean;
 	noStream: boolean;
+	/** The command typed: `ax journey` with no goal of its own, or the older `ax deep-journey`. */
+	via?: "journey" | "deep-journey";
+}
+
+const SET_KEYLESS_HINT =
+	"Repeat this goal across agents and levels of help with `ax journey --levels`; needs a Front API key.";
+
+/**
+ * The lines that follow a finished free run whose goal came from a public
+ * template or `--task`: with a Front API key, the same goal as a set of
+ * journeys with `--levels` as the Next step (plus a note when the goal names
+ * the site, since the need level is then skipped); without one, a dim hint.
+ * `extra` prints after the Next line. Nothing when the target is not a site a
+ * set accepts.
+ */
+function setFollowUp(
+	goal: string,
+	target: string,
+	hasFrontKey: boolean,
+): { next?: NextStep; extra: string[] } | undefined {
+	const parsed = parseSetSite(target);
+	if ("error" in parsed) return undefined;
+	const site = parsed.value;
+	if (!hasFrontKey) return { extra: [pc.dim(SET_KEYLESS_HINT)] };
+	const next: NextStep = {
+		call: axCall(["journey", goal, "--domain", site, "--levels"]),
+		why: "the same goal at each level of help, with the verdicts counted",
+	};
+	const brand = defaultBrand(site);
+	if (!namesSite(goal, site, brand)) return { next, extra: [] };
+	return {
+		next,
+		extra: [
+			plain(
+				`This goal names ${brand}, so --levels runs it at the brand level. Add \`--exact <url>\` for the exact level, or write the goal without ${brand} for the need level.`,
+			),
+		],
+	};
 }
 
 /**
@@ -467,7 +508,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// Usage mistakes print plain, API failures in red, both prefixed. `cause`
 	// is the thrown error, whose served body (if any) is what --json prints.
 	const fail = (error: CommandError, exit: number, cause?: unknown): number => {
-		const prefixed = (message: string) => `ax deep-journey: ${message}`;
+		const prefixed = (message: string) => `ax ${input.via ?? "deep-journey"}: ${message}`;
 		reportError(error, {
 			json: input.json,
 			display: (message) => (exit === EXIT.API ? pc.red(prefixed(message)) : prefixed(message)),
@@ -483,7 +524,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "INVALID_TARGET",
 				message: "a target URL or domain is required",
-				next: { call: axCall(["deep-journey", placeholder("domain"), ...json]) },
+				next: { call: axCall(["journey", "--domain", placeholder("domain"), ...json]) },
 			},
 			EXIT.USAGE,
 		);
@@ -500,10 +541,13 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// The run as a call, for the Next line. The key is never echoed: a key
 	// passed as a flag comes back as a placeholder, one from the environment
 	// needs no flag at all.
+	// Written as `ax journey`, the name this run has now, whichever name was typed.
 	const runWords = (intent: string | undefined, agentId: string | undefined): Word[] => [
-		"deep-journey",
+		"journey",
+		...(task ? [task] : []),
+		"--domain",
 		target,
-		...(task ? ["--task", task] : intent ? ["--intent", intent] : []),
+		...(!task && intent ? ["--intent", intent] : []),
 		...(agentId ? ["--agent", agentId] : []),
 		...json,
 		...(input.noStream ? ["--no-stream"] : []),
@@ -531,7 +575,9 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "INVALID_FLAG",
 				message:
-					"--task and --intent are mutually exclusive — a free-text task replaces the curated intent",
+					input.via === "journey"
+						? "a goal of your own and --intent cannot be combined: --intent picks one of ora's curated tasks"
+						: "--task and --intent are mutually exclusive — a free-text task replaces the curated intent",
 				next: { call: sameCall(undefined, input.agent), why: "the task alone" },
 			},
 			EXIT.USAGE,
@@ -542,7 +588,9 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			{
 				code: "NEEDS_KEY",
 				message:
-					"--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
+					input.via === "journey"
+						? "a goal of your own on ora's public journeys needs an ora partner API key (set ORA_PARTNER_API_KEY or pass --api-key); without --agent, --intent or --no-stream it runs on your Front account with ORA_API_KEY"
+						: "--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
 				next: {
 					call: keyedCall(undefined, input.agent),
 					why: "or drop --task to run a curated task without a key",
@@ -561,6 +609,9 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	// The goal drawn at the graph's root: the free-text task verbatim, or the
 	// curated intent's own phrasing (template › hint › label), never a bare id.
 	let intentText = task ?? "journey";
+	// The goal a set can repeat: the --task text or the curated template, never
+	// the hint, label, id or "journey" fallbacks intentText may settle on.
+	let setGoal = task;
 	try {
 		const [intents, agents] = await Promise.all([
 			task ? undefined : fetchJourneyIntents(),
@@ -596,6 +647,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 				intentId ||
 				"journey"
 			).replace(/\{domain\}/g, target);
+			if (chosen?.template) setGoal = chosen.template.replace(/\{domain\}/g, target);
 		}
 		// The selectable set: the live roster plus our haiku default (prepended so
 		// it is both the default and resolvable via --agent). A roster that already
@@ -719,6 +771,12 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 
 	const failed = outcome.detail.status === "failed";
 	const servedNext = servedNextAction(outcome.detail);
+	// Only the branch that ends on the audit offers a set; a served next action
+	// and a failed run keep their own Next lines.
+	const followUp =
+		!servedNext && !failed && setGoal
+			? setFollowUp(setGoal, target, Boolean(process.env.ORA_API_KEY))
+			: undefined;
 	const next: NextStep = servedNext
 		? served(intentId, agent.id)(servedNext)
 		: failed
@@ -726,15 +784,16 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 					call: sameCall(intentId, agent.id),
 					why: "the run ended in an engine error; re-running is free to try",
 				}
-			: {
+			: (followUp?.next ?? {
 					call: axCall(["audit", target, ...json]),
 					why: "the readiness audit: which checks explain what the agent hit",
-				};
+				});
 
 	if (input.json) {
 		console.log(JSON.stringify(outcome.detail, null, 2));
 		for (const line of flagLines(outcome.detail.flags)) console.error(line);
 		printNext(next, { stderr: true });
+		for (const line of followUp?.extra ?? []) console.error(line);
 		return failed ? EXIT.RUN_FAILED : EXIT.OK;
 	}
 
@@ -766,5 +825,6 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 
 	for (const line of renderOutcome(outcome, target)) console.log(line);
 	printNext(next, { stderr: false });
+	for (const line of followUp?.extra ?? []) console.log(line);
 	return failed ? EXIT.RUN_FAILED : EXIT.OK;
 }

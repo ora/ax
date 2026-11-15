@@ -1,0 +1,100 @@
+{
+  "run_id": "d0a55cc0-f961-4d26-8d07-310c02c3e01e",
+  "domain": "linear.app",
+  "trajectory": {
+    "steps": [
+      {
+        "id": 0,
+        "type": "text"
+      },
+      {
+        "id": 1,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 2,
+        "type": "tool_call",
+        "url_host": "linear.app"
+      },
+      {
+        "id": 3,
+        "type": "tool_call"
+      },
+      {
+        "id": 4,
+        "type": "text"
+      },
+      {
+        "id": 5,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 6,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 7,
+        "type": "tool_call",
+        "url_host": "linear.app",
+        "status": 200
+      },
+      {
+        "id": 8,
+        "type": "text"
+      },
+      {
+        "id": 9,
+        "type": "tool_call",
+        "url_host": "docs.linear.app",
+        "status": 200
+      },
+      {
+        "id": 10,
+        "type": "tool_call",
+        "url_host": "docs.linear.app",
+        "status": 200
+      },
+      {
+        "id": 11,
+        "type": "text"
+      },
+      {
+        "id": 12,
+        "type": "tool_call",
+        "url_host": "docs.linear.app"
+      },
+      {
+        "id": 13,
+        "type": "text"
+      },
+      {
+        "id": 14,
+        "type": "tool_call"
+      },
+      {
+        "id": 15,
+        "type": "tool_call"
+      },
+      {
+        "id": 16,
+        "type": "text"
+      },
+      {
+        "id": 17,
+        "type": "tool_call",
+        "url_host": "docs.linear.app",
+        "status": 200
+      },
+      {
+        "id": 18,
+        "type": "text"
+      }
+    ]
+  }
+}

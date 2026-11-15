@@ -1,0 +1,10 @@
+{
+	"error": "Payment Required",
+	"message": "Usage limit exceeded for Agent Runs",
+	"code": "LIMIT_EXCEEDED",
+	"details": {
+		"dimension": "agent_runs",
+		"limit": 50,
+		"used": 50
+	}
+}

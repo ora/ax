@@ -1,0 +1,34 @@
+{
+	"success": true,
+	"data": {
+		"agents": [
+			{
+				"harness": "codex",
+				"harnessName": "Codex",
+				"model": "gpt-5.6-luna",
+				"modelName": "GPT-5.6 Luna",
+				"provider": "openai",
+				"available": false,
+				"reason": "needs the Standard plan"
+			},
+			{
+				"harness": "claude-code",
+				"harnessName": "Claude Code",
+				"model": "claude-haiku-4-5-20251001",
+				"modelName": "Claude Haiku 4.5",
+				"provider": "anthropic",
+				"available": true,
+				"reason": null
+			},
+			{
+				"harness": "claude-code",
+				"harnessName": "Claude Code",
+				"model": "claude-sonnet-5-5",
+				"modelName": "Claude Sonnet 5.5",
+				"provider": "anthropic",
+				"available": true,
+				"reason": null
+			}
+		]
+	}
+}

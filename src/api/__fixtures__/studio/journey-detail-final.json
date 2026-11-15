@@ -1,0 +1,70 @@
+{
+	"success": true,
+	"data": {
+		"id": "8d3f6a2e-41c7-4b9a-9e25-7f0c1d4b6a83",
+		"goal": "Find how to create an issue from the API. Use Linear.",
+		"targetDomain": "linear.app",
+		"status": "completed",
+		"outcome": "partial",
+		"competitors": [],
+		"layer": null,
+		"intentId": null,
+		"intentTitle": null,
+		"createdAt": "2026-11-13T14:02:11.482Z",
+		"updatedAt": "2026-11-13T14:09:47.215Z",
+		"agents": [
+			{
+				"runId": "2b7e9c41-6d0a-4f38-8a1e-5c9d3f7b2e64",
+				"harness": "claude-code",
+				"model": "claude-haiku-4-5-20251001",
+				"status": "succeeded",
+				"targetDomain": "linear.app",
+				"provider": "anthropic",
+				"executionKind": "harness",
+				"intentText": "Find how to create an issue from the API. Use Linear.",
+				"startedAt": "2026-11-13T14:02:14.120Z",
+				"finishedAt": "2026-11-13T14:05:02.877Z",
+				"createdAt": "2026-11-13T14:02:11.530Z",
+				"usage": {
+					"durationMs": 168757,
+					"totalTokens": 119100,
+					"inputTokens": 101000,
+					"cacheReadTokens": 14000,
+					"cacheCreationTokens": 0,
+					"outputTokens": 4100,
+					"numTurns": 22,
+					"costUsd": 0.031
+				},
+				"targetCheck": null,
+				"skillUse": null,
+				"verdict": "succeeded"
+			},
+			{
+				"runId": "c40a8f16-93be-4d27-b5f1-0e6a2d8c9b37",
+				"harness": "claude-code",
+				"model": "claude-sonnet-5-5",
+				"status": "succeeded",
+				"targetDomain": "linear.app",
+				"provider": "anthropic",
+				"executionKind": "harness",
+				"intentText": "Find how to create an issue from the API. Use Linear.",
+				"startedAt": "2026-11-13T14:05:03.402Z",
+				"finishedAt": "2026-11-13T14:08:55.019Z",
+				"createdAt": "2026-11-13T14:02:11.561Z",
+				"usage": {
+					"durationMs": 231617,
+					"totalTokens": 204310,
+					"inputTokens": 188020,
+					"cacheReadTokens": 52000,
+					"cacheCreationTokens": 0,
+					"outputTokens": 6290,
+					"numTurns": 31,
+					"costUsd": 0.412
+				},
+				"targetCheck": null,
+				"skillUse": null,
+				"verdict": "failed"
+			}
+		]
+	}
+}

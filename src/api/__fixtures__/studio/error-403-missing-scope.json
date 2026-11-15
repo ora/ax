@@ -1,0 +1,9 @@
+{
+	"error": "Forbidden",
+	"code": "INSUFFICIENT_SCOPE",
+	"details": {
+		"missing": [
+			"journeys:write"
+		]
+	}
+}

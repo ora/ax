@@ -281,7 +281,7 @@ describe("auditCommand Next lines and the --json error envelope", () => {
 		expect(await run()).toBe(EXIT.OK);
 		expect(JSON.parse(stdout())).toEqual(FIXTURE);
 		expect(stderrLines()).toContain(
-			"Next: ax deep-journey example.com --json  # send a real agent at the site on a task, then read its result",
+			"Next: ax journey --domain example.com --json  # send a real agent at the site on a task, then read its result",
 		);
 	});
 
@@ -297,7 +297,7 @@ describe("auditCommand Next lines and the --json error envelope", () => {
 		resolveWith();
 		expect(await run({ json: false })).toBe(EXIT.OK);
 		expect(console.log).toHaveBeenLastCalledWith(
-			"Next: ax deep-journey example.com  # send a real agent at the site on a task, then read its result",
+			"Next: ax journey --domain example.com  # send a real agent at the site on a task, then read its result",
 		);
 	});
 
