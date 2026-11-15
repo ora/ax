@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { KeyDestinationError } from "../api/key-destination";
+import { KEY_DESTINATION_WHY, KeyDestinationError } from "../api/key-destination";
 import {
 	type JourneyInsight,
 	type JourneyRun,
@@ -9,7 +9,6 @@ import {
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
-import { KEY_DESTINATION_WHY } from "../journey-set/render-preview";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { flow, squeeze, stdoutWidth } from "../ui/ansi";

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { KeyDestinationError } from "./key-destination";
 import {
 	decodeEventBlock,
-	exchangeKeyGrant,
+	exchangeKey,
 	launchJourney,
 	PlatformApiError,
 	type RawRunStep,
@@ -275,13 +275,13 @@ describe("launchJourney", () => {
 	});
 });
 
-describe("exchangeKeyGrant", () => {
+describe("exchangeKey", () => {
 	afterEach(() => vi.unstubAllGlobals());
 
 	it("never sends the key over plain http to a host other than this machine", async () => {
 		const fetchMock = vi.fn(async () => asJson({ token: "t" }));
 		vi.stubGlobal("fetch", fetchMock);
-		await expect(exchangeKeyGrant("http://collector.example", "ora_sk_local")).rejects.toThrow(
+		await expect(exchangeKey("http://collector.example", "ora_sk_local")).rejects.toThrow(
 			KeyDestinationError,
 		);
 		expect(fetchMock).not.toHaveBeenCalled();
@@ -292,7 +292,7 @@ describe("exchangeKeyGrant", () => {
 			asJson({ token: "t" }),
 		);
 		vi.stubGlobal("fetch", fetchMock);
-		await exchangeKeyGrant("https://platform.test", "ora_sk_local");
+		await exchangeKey("https://platform.test", "ora_sk_local");
 		expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
 	});
 

@@ -72,3 +72,6 @@ export function assertKeyDestination(
 	const problem = keyDestinationProblem(base, variable, defaultBase);
 	if (problem) throw new KeyDestinationError(problem);
 }
+
+/** The `why` of the retry line printed after a refused key destination. */
+export const KEY_DESTINATION_WHY = "once ORA_PLATFORM_URL is fixed as said above";
