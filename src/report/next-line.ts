@@ -9,7 +9,7 @@ import { plain } from "../ui/ansi";
 // the CLI's own suggestion is only for payloads that carry none.
 
 export interface NextStep {
-	/** The call, e.g. `ax deep-journey stripe.com --intent pricing`. */
+	/** The call, e.g. `ax journey --domain stripe.com --intent pricing`. */
 	call: string;
 	/** Why, in one line; printed as a shell comment after the call. */
 	why?: string;

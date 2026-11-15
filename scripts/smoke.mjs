@@ -7,7 +7,7 @@
 // Also checks the things that break `npx ax` but never break `pnpm test`:
 // a missing shebang or a non-executable bin.
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 
 const BIN = "dist/main.cjs";
@@ -79,6 +79,41 @@ check("audit --help exits 0", () => ax(["audit", "--help"]));
 check("webmcp-audit --help exits 0", () => ax(["webmcp-audit", "--help"]));
 check("deep-journey --help exits 0", () => ax(["deep-journey", "--help"]));
 check("journey --help exits 0", () => ax(["journey", "--help"]));
+
+// Each call below fails on its flags before any network call, so these run offline.
+function axFails(args) {
+	const run = spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8" });
+	return { status: run.status, stderr: run.stderr };
+}
+
+check("deep-journey still runs, notes its new name, and keeps its exit codes", () => {
+	const args = [
+		"deep-journey",
+		"example.com",
+		"--task",
+		"Find the pricing page",
+		"--intent",
+		"pricing",
+	];
+	const { status, stderr } = axFails(args);
+	if (status !== 2) throw new Error(`exit ${status}, want 2`);
+	if (
+		!stderr.includes(
+			"ax deep-journey is now ax journey 'Find the pricing page' --domain example.com",
+		)
+	) {
+		throw new Error("no deprecation note naming the new call");
+	}
+	if (!stderr.includes("ax deep-journey: --task and --intent"))
+		throw new Error("the error changed");
+});
+
+check("journey with no goal takes the free path, which needs --domain", () => {
+	const { status, stderr } = axFails(["journey", "--intent", "pricing"]);
+	if (status !== 2) throw new Error(`exit ${status}, want 2`);
+	if (!stderr.includes("--domain names the site")) throw new Error("not the free path's error");
+	if (stderr.includes("ORA_API_KEY")) throw new Error("the free path asked for a Front key");
+});
 
 if (failures.length > 0) {
 	console.error(`\nsmoke failed (${failures.length}):`);

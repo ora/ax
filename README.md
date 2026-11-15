@@ -18,7 +18,7 @@
 npx ax audit https://stripe.com
 ```
 
-**No account, no API key.** Everything below works out of the box. The exceptions are [`journey`](#for-ora-partners) and `audit --tunnel ora`, which need an ora platform key, and `deep-journey --task`, which needs a partner key.
+**No account, no API key.** Everything below works out of the box. The exceptions are [`journey`](#for-ora-partners) on a goal of your own and `audit --tunnel ora`, which need an ora platform key; a goal of your own on the free path needs a partner key instead.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ora/ax/main/.github/assets/demo.gif" width="880" alt="ax audit https://stripe.com — live progress, then the layered report and ora's ranked top fixes" />
@@ -28,8 +28,8 @@ Six commands:
 
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
-- **`deep-journey <url>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks free-text tasks (`--task`) and a larger allowance.
-- **`journey "<intent>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)).
+- **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is the older name and still works.
+- **`journey "<goal>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)).
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
@@ -211,16 +211,21 @@ page did not load, or a capture ora would refuse) · `3` API, a failed capture, 
 returned. The gate reads the score, not the grade — a withheld grade would otherwise let
 everything through.
 
-## deep-journey
+<a id="deep-journey"></a>
+
+## journey, free on a curated task
 
 ```
-ax deep-journey <url> [--intent id | --task text] [--agent id] [--api-key k] [--no-stream] [--json]
+ax journey --domain <site> [--intent id] [--agent id] [--api-key k] [--no-stream] [--json]
+ax journey "<goal>" --domain <site> --api-key k [--agent id] [--no-stream] [--json]
 ```
 
 ```
-ax deep-journey stripe.com --intent pricing
-ax deep-journey zapier.com --task "Find how to build a Slack → Sheets zap"   # needs a partner key
+ax journey --domain stripe.com --intent pricing
+ax journey "Find how to build a Slack → Sheets zap" --domain zapier.com --api-key k   # needs a partner key
 ```
+
+`ax deep-journey <url>` is the older name for this command. It keeps its flags (`--task` included) and exit codes, prints the `ax journey` call it stands for on stderr, and will be removed in a future major release.
 
 Runs a real AI agent at a site through ora's **public** journey API — no key, no workspace needed for curated tasks. The agent's trajectory streams live as progress lines; the terminal output is ora's verdict, the billable step count, and the generated insight:
 
@@ -238,22 +243,22 @@ Runs a real AI agent at a site through ora's **public** journey API — no key, 
 
 Anonymous callers run curated intents (`pricing`, `signup`, `api-docs`, `integrate`, `support`, …) — list them with `GET https://ora.ai/api/journey/intents`, and the publicly offered agents with `GET https://ora.ai/api/journey/agents`. The public caps are 100 runs per rolling 24h per target and task, and 20 runs per 24h per IP (plus a 20/min burst limit and a shared ceiling of 3,000 anonymous runs a day across all callers); a target at its cap answers with the most recent stored run (`rate_limited: true`) instead of an error, so repeat CI invocations are cheap. Verdict and step count come from ora's contract as-is — the CLI never re-judges a run.
 
-**Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks `--task` — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; `--task` without a recognized key is an error.
+**Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks a goal of your own — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; a goal of your own without a recognized key is an error. A goal with only a partner key set (no `ORA_API_KEY`) takes this path; with `ORA_API_KEY` set too, it runs on ora's platform unless you add a flag of this path (`--intent`, `--agent`, `--api-key`, `--no-stream`).
 
 The CLI always follows the run's stream to the end, `--no-stream` included, because ora saves a finished run from inside the stream. If the stream drops or goes quiet (no frames for 120s), the CLI reopens it, which resumes the same run without re-running the agent. A stream `429` is waited out (up to 60s) before reopening; any other HTTP error from the stream (a `404`, an auth error, a `5xx`) ends the command at once. Only after five failed reopens does it fall back to polling the run detail, within a 15-minute budget shared with the stream.
 
 | Flag | Effect |
 |---|---|
 | `--intent <id>` | Curated task id (server default when omitted) |
-| `--task <text>` | Free-text task — needs a partner API key; mutually exclusive with `--intent` |
+| `"<goal>"` | A goal of your own; needs a partner API key and cannot be combined with `--intent` |
 | `--api-key <k>` | ora partner API key; also read from `ORA_PARTNER_API_KEY` (then `ORA_SCAN_API_KEY`) |
 | `--agent <id>` | Agent from the public roster (default: `cas-haiku`, Claude Code on the Haiku model ora's roster lists) |
 | `--no-stream` | Hide the live trajectory view and print only the final result |
 | `--json` | Print the terminal run detail (verdict, step_count, result) as JSON |
 
-deep-journey exit codes: `0` run succeeded (any verdict) · `1` run failed · `2` usage error · `3` API unreachable / rate-limited.
+Exit codes: `0` run succeeded (any verdict) · `1` run failed · `2` usage error · `3` API unreachable / rate-limited.
 
-This differs from `ax journey` (below), which drives the authenticated platform with free-text goals and renders the full trajectory graph; `deep-journey` is the zero-setup public path.
+Mixing these flags with `--harness` or `--model`, which are for a goal of your own on ora's platform ([below](#journey)), is a usage error (exit 2) naming both. This is the zero-setup public path; the platform path renders the full trajectory graph.
 
 ## skill
 
@@ -302,7 +307,7 @@ console.log(result.score, result.grade, result.topFixes);
 
 `result` is the raw versioned audit payload (`AuditScanResult` / `AuditScoreResult`, generated from ora's OpenAPI spec). `fetchSkill` / `fetchSkillIndex` expose the digest-verified skill registry, and `fetchAgentFiles` the agent files generator.
 
-The public journey client is exported too — the same no-key path as `ax deep-journey`:
+The public journey client is exported too — the same no-key path as `ax journey --domain`:
 
 ```ts
 import { deepJourney, fetchJourneyAgents } from "ax";
@@ -321,12 +326,12 @@ console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 
 ## For ora partners
 
-Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). Two kinds of key exist. `journey` (and `audit --tunnel ora`) needs an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and `deep-journey`, and the daily limit on `webmcp-audit`.
+Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: keys are issued by ora (contact [hello@ora.ai](mailto:hello@ora.ai)). Two kinds of key exist. `journey` (and `audit --tunnel ora`) needs an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and the free `journey`, and the daily limit on `webmcp-audit`.
 
 ### journey
 
 ```
-ax journey "<intent>" [--domain d] [--harness h] [--model m] [--json]
+ax journey "<goal>" [--domain d] [--harness h] [--model m] [--json]
 ```
 
 ```
@@ -392,13 +397,13 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
-| `ORA_API_URL` | audit, webmcp-audit, deep-journey, skill, generate-files | `https://ora.ai` | Public API base (no auth); also the ingest base for `webmcp-audit` |
+| `ORA_API_URL` | audit, webmcp-audit, journey (free), skill, generate-files | `https://ora.ai` | Public API base (no auth); also the ingest base for `webmcp-audit` |
 | `ORA_PLATFORM_URL` | journey, audit `--tunnel ora` | `https://api.agentfront.sh` | Authenticated platform API base |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
 | `ORA_API_KEY` | journey, audit `--tunnel ora` | — (required for both) | ora platform key (`ora_sk_…`); exchanged for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes) |
-| `ORA_SCAN_API_KEY` | audit, deep-journey, webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). deep-journey and webmcp-audit accept it as a partner-key fallback |
-| `ORA_PARTNER_API_KEY` | deep-journey, webmcp-audit | — (optional) | ora-issued partner API key; unlocks `--task` and the 1000/24h keyed allowance on deep-journey, and lifts webmcp-audit's daily limit |
+| `ORA_SCAN_API_KEY` | audit, journey (free), webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). the free journey and webmcp-audit accept it as a partner-key fallback |
+| `ORA_PARTNER_API_KEY` | journey (free), webmcp-audit | — (optional) | ora-issued partner API key; unlocks a goal of your own and the 1000/24h keyed allowance on the free journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |
 | `AX_WEBMCP_NO_SANDBOX` | webmcp-audit | — (unset) | `1` launches Chrome without its sandbox. Containers only: the audited page is untrusted and the sandbox contains it |
 
