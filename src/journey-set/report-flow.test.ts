@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import quota402 from "../api/__fixtures__/studio/error-402-quota.json";
 import { PlatformApiError } from "../api/platform";
@@ -82,7 +83,8 @@ afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 });
 
-const logged = () => vi.mocked(console.log).mock.calls.map((c) => String(c[0]));
+const logged = () =>
+	vi.mocked(console.log).mock.calls.map((c) => stripVTControlCharacters(String(c[0])));
 const errored = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
 
 describe("withInterrupt", () => {
