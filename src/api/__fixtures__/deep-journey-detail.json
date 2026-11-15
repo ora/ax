@@ -1,46 +1,58 @@
 {
-	"id": "98cacf5c-4c08-4c21-97df-4f8e3e1f6f19",
+	"id": "795ec07c-342a-4603-9649-66be4bb7936e",
 	"status": "succeeded",
-	"intent_id": "signup",
-	"domain": "captest-orank.com",
+	"intent_id": "pricing",
+	"domain": "linear.app",
 	"agent": {
 		"harness": "claude-agent-sdk",
-		"model": "claude-haiku-4-5"
+		"model": "claude-haiku-5-5"
 	},
-	"started_at": "2026-08-14T01:51:54.882Z",
-	"finished_at": "2026-08-14T01:53:40.360Z",
-	"stream_url": "/api/journey/runs/98cacf5c-4c08-4c21-97df-4f8e3e1f6f19/stream",
-	"contractVersion": "1.9.0",
-	"verdict": "unsatisfied",
-	"step_count": 19,
+	"started_at": "2026-11-13T12:13:32.627Z",
+	"finished_at": "2026-11-13T12:13:57.406Z",
+	"stream_url": "/api/journey/runs/795ec07c-342a-4603-9649-66be4bb7936e/stream",
+	"contractVersion": "1.42.0",
+	"verdict": "satisfied",
+	"step_count": 12,
+	"flags": {
+		"blocked": {
+			"flagged": false
+		},
+		"answered_from_memory": {
+			"flagged": false
+		}
+	},
 	"result": {
-		"run_id": "98cacf5c-4c08-4c21-97df-4f8e3e1f6f19",
-		"intent_id": "signup",
-		"domain": "captest-orank.com",
+		"run_id": "795ec07c-342a-4603-9649-66be4bb7936e",
+		"intent_id": "pricing",
+		"domain": "linear.app",
 		"harness": "claude-agent-sdk",
-		"model": "claude-haiku-4-5",
-		"started_at": "2026-08-14T01:51:54.882Z",
-		"finished_at": "2026-08-14T01:53:40.360Z",
-		"outcome": "failure",
-		"verdict": "unsatisfied",
-		"agent_response": "I'll help you access captest-orank.com and look for diagnostic tools or health-check endpoints. Let me start by fetching the main domain.",
-		"num_turns": 10,
-		"duration_ms": 38200,
+		"model": "claude-haiku-5-5",
+		"started_at": "2026-11-13T12:13:32.627Z",
+		"finished_at": "2026-11-13T12:13:57.406Z",
+		"outcome": "success",
+		"verdict": "satisfied",
+		"agent_response": "Excellent! Now I have comprehensive information. Let me compile a detailed summary of Linear's programmatic capabilities and integration options.\n\n## Summary: Linear's Programmatic Capabilities and Integration Options\n\nBased on my research of linear.app, here's a comprehensive overview of Linear's programmatic capabilities and integration options:\n\n### **1. Core Integration Ecosystem**\n- **9,000+ pre-built app integrations** covering major business applications (Salesforce, HubSpot, Slack, Google Workspace, Microsoft 365, Zendesk, Jira, NetSuite, and thousands more)\n- **30,000+ pre-built actions and triggers** across integrated apps\n- **66,000+ total triggers and actions** available for use\n\n### **2. Programmatic Access Options**\n\n#### **A. Linear SDK (Open Beta - Free)**\n- **For:** Coding agents and developers integrating Linear into products\n- **Language:** TypeScript/JavaScript via npm (`@linear/linear-sdk`)\n- **Key Features:**\n  - Full programmatic access to 9,000+ apps without OAuth setup\n  - Raw API access to ~3,000 apps for custom API calls\n  - Type-safe TypeScript interfaces with generated types\n  - Handles authentication, token refresh, and retries automatically\n  - Works with coding agents (Cursor, Claude Code, VS Code Copilot)\n  - Includes `runAction()` for invoking pre-built actions and `.fetch()` for custom API calls\n  - App and action governance policies apply automatically to pre-built actions\n\n#### **B. Linear MCP (Model Context Protocol) - Available on All Plans**\n- **For:** AI chat tools and agents (Claude, ChatGPT, Cursor, etc.)\n- **Key Features:**\n  - 9,000+ apps with 30,000+ pre-built actions accessible via MCP standard\n  - Requires no terminal or code setup (guided UI-based installation)\n  - Two tasks per tool call included in standard quota\n  - Compatible with any MCP client\n  - Full governance controls (app restrictions, action restrictions, audit logs)\n  - 195,000+ MCP servers already created\n\n#### **C. Linear CLI (Command-line Interface)**\n",
+		"num_turns": 7,
+		"duration_ms": 40689,
+		"cost_usd": 0.34632524000000003,
+		"input_tokens": 323468,
+		"output_tokens": 2345,
+		"cache_read_tokens": 197998,
 		"trajectory": {
 			"steps": [
 				{
 					"id": 0,
 					"type": "text",
-					"text": "I'll help you access stripe.com and look for diagnostic tools or health-check endpoints. Let me start by fetching the main domain."
+					"text": "I'll research Zapier's programmatic capabilities and integration options by exploring their website and documentation. Let me start by gathering information."
 				},
 				{
 					"id": 1,
 					"turn": 1,
 					"type": "tool_call",
 					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "captest-orank.com/",
-					"url_host": "captest-orank.com",
+					"tool": "web_fetch",
+					"url": "linear.app/",
+					"url_host": "linear.app",
 					"url_path": "/",
 					"source": "direct",
 					"anchor_relation": "exact",
@@ -49,24 +61,59 @@
 						"artifact_kind": "homepage"
 					},
 					"status": 200,
-					"duration_ms": 5234,
+					"duration_ms": 10,
 					"completed": true
 				},
 				{
 					"id": 2,
+					"turn": 1,
+					"type": "tool_call",
+					"action": "fetch",
+					"tool": "web_fetch",
+					"url": "linear.app/help",
+					"url_host": "linear.app",
+					"url_path": "/help",
+					"source": "direct",
+					"anchor_relation": "exact",
+					"attribution": {
+						"kind": "prior_knowledge"
+					},
+					"duration_ms": 33,
+					"completed": true
+				},
+				{
+					"id": 3,
+					"turn": 1,
+					"type": "tool_call",
+					"action": "search",
+					"tool": "web_search",
+					"search_query": "Linear API programmatic integration capabilities",
+					"source": "direct",
+					"attribution": {
+						"kind": "web_search"
+					},
+					"duration_ms": 20,
+					"completed": true
+				},
+				{
+					"id": 4,
+					"type": "text",
+					"text": "Let me get more detailed information about Zapier's specific programmatic capabilities and developer tools."
+				},
+				{
+					"id": 5,
 					"turn": 2,
 					"type": "tool_call",
 					"parent_id": 1,
 					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "status.captest-orank.com/",
-					"url_host": "status.captest-orank.com",
-					"url_path": "/",
-					"source": "follow",
-					"anchor_relation": "subdomain",
+					"tool": "web_fetch",
+					"url": "linear.app/developer-platform",
+					"url_host": "linear.app",
+					"url_path": "/developer-platform",
+					"source": "direct",
+					"anchor_relation": "exact",
 					"attribution": {
 						"kind": "previous_artifact",
-						"artifact_kind": "homepage",
 						"referrer": {
 							"turn": 1,
 							"artifact_kind": "homepage",
@@ -74,225 +121,99 @@
 						}
 					},
 					"status": 200,
-					"duration_ms": 2978,
-					"completed": true
-				},
-				{
-					"id": 3,
-					"turn": 2,
-					"type": "tool_call",
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "captest-orank.com/docs/health-check",
-					"url_host": "captest-orank.com",
-					"url_path": "/docs/health-check",
-					"source": "direct",
-					"anchor_relation": "exact",
-					"attribution": {
-						"kind": "prior_knowledge",
-						"artifact_kind": "docs_page",
-						"signal_id": "developer-portal"
-					},
-					"status": 301,
-					"duration_ms": 72,
-					"completed": true
-				},
-				{
-					"id": 4,
-					"turn": 3,
-					"type": "tool_call",
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "captest-orank.com/.well-known/health",
-					"url_host": "captest-orank.com",
-					"url_path": "/.well-known/health",
-					"source": "direct",
-					"anchor_relation": "exact",
-					"attribution": {
-						"kind": "prior_knowledge",
-						"artifact_kind": "well_known"
-					},
-					"status": 404,
-					"duration_ms": 344,
-					"completed": true
-				},
-				{
-					"id": 5,
-					"turn": 4,
-					"type": "tool_call",
-					"parent_id": 3,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "docs.captest-orank.com/health-check",
-					"url_host": "docs.captest-orank.com",
-					"url_path": "/health-check",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "previous_artifact",
-						"artifact_kind": "docs_page",
-						"signal_id": "developer-portal",
-						"referrer": {
-							"turn": 2,
-							"artifact_kind": "docs_page",
-							"url_path": "/docs/health-check"
-						}
-					},
-					"status": 404,
-					"duration_ms": 495,
+					"duration_ms": 23,
 					"completed": true
 				},
 				{
 					"id": 6,
-					"turn": 5,
+					"turn": 2,
 					"type": "tool_call",
-					"action": "search",
-					"tool": "WebSearch",
-					"search_query": "captest-orank.com health check endpoint MCP server diagnostic tools",
+					"parent_id": 1,
+					"action": "fetch",
+					"tool": "web_fetch",
+					"url": "linear.app/mcp",
+					"url_host": "linear.app",
+					"url_path": "/mcp",
 					"source": "direct",
+					"anchor_relation": "exact",
 					"attribution": {
-						"kind": "web_search"
+						"kind": "previous_artifact",
+						"artifact_kind": "mcp_endpoint_path",
+						"signal_id": "mcp-server",
+						"referrer": {
+							"turn": 1,
+							"artifact_kind": "homepage",
+							"url_path": "/"
+						}
 					},
-					"duration_ms": 531,
+					"status": 200,
+					"duration_ms": 12,
 					"completed": true
 				},
 				{
 					"id": 7,
-					"turn": 5,
+					"turn": 2,
 					"type": "tool_call",
-					"parent_id": 3,
+					"parent_id": 1,
 					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "captest-orank.com/docs",
-					"url_host": "captest-orank.com",
-					"url_path": "/docs",
-					"source": "follow",
+					"tool": "web_fetch",
+					"url": "linear.app/sdk",
+					"url_host": "linear.app",
+					"url_path": "/sdk",
+					"source": "direct",
 					"anchor_relation": "exact",
+					"attribution": {
+						"kind": "previous_artifact",
+						"referrer": {
+							"turn": 1,
+							"artifact_kind": "homepage",
+							"url_path": "/"
+						}
+					},
+					"status": 200,
+					"duration_ms": 34,
+					"completed": true
+				},
+				{
+					"id": 8,
+					"type": "text",
+					"text": "Now let me fetch the documentation pages to get more detailed technical information."
+				},
+				{
+					"id": 9,
+					"turn": 3,
+					"type": "tool_call",
+					"parent_id": 5,
+					"action": "fetch",
+					"tool": "web_fetch",
+					"url": "docs.linear.app/platform/home",
+					"url_host": "docs.linear.app",
+					"url_path": "/platform/home",
+					"source": "follow",
+					"anchor_relation": "subdomain",
 					"attribution": {
 						"kind": "previous_artifact",
 						"artifact_kind": "docs_page",
 						"signal_id": "developer-portal",
 						"referrer": {
 							"turn": 2,
-							"artifact_kind": "docs_page",
-							"url_path": "/docs/health-check"
+							"url_path": "/developer-platform"
 						}
 					},
-					"status": 301,
-					"duration_ms": 74,
-					"completed": true
-				},
-				{
-					"id": 8,
-					"turn": 6,
-					"type": "tool_call",
-					"parent_id": 6,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "docs.captest-orank.com/mcp",
-					"url_host": "docs.captest-orank.com",
-					"url_path": "/mcp",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "web_search",
-						"artifact_kind": "docs_page",
-						"signal_id": "developer-portal"
-					},
 					"status": 200,
-					"duration_ms": 4636,
-					"completed": true
-				},
-				{
-					"id": 9,
-					"turn": 6,
-					"type": "tool_call",
-					"parent_id": 6,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "docs.captest-orank.com/health-alerts",
-					"url_host": "docs.captest-orank.com",
-					"url_path": "/health-alerts",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "web_search",
-						"artifact_kind": "docs_page",
-						"signal_id": "developer-portal"
-					},
-					"status": 200,
-					"duration_ms": 5716,
+					"duration_ms": 23,
 					"completed": true
 				},
 				{
 					"id": 10,
-					"turn": 7,
+					"turn": 3,
 					"type": "tool_call",
-					"parent_id": 8,
+					"parent_id": 7,
 					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "mcp.captest-orank.com/",
-					"url_host": "mcp.captest-orank.com",
-					"url_path": "/",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "previous_artifact",
-						"artifact_kind": "mcp_server",
-						"signal_id": "mcp-server",
-						"referrer": {
-							"turn": 6,
-							"artifact_kind": "mcp_endpoint_path",
-							"url_path": "/mcp"
-						}
-					},
-					"status": 401,
-					"duration_ms": 697,
-					"completed": true
-				},
-				{
-					"id": 11,
-					"turn": 7,
-					"type": "tool_call",
-					"action": "search",
-					"tool": "WebSearch",
-					"search_query": "Captest-orank MCP server health check endpoint localhost:3000",
-					"source": "direct",
-					"attribution": {
-						"kind": "web_search"
-					},
-					"duration_ms": 516,
-					"completed": true
-				},
-				{
-					"id": 12,
-					"turn": 8,
-					"type": "tool_call",
-					"parent_id": 11,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "mcpcat.io/guides/building-health-check-endpoint-mcp-server",
-					"url_host": "mcpcat.io",
-					"url_path": "/guides/building-health-check-endpoint-mcp-server",
-					"source": "follow",
-					"anchor_relation": "external",
-					"attribution": {
-						"kind": "web_search"
-					},
-					"status": 200,
-					"duration_ms": 6122,
-					"completed": true
-				},
-				{
-					"id": 13,
-					"turn": 8,
-					"type": "tool_call",
-					"parent_id": 9,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "docs.captest-orank.com/workbench/health",
-					"url_host": "docs.captest-orank.com",
-					"url_path": "/workbench/health",
+					"tool": "web_fetch",
+					"url": "docs.linear.app/sdk",
+					"url_host": "docs.linear.app",
+					"url_path": "/sdk",
 					"source": "follow",
 					"anchor_relation": "subdomain",
 					"attribution": {
@@ -300,158 +221,137 @@
 						"artifact_kind": "docs_page",
 						"signal_id": "developer-portal",
 						"referrer": {
-							"turn": 6,
-							"artifact_kind": "docs_page",
-							"url_path": "/health-alerts"
+							"turn": 2,
+							"url_path": "/sdk"
 						}
 					},
 					"status": 200,
-					"duration_ms": 4148,
+					"duration_ms": 12,
 					"completed": true
 				},
 				{
+					"id": 11,
+					"type": "text",
+					"text": "Perfect! Now let me gather one more piece of information about the Workflow API and embeddings capabilities."
+				},
+				{
+					"id": 12,
+					"turn": 4,
+					"type": "tool_call",
+					"action": "fetch",
+					"tool": "web_fetch",
+					"url": "docs.linear.app/powered-by-zapier/workflow",
+					"url_host": "docs.linear.app",
+					"url_path": "/powered-by-zapier/workflow",
+					"source": "direct",
+					"anchor_relation": "subdomain",
+					"attribution": {
+						"kind": "prior_knowledge",
+						"artifact_kind": "docs_page",
+						"signal_id": "developer-portal"
+					},
+					"duration_ms": 11,
+					"completed": true
+				},
+				{
+					"id": 13,
+					"type": "text",
+					"text": "Let me search for more information about their API and integration building capabilities."
+				},
+				{
 					"id": 14,
-					"turn": 9,
+					"turn": 5,
 					"type": "tool_call",
 					"action": "search",
-					"tool": "WebSearch",
-					"search_query": "\"captest-orank mcp server\" \"health check\" OR \"health endpoint\" OR \"diagnostic\"",
+					"tool": "web_search",
+					"search_query": "Linear Workflow API embed tools documentation",
 					"source": "direct",
 					"attribution": {
 						"kind": "web_search"
 					},
-					"duration_ms": 927,
+					"duration_ms": 26,
 					"completed": true
 				},
 				{
 					"id": 15,
-					"turn": 9,
-					"type": "tool_call",
-					"parent_id": 7,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "docs.captest-orank.com/",
-					"url_host": "docs.captest-orank.com",
-					"url_path": "/",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "previous_artifact",
-						"artifact_kind": "homepage",
-						"referrer": {
-							"turn": 5,
-							"artifact_kind": "docs_page",
-							"url_path": "/docs"
-						}
-					},
-					"status": 200,
-					"duration_ms": 3297,
-					"completed": true
-				},
-				{
-					"id": 16,
-					"turn": 10,
-					"type": "tool_call",
-					"parent_id": 6,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "github.com/hideokamoto/stripe-testing-mcp-tools",
-					"url_host": "github.com",
-					"url_path": "/hideokamoto/stripe-testing-mcp-tools",
-					"source": "follow",
-					"anchor_relation": "external",
-					"attribution": {
-						"kind": "web_search"
-					},
-					"status": 200,
-					"duration_ms": 4261,
-					"completed": true
-				},
-				{
-					"id": 17,
-					"turn": 10,
+					"turn": 5,
 					"type": "tool_call",
 					"action": "search",
-					"tool": "WebSearch",
-					"search_query": "captest-orank api health check endpoint status",
+					"tool": "web_search",
+					"search_query": "Linear REST API programmatic access",
 					"source": "direct",
 					"attribution": {
 						"kind": "web_search"
 					},
-					"duration_ms": 638,
+					"duration_ms": 14,
+					"completed": true
+				},
+				{
+					"id": 16,
+					"type": "text",
+					"text": "Let me get more details on the integration building capabilities and authentication options."
+				},
+				{
+					"id": 17,
+					"turn": 6,
+					"type": "tool_call",
+					"parent_id": 9,
+					"action": "fetch",
+					"tool": "web_fetch",
+					"url": "docs.linear.app/integrations/quickstart/build-integration",
+					"url_host": "docs.linear.app",
+					"url_path": "/integrations/quickstart/build-integration",
+					"source": "follow",
+					"anchor_relation": "subdomain",
+					"attribution": {
+						"kind": "previous_artifact",
+						"artifact_kind": "docs_page",
+						"signal_id": "developer-portal",
+						"referrer": {
+							"turn": 3,
+							"artifact_kind": "docs_page",
+							"url_path": "/platform/home"
+						}
+					},
+					"status": 200,
+					"duration_ms": 11,
 					"completed": true
 				},
 				{
 					"id": 18,
-					"turn": 11,
-					"type": "tool_call",
-					"parent_id": 17,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "api.captest-orank.com/healthcheck",
-					"url_host": "api.captest-orank.com",
-					"url_path": "/healthcheck",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "web_search",
-						"artifact_kind": "docs_page",
-						"signal_id": "developer-portal"
-					},
-					"status": 200,
-					"duration_ms": 2911,
-					"completed": true
-				},
-				{
-					"id": 19,
-					"turn": 11,
-					"type": "tool_call",
-					"parent_id": 6,
-					"action": "fetch",
-					"tool": "WebFetch",
-					"url": "status.captest-orank.com/reachability",
-					"url_host": "status.captest-orank.com",
-					"url_path": "/reachability",
-					"source": "follow",
-					"anchor_relation": "subdomain",
-					"attribution": {
-						"kind": "web_search"
-					},
-					"status": 200,
-					"duration_ms": 2486,
-					"completed": true
+					"type": "text",
+					"text": "Excellent! Now I have comprehensive information. Let me compile a detailed summary of Zapier's programmatic capabilities and integration options.\n\n## Summary: Zapier's Programmatic Capabilities and Integration Options\n\nBased on my research of zapier.com, here's a comprehensive overview of Zapier's programmatic capabilities and integration options:\n\n### **1. Core Integration Ecosystem**\n- **9,000+ pre-built app integrations** covering major business applications (Salesforce, HubSpot, Slack, Google Workspace, Microsoft 365, Zendesk, Jira, NetSuite, and thousands more)\n- **30,000+ pre-built actions and triggers** across integrated apps\n- **66,000+ total triggers and actions** available for use\n\n### **2. Programmatic Access Options**\n\n#### **A. Zapier SDK (Open Beta - Free)**\n- **For:** Coding agents and developers integrating Zapier into products\n- **Language:** TypeScript/JavaScript via npm (`@zapier/zapier-sdk`)\n- **Key Features:**\n  - Full programmatic access to 9,000+ apps without OAuth setup\n  - Raw API access to ~3,000 apps for custom API calls\n  - Type-safe TypeScript interfaces with generated types\n  - Handles authentication, token refresh, and retries automatically\n  - Works with coding agents (Cursor, Claude Code, VS Code Copilot)\n  - Includes `runAction()` for invoking pre-built actions and `.fetch()` for custom API calls\n  - App and action governance policies apply automatically to pre-built actions\n\n#### **B. Zapier MCP (Model Context Protocol) - Available on All Plans**\n- **For:** AI chat tools and agents (Claude, ChatGPT, Cursor, etc.)\n- **Key Features:**\n  - 9,000+ apps with 30,000+ pre-built actions accessible via MCP standard\n  - Requires no terminal or code setup (guided UI-based installation)\n  - Two tasks per tool call included in standard quota\n  - Compatible with any MCP client\n  - Full governance controls (app restrictions, action restrictions, audit logs)\n  - 195,000+ MCP servers already created\n\n#### **C. Zapier CLI (Command-line Interface)**\n- **For:** Developers building custom integrations and managing Zapier programmatically\n- **Package:** `@zapier/zapier-sdk-cli` (npm install)\n- **Capabilities:**\n  - Explore available actions across connected apps\n  - Run one-off actions from terminal\n  - List and manage connections\n  - Version control integration\n\n### **3. Integration Building Platform**\n\n#### **Two Development Approaches:**\n1. **Visual Builder (No-Code)**\n   - Browser-based UI for creating integrations\n   - Configurable API endpoints without writing code\n   - Custom URL parameters, HTTP headers, request body options\n   - Fast deployment suitable for teams without developer expertise\n\n2. **Platform CLI (Code-First)**\n   - Local development environment integration\n   - Full control with custom JavaScript/Node.js code\n   - Version control and CI/CD tool compatibility\n   - Support for complex authentication schemes, dynamic dropdowns, webhooks\n\n#### **Integration Components:**\n- **Authentication schemes** (API key, OAuth 2.0, Basic Auth, custom)\n- **Triggers** (webhook subscriptions or polling endpoints for workflow initiation)\n- **Actions** (create, search, update record operations)\n- **Searches** (query capabilities for records)\n- **Tests and validation** (automated checks before publishing)\n\n### **4. Workflow API & Embedding Options**\n\n#### **Workflow API**\n- Programmatic access to create and manage automated workflows\n- Enables embedding Zapier automation directly into third-party products\n- Full-featured automation within custom UIs\n\n#### **Embed Tools (Powered by Zapier)**\n- **Workflow Element:** Pre-built UI component for embedding in products with minimal engineering\n- **App Directory:** Expose Zapier's 9,000+ apps within your product\n- **Partner API:** Complete style control for custom branding and user experience\n- Fully managed authentication (no OAuth flow development needed)\n- Supports 3 integration approaches: quick embed (~2 weeks), full API customization, or template embedding\n\n### **5. Developer Platform & Partner Ecosystem**\n\n- **Free integration building** (no fees to create integrations)\n- **Integration Partner Program** with GTM collaboration and support\n- **Developer dashboard** for managing apps and API keys\n- **Community support** with developer forums\n- **Deployment options:**\n  - Private integrations (internal use)\n  - Public marketplace (1M+ Zapier users)\n  - Versioning and team collaboration\n\n### **6. Advanced Capabilities**\n\n- **Webhooks support** for real-time event triggering\n- **Dynamic dropdowns** for contextual data selection\n- **Custom code** support in CLI for complex logic\n- **Rate limit handling** automated by Zapier\n- **Credential management:** 13+ years of production infrastructure for secure auth\n- **Governance & Compliance:**\n  - SOC 2 Type II certified\n  - GDPR + CCPA compliant\n  - Workspace-level controls\n  - Audit logs for all actions\n  - Bring-your-own-model (BYOM) support for enterprise\n\n### **7. Authentication Handling**\n- No hardcoded API keys required\n- OAuth flows managed by Zapier\n- Unified credential infrastructure across all integrations\n- Automatic token refresh and retry logic\n- Workspace-level managed connections\n\n### **8. Documentation & Resources**\n- **Comprehensive docs** at `docs.zapier.com` and `platform.zapier.com`\n- **SDK/MCP guides and technical documentation**\n- **CLI reference** and API schemas\n- **GitHub integration** with public repositories\n- **Multiple programming languages supported** (primarily TypeScript/JavaScript for SDK)\n\n---\n\n**OUTCOME: success** Zapier offers comprehensive programmatic capabilities through SDK (for coding agents), MCP (for AI chat tools), and CLI (for developers), plus robust integration building platforms with 9,000+ pre-built connectors, managed authentication, embedding APIs, and enterprise governance features suitable for teams of any size."
 				}
 			],
-			"action_sequence": "fetch,fetch+fetch,fetch,fetch,search+fetch,fetch+fetch,fetch+search,fetch+fetch,search+fetch,fetch+search,fetch+fetch",
+			"action_sequence": "fetch+fetch+search,fetch+fetch+fetch,fetch+fetch,fetch,search+search,fetch",
 			"signals_observed": [
+				"mcp-server",
 				"developer-portal"
 			],
-			"friction_outcome": "timeout",
+			"friction_outcome": "succeeded_natively",
 			"status_profile": {
-				"count_2xx": 10,
-				"count_3xx": 2,
-				"count_4xx": 3,
-				"count_5xx": 0,
-				"first_error_step": 7,
-				"first_error_kind": "well_known"
+				"count_2xx": 7,
+				"count_3xx": 0,
+				"count_4xx": 0,
+				"count_5xx": 0
 			},
 			"well_known_probes": [],
 			"path_origin_distribution": {
-				"prior_knowledge": 0.2,
-				"web_search": 0.4,
-				"previous_artifact": 0.4,
+				"prior_knowledge": 0.33,
+				"web_search": 0,
+				"previous_artifact": 0.67,
 				"other": 0
 			},
-			"link_following_rate": 0.4
+			"link_following_rate": 0.67
 		},
 		"insight": {
-			"summary": "The agent probed widely but couldn't complete the task: alongside successful reads it hit several 4xx responses and redirects, and the resource it needed was gated or absent. It exhausted reasonable paths and ended without a confident answer.",
+			"summary": "The agent answered cleanly: every fetch returned 200 and each step followed a link surfaced by the previous page, so it built one connected path through the site with no dead ends. It reached a confident answer without searching in circles or guessing URLs.",
 			"key_observations": [
-				"A cluster of 4xx responses shows the agent tried endpoints that don't exist or require authentication - the target wasn't discoverable from a published hint.",
-				"Redirects (3xx) bounced the agent across canonical URLs, adding navigation cost without resolving the task.",
-				"The failure reflects a real agent-readiness gap for this task: the needed capability isn't exposed in a way a cold-start agent can reach."
+				"Navigation was link-led - most steps were attributed to a previous artifact (a URL found in an earlier response), the strongest signal of an agent-navigable site.",
+				"Every request resolved 2xx; the agent never had to recover from an error or fall back to web search.",
+				"The connected parent→child chain shows the site exposes its structure so agents can follow it directly, rather than forcing prior-knowledge guesses."
 			],
-			"generated_at": "2026-05-30T07:26:26.282Z"
+			"generated_at": "2026-06-02T08:01:28.276Z"
 		}
 	}
 }

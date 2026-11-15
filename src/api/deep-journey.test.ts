@@ -1,17 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import realDetail from "./__fixtures__/deep-journey-detail.json";
+import runningDetail from "./__fixtures__/deep-journey-detail-running.json";
+import refusals from "./__fixtures__/deep-journey-refusals.json";
 import {
 	DeepJourneyApiError,
 	fetchJourneyAgents,
 	formatWait,
 	performDeepJourney,
+	servedNextAction,
 } from "./deep-journey";
+import { KeyDestinationError } from "./key-destination";
 
-// Fixture provenance: deep-journey-detail.json is a real projected
-// GET /api/journey/runs/{id} response recorded from a dev run (contract
-// 1.9.0). Variations below are explicit deltas on it, never hand-rolled.
+// Fixture provenance, all real responses from a local dev server (contract
+// 1.42.0, mock engine): deep-journey-detail.json is the projected
+// GET /api/journey/runs/{id} of one run after its stream was followed to the
+// result, deep-journey-detail-running.json the same GET before that, and
+// deep-journey-refusals.json the POST /api/journey/runs 400 bodies for
+// intent.domain "localhost" and an unlisted model, keyed by their code.
+// Variations below are explicit deltas on them, never hand-rolled.
 
 const RUN_ID = (realDetail as { id: string }).id;
+const STREAM_NEXT = runningDetail.next_action;
+const INVALID_DOMAIN_BODY = refusals.INVALID_DOMAIN;
 
 // The journey stream is named SSE, the same framing the platform client
 // decodes (event: X + data: {json} + ": ping" heartbeats).
@@ -121,8 +131,12 @@ describe("performDeepJourney", () => {
 		expect(outcome.cached).toBe(false);
 		expect(outcome.allowance).toEqual({ limit: 5, remaining: 4, resetAtMs: 1770000000000 });
 		expect(outcome.detail.status).toBe("succeeded");
-		expect(outcome.detail.step_count).toBe(19);
-		expect(outcome.detail.verdict).toBe("unsatisfied");
+		expect(outcome.detail.step_count).toBe(12);
+		expect(outcome.detail.verdict).toBe("satisfied");
+		expect(outcome.detail.flags).toEqual({
+			blocked: { flagged: false },
+			answered_from_memory: { flagged: false },
+		});
 		expect(lines.some((line) => line.includes("step 1"))).toBe(true);
 	});
 
@@ -208,7 +222,22 @@ describe("performDeepJourney", () => {
 			}),
 		);
 
-		await expect(performDeepJourney("vercel.com", OPTIONS)).rejects.toThrow(DeepJourneyApiError);
+		const failure = performDeepJourney("vercel.com", OPTIONS);
+		await expect(failure).rejects.toThrow(DeepJourneyApiError);
+		await expect(failure).rejects.toMatchObject({
+			code: "RATE_LIMITED",
+			payload: { error: "Too many requests", retry_after_ms: 86_400_000 },
+		});
+	});
+
+	it("carries the next action ora served with a refusal", async () => {
+		vi.stubGlobal("fetch", journeyMock({ trigger: asJson(INVALID_DOMAIN_BODY, 400) }));
+
+		const failure = performDeepJourney("localhost", OPTIONS);
+		await expect(failure).rejects.toMatchObject({
+			payload: INVALID_DOMAIN_BODY,
+			nextAction: INVALID_DOMAIN_BODY.next_action,
+		});
 	});
 
 	it("names the key's monthly journey limit on a usage_limit_reached 429", async () => {
@@ -233,6 +262,10 @@ describe("performDeepJourney", () => {
 
 		const failure = performDeepJourney("vercel.com", { ...OPTIONS, apiKey: "k" });
 		await expect(failure).rejects.toThrow(/journeys limit for the month \(200 of 200\)/);
+		await expect(failure).rejects.toMatchObject({
+			code: "USAGE_LIMIT_REACHED",
+			payload: { error: "usage_limit_reached", used: 200, limit: 200 },
+		});
 	});
 
 	it("refuses to treat a never-settling run as terminal (truncated stream)", async () => {
@@ -268,6 +301,42 @@ describe("performDeepJourney", () => {
 			const error = await settled;
 			expect(error).toBeInstanceOf(DeepJourneyApiError);
 			expect(String(error)).toMatch(/still executing — the stream could not be followed/);
+			// Coded so the command points at the run instead of starting another.
+			expect(error).toMatchObject({
+				code: "RUN_STILL_RUNNING",
+				runUrl: `https://journey.test/api/journey/runs/${RUN_ID}`,
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("hands up the stream next action of a run it leaves running, --no-stream included", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.stubGlobal(
+				"fetch",
+				journeyMock({
+					stream: () => journeyStream([["run_id", { run_id: RUN_ID }]]),
+					details: [runningDetail],
+				}),
+			);
+
+			const settled = performDeepJourney("vercel.com", {
+				...OPTIONS,
+				noStream: true,
+				reopenPauseMs: 1,
+				pollEveryMs: 1,
+				pollLimit: 2,
+			}).then(
+				() => "resolved",
+				(cause) => cause,
+			);
+			await vi.advanceTimersByTimeAsync(10_000);
+			expect(await settled).toMatchObject({
+				code: "RUN_STILL_RUNNING",
+				nextAction: STREAM_NEXT,
+			});
 		} finally {
 			vi.useRealTimers();
 		}
@@ -447,9 +516,19 @@ describe("performDeepJourney - keyed tier", () => {
 			}),
 		);
 
-		await expect(
-			performDeepJourney("vercel.com", { ...OPTIONS, intentId: undefined, task: "Find the docs" }),
-		).rejects.toThrow(/ORA_PARTNER_API_KEY|--api-key/);
+		const failure = performDeepJourney("vercel.com", {
+			...OPTIONS,
+			intentId: undefined,
+			task: "Find the docs",
+		});
+		await expect(failure).rejects.toThrow(/ORA_PARTNER_API_KEY|--api-key/);
+		await expect(failure).rejects.toMatchObject({
+			code: "NEEDS_KEY",
+			payload: {
+				error: "Custom intents require a partner API key",
+				code: "CUSTOM_INTENT_REQUIRES_KEY",
+			},
+		});
 	});
 
 	it("sends the partner key on the stream too, which lifts its per-IP limit", async () => {
@@ -568,11 +647,36 @@ describe("fetchJourneyAgents", () => {
 	});
 });
 
+describe("servedNextAction", () => {
+	it("reads a next action in the REST shape and ignores anything else", () => {
+		expect(servedNextAction(INVALID_DOMAIN_BODY)).toEqual(INVALID_DOMAIN_BODY.next_action);
+		expect(servedNextAction(realDetail)).toBeUndefined();
+		expect(
+			servedNextAction({ next_action: { call: "ax deep-journey zapier.com" } }),
+		).toBeUndefined();
+		expect(servedNextAction({ next_action: { ...STREAM_NEXT, method: "DELETE" } })).toBeUndefined();
+		expect(servedNextAction(null)).toBeUndefined();
+		expect(servedNextAction("Too many requests")).toBeUndefined();
+	});
+});
+
 describe("formatWait", () => {
 	it("rounds up to the readable unit", () => {
 		expect(formatWait(86_400_000)).toBe("24h");
 		expect(formatWait(90_000)).toBe("2m");
 		expect(formatWait(4_000)).toBe("4s");
 		expect(formatWait(0)).toBe("soon");
+	});
+});
+
+describe("performDeepJourney key destination", () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it("never sends a partner key over plain http to a host other than this machine", async () => {
+		const fetchMock = vi.fn(async () => new Response("{}"));
+		vi.stubGlobal("fetch", fetchMock);
+		const keyed = { ...OPTIONS, apiKey: "pk_test", baseUrl: "http://collector.example" };
+		await expect(performDeepJourney("vercel.com", keyed)).rejects.toThrow(KeyDestinationError);
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

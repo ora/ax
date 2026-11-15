@@ -8,8 +8,19 @@ import { spawn } from "node:child_process";
 // already has works, as long as it prints its public URL to stdout or stderr
 // (e.g. `ngrok http 3000 --log stdout`).
 
-/** Tunnel setup failure - a usage-class error (exit 2), never an API error. */
-export class TunnelError extends Error {}
+/**
+ * Tunnel setup failure - a usage-class error (exit 2), never an API error.
+ * `payload` is the platform's error body exactly as served when a control
+ * plane call failed with JSON (what `--json` prints), undefined otherwise.
+ */
+export class TunnelError extends Error {
+	readonly payload: unknown;
+
+	constructor(message: string, options: { payload?: unknown } = {}) {
+		super(message);
+		this.payload = options.payload;
+	}
+}
 
 export interface Tunnel {
 	/** The public https origin the tunnel serves. */

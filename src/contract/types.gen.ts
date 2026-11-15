@@ -160,7 +160,7 @@ export interface paths {
   "/api/agent-files/{domain}": {
     /**
      * Draft a domain's own agent discovery files (ard.json, ai-catalog.json, poppy.json)
-     * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol, Draft 1.0, in progress, the version the spec's authors ask builders to use). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
+     * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol 1.0, the latest published version). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
      */
     get: operations["generateAgentFiles"];
   };
@@ -188,7 +188,7 @@ export interface paths {
   "/api/journey/runs/{id}": {
     /**
      * Get a journey run record (non-streaming)
-     * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'.
+     * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), `flags` (two notes beside the verdict that never change it: `blocked` when the site refused the agent, `answered_from_memory` when half or more of the answer came from the model's memory), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'. `next_action` names the one request to send next: the run's stream while it is running, and for 15 minutes after it failed, since reopening it reconnects a run that only lost its connection. A succeeded run carries none, and neither does one that failed longer ago, which is final.
      */
     get: operations["getJourneyRun"];
   };
@@ -591,7 +591,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.41.0";
+      contractVersion: "1.42.0";
       /**
        * @description Present only when this body is a stored result served by the freshness gate instead of a fresh scan. Absent on a live scan.
        * @enum {boolean}
@@ -810,7 +810,7 @@ export interface components {
        * @description The contract version this payload conforms to. SemVer: a major means a response-envelope break - a stable field removed, renamed, or changed in meaning, or the default response format flipping - and is safe to pin. Additive changes and check-catalog membership changes ship on a minor. See docs/api.md -> Contract and versioning.
        * @enum {string}
        */
-      contractVersion: "1.41.0";
+      contractVersion: "1.42.0";
       /** @description Wall-clock duration of the scan that produced this stored result */
       durationMs: number | null;
       /**
@@ -867,7 +867,7 @@ export interface components {
        * @description The contract version this catalog conforms to - identical to the OpenAPI info.version and the MCP server version. SemVer: a major means a response-envelope break (a stable field, or a layer id, removed or renamed or changed in meaning, or the default response format flipping) and is safe to pin; check-catalog membership changes ship on a minor. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.41.0";
+      contractVersion: "1.42.0";
       /** @description The four scored layers in scoring order, with display name and current weight. */
       layers: {
           /** @description Stable layer id: discovery, accessibility, usability, or payments. Removing or renaming a layer id is a major version change. Note one intentional divergence: the id 'accessibility' carries the display name 'Access'. */
@@ -979,7 +979,7 @@ export interface components {
        * @description The contract version this response conforms to - identical to the OpenAPI info.version and the MCP server version. The full versioning policy is published in the API description at /api/openapi.json.
        * @enum {string}
        */
-      contractVersion: "1.41.0";
+      contractVersion: "1.42.0";
       /** @description The apex domain derived from the requested URL. */
       domain: string;
       /** @description The normalized URL the run targeted. */
@@ -1057,6 +1057,23 @@ export interface components {
       verdict?: "satisfied" | "partial" | "unsatisfied" | "not_gradable";
       /** @description Billable steps the run took (tool calls, excluding narration and filesystem ops), present once the run finished. This is the same counter run pricing uses. */
       step_count?: number;
+      /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
+      flags?: {
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
+        blocked: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+        /** @description Half or more of the answer came from the model's memory rather than from pages it fetched. */
+        answered_from_memory: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+      };
       /** @description Journey/audit contract version (shared SemVer; see docs) */
       contractVersion: string;
     };
@@ -1090,10 +1107,45 @@ export interface components {
       verdict?: "satisfied" | "partial" | "unsatisfied" | "not_gradable";
       /** @description Billable steps the run took (tool calls, excluding narration and filesystem ops), present once the run finished. This is the same counter run pricing uses. */
       step_count?: number;
+      /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
+      flags?: {
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
+        blocked: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+        /** @description Half or more of the answer came from the model's memory rather than from pages it fetched. */
+        answered_from_memory: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+      };
       /** @description Journey/audit contract version (shared SemVer; see docs) */
       contractVersion: string;
       /** @description Echo of the custom intent text the caller sent on this request. Create-response-only: it is never returned by GET /api/journey/runs/{id} or the capped 200, and it is absent on curated runs. Experimental: may change or disappear without a major version. */
       intent?: string;
+      /** @description The one request to send next: the run's stream, held open to the end, because only a followed stream saves the result */
+      next_action?: {
+        /**
+         * @description HTTP method of the next request
+         * @enum {string}
+         */
+        method: "GET" | "POST";
+        /** @description Where to send it: an API path on this origin, or an absolute URL for a docs page */
+        url: string;
+        /** @description JSON body to send with it, when it takes one: the caller's own request, replayed */
+        body?: {
+          [key: string]: unknown;
+        };
+        /** @description Seconds to wait before sending it */
+        wait_seconds?: number;
+        /** @description Why this request is the recommended next step */
+        reason: string;
+      };
     };
     JourneyCappedRun: {
       /** @description Run id - the handle for GET /api/journey/runs/{id} and the stream */
@@ -1125,6 +1177,23 @@ export interface components {
       verdict?: "satisfied" | "partial" | "unsatisfied" | "not_gradable";
       /** @description Billable steps the run took (tool calls, excluding narration and filesystem ops), present once the run finished. This is the same counter run pricing uses. */
       step_count?: number;
+      /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
+      flags?: {
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
+        blocked: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+        /** @description Half or more of the answer came from the model's memory rather than from pages it fetched. */
+        answered_from_memory: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+      };
       /** @description Journey/audit contract version (shared SemVer; see docs) */
       contractVersion: string;
       /**
@@ -1141,6 +1210,24 @@ export interface components {
       };
       /** @description Milliseconds until a per-target slot frees */
       retry_after_ms: number;
+      /** @description The one request to send next for the served run: its stream while it is running or for 15 minutes after it failed, or the run itself for its full result once it succeeded */
+      next_action?: {
+        /**
+         * @description HTTP method of the next request
+         * @enum {string}
+         */
+        method: "GET" | "POST";
+        /** @description Where to send it: an API path on this origin, or an absolute URL for a docs page */
+        url: string;
+        /** @description JSON body to send with it, when it takes one: the caller's own request, replayed */
+        body?: {
+          [key: string]: unknown;
+        };
+        /** @description Seconds to wait before sending it */
+        wait_seconds?: number;
+        /** @description Why this request is the recommended next step */
+        reason: string;
+      };
     };
     JourneyRunDetail: {
       /** @description Run id - the handle for GET /api/journey/runs/{id} and the stream */
@@ -1172,6 +1259,23 @@ export interface components {
       verdict?: "satisfied" | "partial" | "unsatisfied" | "not_gradable";
       /** @description Billable steps the run took (tool calls, excluding narration and filesystem ops), present once the run finished. This is the same counter run pricing uses. */
       step_count?: number;
+      /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
+      flags?: {
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
+        blocked: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+        /** @description Half or more of the answer came from the model's memory rather than from pages it fetched. */
+        answered_from_memory: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+      };
       /** @description Journey/audit contract version (shared SemVer; see docs) */
       contractVersion: string;
       /** @description The full run result. Present iff status is 'succeeded'. */
@@ -1428,6 +1532,41 @@ export interface components {
           journey_layers?: ("discovery" | "identity" | "access" | "payments" | "experience")[];
         };
       };
+      /** @description The one request to send next: the run's stream while it is running, or for 15 minutes after it failed, since reopening it reconnects a run that only lost its connection. Absent once the run succeeded, because the result is in this body, and once a failure is older than 15 minutes, because the run is final. */
+      next_action?: {
+        /**
+         * @description HTTP method of the next request
+         * @enum {string}
+         */
+        method: "GET" | "POST";
+        /** @description Where to send it: an API path on this origin, or an absolute URL for a docs page */
+        url: string;
+        /** @description JSON body to send with it, when it takes one: the caller's own request, replayed */
+        body?: {
+          [key: string]: unknown;
+        };
+        /** @description Seconds to wait before sending it */
+        wait_seconds?: number;
+        /** @description Why this request is the recommended next step */
+        reason: string;
+      };
+    };
+    JourneyNextAction: {
+      /**
+       * @description HTTP method of the next request
+       * @enum {string}
+       */
+      method: "GET" | "POST";
+      /** @description Where to send it: an API path on this origin, or an absolute URL for a docs page */
+      url: string;
+      /** @description JSON body to send with it, when it takes one: the caller's own request, replayed */
+      body?: {
+        [key: string]: unknown;
+      };
+      /** @description Seconds to wait before sending it */
+      wait_seconds?: number;
+      /** @description Why this request is the recommended next step */
+      reason: string;
     };
     JourneyDomainRun: {
       /** @description Run id - the handle for GET /api/journey/runs/{id} and the stream */
@@ -1459,6 +1598,23 @@ export interface components {
       verdict?: "satisfied" | "partial" | "unsatisfied" | "not_gradable";
       /** @description Billable steps the run took (tool calls, excluding narration and filesystem ops), present once the run finished. This is the same counter run pricing uses. */
       step_count?: number;
+      /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
+      flags?: {
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
+        blocked: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+        /** @description Half or more of the answer came from the model's memory rather than from pages it fetched. */
+        answered_from_memory: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+      };
       /** @description Journey/audit contract version (shared SemVer; see docs) */
       contractVersion: string;
       /** @description The full run result. Present iff status is 'succeeded'. */
@@ -1752,6 +1908,23 @@ export interface components {
       verdict?: "satisfied" | "partial" | "unsatisfied" | "not_gradable";
       /** @description Billable steps the run took (tool calls, excluding narration and filesystem ops), present once the run finished. This is the same counter run pricing uses. */
       step_count?: number;
+      /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
+      flags?: {
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
+        blocked: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+        /** @description Half or more of the answer came from the model's memory rather than from pages it fetched. */
+        answered_from_memory: {
+          /** @description Whether the note applies to this run */
+          flagged: boolean;
+          /** @description The note in plain words, present only when flagged */
+          reason?: string;
+        };
+      };
       /** @description Journey/audit contract version (shared SemVer; see docs) */
       contractVersion: string;
       /** @description The graph-view run result. Present iff status is 'succeeded'. */
@@ -3683,7 +3856,7 @@ export interface operations {
   };
   /**
    * Draft a domain's own agent discovery files (ard.json, ai-catalog.json, poppy.json)
-   * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol, Draft 1.0, in progress, the version the spec's authors ask builders to use). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
+   * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol 1.0, the latest published version). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
    */
   generateAgentFiles: {
     parameters: {
@@ -3801,7 +3974,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Per-target cap hit - the freshness analog, not an error: the body is the most recent stored run for this exact (domain, intent, harness, model) target, marked `rate_limited: true`, so CI and agents get the newest result without spending a run. When the served run has finished, the body also carries `verdict` and `step_count`. Replay it via its `stream_url`. Anonymous tier only: a keyed caller skips the per-target cap and never receives this response. */
+      /** @description Per-target cap hit - the freshness analog, not an error: the body is the most recent stored run for this exact (domain, intent, harness, model) target, marked `rate_limited: true`, so CI and agents get the newest result without spending a run. When the served run has finished, the body also carries `verdict`, `step_count` and `flags`. Replay it via its `stream_url`. `next_action` names the one request to send next: the run itself, for its full result, once it succeeded; its stream while it is running or for 15 minutes after it failed. Anonymous tier only: a keyed caller skips the per-target cap and never receives this response. */
       200: {
         headers: {
           /** @description Seconds until the target's oldest in-window run ages out */
@@ -3817,7 +3990,7 @@ export interface operations {
           "application/json": components["schemas"]["JourneyCappedRun"];
         };
       };
-      /** @description Run created and dispatched. Open `stream_url` (SSE) and hold it to its `result` or `error` frame: the stream is what saves the finished run, which GET /api/journey/runs/{id} then reads. A keyed custom run gets its own free text back as `intent` here - the create response is the only place any intent text is published, so GET /api/journey/runs/{id} and the capped 200 never carry it, and a curated run has no `intent` at all. */
+      /** @description Run created and dispatched. Open `stream_url` (SSE) and hold it to its `result` or `error` frame: the stream is what saves the finished run, which GET /api/journey/runs/{id} then reads. `next_action` names that same stream as the one request to send next. A keyed custom run gets its own free text back as `intent` here - the create response is the only place any intent text is published, so GET /api/journey/runs/{id} and the capped 200 never carry it, and a curated run has no `intent` at all. */
       201: {
         headers: {
           /** @description Size of the one window this response describes: the per-target window (100 runs per rolling 24h) for an anonymous caller, the per-key caller window (1000 runs per rolling 24h) for a keyed one */
@@ -3831,39 +4004,51 @@ export interface operations {
           "application/json": components["schemas"]["JourneyCreatedRun"];
         };
       };
-      /** @description Invalid input: schema failure (including unknown body fields - the contract is strict, and a body matching neither intent arm or both of them lands here), `code: "INVALID_DOMAIN"` for a domain the scanner would reject, or `code: "UNSUPPORTED_AGENT"` for a (harness, model) pair that is not publicly runnable. */
+      /** @description Invalid input: schema failure (including unknown body fields - the contract is strict, and a body matching neither intent arm or both of them lands here), `code: "INVALID_DOMAIN"` for a domain the scanner would reject, or `code: "UNSUPPORTED_AGENT"` for a (harness, model) pair that is not publicly runnable. The two coded refusals carry `next_action`: the request to send again with a public host, or GET /api/journey/agents. */
       400: {
         content: {
-          "application/json": components["schemas"]["ErrorResponse"];
+          "application/json": components["schemas"]["ErrorResponse"] & {
+            /** @description The one request to send next. 400 INVALID_DOMAIN: the same request with a public host as intent.domain. 400 UNSUPPORTED_AGENT: GET /api/journey/agents, to pick an agent that runs here. 401: the docs page that says how to get a partner key. 429 and 503: the same request again after `wait_seconds`. Absent on a schema failure and on a `usage_limit_reached` 429. */
+            next_action?: components["schemas"]["JourneyNextAction"];
+          };
         };
       };
-      /** @description `code: "CUSTOM_INTENT_REQUIRES_KEY"` - the request sent a custom free-text intent without a recognized ora-issued partner API key. An absent, malformed, and unrecognized key all land here alike, so the status never doubles as a key-validity oracle. Two ways forward: run a curated intent instead (GET /api/journey/intents lists them, and that arm needs no key), or ask ora for a partner key - they are issued manually on request, so contact us at the address in this document's info.contact. */
+      /** @description `code: "CUSTOM_INTENT_REQUIRES_KEY"` - the request sent a custom free-text intent without a recognized ora-issued partner API key. An absent, malformed, and unrecognized key all land here alike, so the status never doubles as a key-validity oracle. Two ways forward: run a curated intent instead (GET /api/journey/intents lists them, and that arm needs no key), or ask ora for a partner key - they are issued manually on request, so contact us at the address in this document's info.contact. `next_action` points at the docs page that says how to get one. */
       401: {
         content: {
-          "application/json": components["schemas"]["ErrorResponse"];
+          "application/json": components["schemas"]["ErrorResponse"] & {
+            /** @description The one request to send next. 400 INVALID_DOMAIN: the same request with a public host as intent.domain. 400 UNSUPPORTED_AGENT: GET /api/journey/agents, to pick an agent that runs here. 401: the docs page that says how to get a partner key. 429 and 503: the same request again after `wait_seconds`. Absent on a schema failure and on a `usage_limit_reached` 429. */
+            next_action?: components["schemas"]["JourneyNextAction"];
+          };
         };
       };
-      /** @description Caller limit exceeded - the 20-per-minute burst cap (anonymous callers only; a keyed caller skips it), or the durable per-caller budget (20 runs per rolling 24h per IP anonymous, plus 3000 per rolling 24h shared by all anonymous callers, 1000 per rolling 24h per key; body carries `retry_after_ms`). Per-TARGET saturation is the 200 above, not this. A keyed caller whose key has used its daily or monthly journey limit gets 429 with error `usage_limit_reached` and `kind`, `period` (`day` or `month`), `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to `resets_at`: the next 00:00 UTC for a daily limit, the next 1st of the month (UTC) for a monthly one, and the later of the two when both are used up. That refusal is key-wide; GET /api/usage shows the numbers. */
+      /** @description Caller limit exceeded - the 20-per-minute burst cap (anonymous callers only; a keyed caller skips it), or the durable per-caller budget (20 runs per rolling 24h per IP anonymous, plus 3000 per rolling 24h shared by all anonymous callers, 1000 per rolling 24h per key; body carries `retry_after_ms`). Per-TARGET saturation is the 200 above, not this. A keyed caller whose key has used its daily or monthly journey limit gets 429 with error `usage_limit_reached` and `kind`, `period` (`day` or `month`), `used`, `limit`, `resets_at` and `retry_after_ms`; its Retry-After counts to `resets_at`: the next 00:00 UTC for a daily limit, the next 1st of the month (UTC) for a monthly one, and the later of the two when both are used up. That refusal is key-wide; GET /api/usage shows the numbers. The burst and per-caller refusals carry `next_action`: the same request again after `wait_seconds`; the `usage_limit_reached` refusal carries none. */
       429: {
         headers: {
           /** @description Seconds until next allowed request */
           "Retry-After"?: number;
         };
         content: {
-          "application/json": components["schemas"]["ErrorResponse"];
+          "application/json": components["schemas"]["ErrorResponse"] & {
+            /** @description The one request to send next. 400 INVALID_DOMAIN: the same request with a public host as intent.domain. 400 UNSUPPORTED_AGENT: GET /api/journey/agents, to pick an agent that runs here. 401: the docs page that says how to get a partner key. 429 and 503: the same request again after `wait_seconds`. Absent on a schema failure and on a `usage_limit_reached` 429. */
+            next_action?: components["schemas"]["JourneyNextAction"];
+          };
         };
       };
-      /** @description The run engine could not be reached; nothing was created or consumed. */
+      /** @description The run engine could not be reached; nothing was created or consumed. `next_action` is the same request again after `wait_seconds` (about a minute). */
       503: {
         content: {
-          "application/json": components["schemas"]["ErrorResponse"];
+          "application/json": components["schemas"]["ErrorResponse"] & {
+            /** @description The one request to send next. 400 INVALID_DOMAIN: the same request with a public host as intent.domain. 400 UNSUPPORTED_AGENT: GET /api/journey/agents, to pick an agent that runs here. 401: the docs page that says how to get a partner key. 429 and 503: the same request again after `wait_seconds`. Absent on a schema failure and on a `usage_limit_reached` 429. */
+            next_action?: components["schemas"]["JourneyNextAction"];
+          };
         };
       };
     };
   };
   /**
    * Get a journey run record (non-streaming)
-   * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'.
+   * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), `flags` (two notes beside the verdict that never change it: `blocked` when the site refused the agent, `answered_from_memory` when half or more of the answer came from the model's memory), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'. `next_action` names the one request to send next: the run's stream while it is running, and for 15 minutes after it failed, since reopening it reconnects a run that only lost its connection. A succeeded run carries none, and neither does one that failed longer ago, which is final.
    */
   getJourneyRun: {
     parameters: {
@@ -3873,7 +4058,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description The run record; plus `result` once succeeded. */
+      /** @description The run record; plus `result` and `flags` once succeeded, and `next_action` until then. */
       200: {
         content: {
           "application/json": components["schemas"]["JourneyRunDetail"];
@@ -3901,7 +4086,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description An existing run answered; nothing was dispatched (`dispatched` is false). Either a finished run with `result` and `run_age_seconds` (final: no backoff hint), one still running (carries `retry_after_ms` and a `Retry-After` header: poll no faster than that), or - when the domain is over its 100-per-24h cap - its newest stored run with `retry_after_ms`. The body is JourneyDomainRun, or JourneyDomainRunGraph when the effective view is `graph` (see the `view` parameter). */
+      /** @description An existing run answered; nothing was dispatched (`dispatched` is false). Either a finished run with `result`, `flags` and `run_age_seconds` (final: no backoff hint), one still running (carries `retry_after_ms` and a `Retry-After` header: poll no faster than that), or - when the domain is over its 100-per-24h cap - its newest stored run with `retry_after_ms`. The body is JourneyDomainRun, or JourneyDomainRunGraph when the effective view is `graph` (see the `view` parameter). */
       200: {
         content: {
           "application/json": components["schemas"]["JourneyDomainRun"] | components["schemas"]["JourneyDomainRunGraph"];

@@ -1,5 +1,6 @@
 import type { AuditScanResult, AuditScoreResult } from "../contract";
 import { warnOnNewerContract } from "../contract";
+import { assertKeyDestination } from "./key-destination";
 import { errorBody, pause, usageLimitMessage, watchdog } from "./shared";
 
 // Client for ora's public agent-readiness audit. Uses the SSE endpoint
@@ -108,6 +109,7 @@ export async function performAudit(
 	// agree — the poll target is rate limited too, and a keyed scan whose polls
 	// went keyless would throttle exactly the high-volume callers keys exist for.
 	options = { ...options, apiKey: options.apiKey || process.env.ORA_SCAN_API_KEY || undefined };
+	if (options.apiKey) assertKeyDestination(base, "ORA_API_URL", PUBLIC_BASE);
 	options.progress?.(`Auditing ${target} with ora`);
 
 	const streamed = await consumeScanStream(base, target, options);
@@ -158,10 +160,12 @@ async function consumeScanStream(
 	if (res.status === 429) {
 		dog.disarm();
 		const usage = await usageLimitMessage(res);
-		if (usage) throw new AuditApiError(`ora usage limit reached: ${usage}`);
+		const { payload } = await errorBody(res);
+		if (usage) throw new AuditApiError(`ora usage limit reached: ${usage}`, { payload });
 		const wait = res.headers.get("retry-after");
 		throw new AuditApiError(
 			`ora rate limit exceeded${wait ? ` — retry after ${wait}s` : ""} (burst: 10 scans/min/IP; daily: 30 scans + 6 force per 24h). An ora-issued scan API key lifts these limits: set ORA_SCAN_API_KEY or pass --api-key.`,
+			{ payload },
 		);
 	}
 	if (!res.ok || !res.body) {

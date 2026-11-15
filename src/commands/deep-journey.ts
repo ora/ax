@@ -1,15 +1,33 @@
 import pc from "picocolors";
 import {
+	apiBase,
 	DeepJourneyApiError,
 	type DeepJourneyOutcome,
 	fetchJourneyAgents,
 	fetchJourneyIntents,
 	formatWait,
+	JOURNEY_RUNS_PATH,
 	type JourneyAgentOption,
 	performDeepJourney,
+	servedNextAction,
 } from "../api/deep-journey";
 import type { JourneyStep } from "../api/platform";
-import type { JourneyRunResult, JourneyTrajectoryStep } from "../contract";
+import type {
+	JourneyNextAction,
+	JourneyRunDetail,
+	JourneyRunResult,
+	JourneyTrajectoryStep,
+} from "../contract";
+import { type CommandError, reportError } from "../report/json-error";
+import {
+	axCall,
+	type NextStep,
+	placeholder,
+	printNext,
+	servedNextStep,
+	shellWord,
+	type Word,
+} from "../report/next-line";
 import { flow, plain, stdoutWidth } from "../ui/ansi";
 import { buildJourneyTree, drawJourneyTree, journeySummary } from "../ui/graph";
 import { LivePanel } from "../ui/panel";
@@ -56,9 +74,37 @@ export interface DeepJourneyCommandInput {
 	noStream: boolean;
 }
 
-function fail(message: string): typeof EXIT.API {
-	console.error(pc.red(`ax deep-journey: ${message}`));
-	return EXIT.API;
+/**
+ * The next call after a failed run request: the request ora named, when it
+ * named one. Otherwise a run that is still executing is read, never started
+ * again; a missing key is named; everything else is the same call, after the
+ * wait the message names.
+ */
+function failureNext(
+	error: unknown,
+	sameCall: string,
+	keyed: string,
+	served: (action: JourneyNextAction) => NextStep,
+): NextStep {
+	if (error instanceof DeepJourneyApiError && error.nextAction) return served(error.nextAction);
+	const code = error instanceof DeepJourneyApiError ? error.code : null;
+	if (code === "RUN_STILL_RUNNING" && error instanceof DeepJourneyApiError && error.runUrl) {
+		return {
+			call: `curl -s ${shellWord(error.runUrl)}`,
+			why: "read the run; starting another one would not finish this one sooner",
+		};
+	}
+	switch (code) {
+		case "NEEDS_KEY":
+			return { call: keyed, why: "ora did not recognise the key; partner keys come from ora" };
+		case "RATE_LIMITED":
+		case "USAGE_LIMIT_REACHED":
+			return { call: sameCall, why: "after the wait the message names" };
+		case "ENGINE_UNAVAILABLE":
+			return { call: sameCall, why: "in about a minute" };
+		default:
+			return { call: sameCall, why: "retry; ora may be briefly unreachable" };
+	}
 }
 
 function verdictLine(verdict: string | undefined, status: string): string {
@@ -77,6 +123,16 @@ function verdictLine(verdict: string | undefined, status: string): string {
 
 function agentLine(agent: JourneyAgentOption): string {
 	return `${agent.label} · ${agent.variant}`;
+}
+
+// The notes ora raised beside the verdict (the site refused the agent, the
+// answer came from memory), in ora's words and order. They never change the
+// verdict. A raised flag that came without a reason shows its id instead.
+function flagLines(flags: JourneyRunDetail["flags"]): string[] {
+	if (!flags) return [];
+	return Object.entries(flags)
+		.filter(([, flag]) => flag?.flagged)
+		.map(([id, flag]) => `${pc.yellow("!")} ${plain(flag.reason || id.replaceAll("_", " "))}`);
 }
 
 // The live graph (ui/graph) is written against the platform `JourneyStep`
@@ -371,6 +427,7 @@ function renderOutcome(outcome: DeepJourneyOutcome, url: string): string[] {
 	if (tokens != null) chips.push(`${chipTokens(tokens)} tokens`);
 	if (result?.cost_usd != null) chips.push(chipCost(result.cost_usd));
 	if (chips.length) lines.push(`  ${pc.dim(chips.join("  ·  "))}`);
+	for (const line of flagLines(detail.flags)) lines.push(`  ${line}`);
 
 	// Behavioral signals: the answer-quality score cards and attribution
 	// distributions, when the result carries them.
@@ -402,15 +459,34 @@ function renderOutcome(outcome: DeepJourneyOutcome, url: string): string[] {
 		);
 	}
 
-	lines.push("", pc.dim(`  For the 4-layer readiness audit, run: ax audit ${url}`));
+	lines.push("");
 	return lines;
 }
 
 export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promise<number> {
+	// Usage mistakes print plain, API failures in red, both prefixed. `cause`
+	// is the thrown error, whose served body (if any) is what --json prints.
+	const fail = (error: CommandError, exit: number, cause?: unknown): number => {
+		const prefixed = (message: string) => `ax deep-journey: ${message}`;
+		reportError(error, {
+			json: input.json,
+			display: (message) => (exit === EXIT.API ? pc.red(prefixed(message)) : prefixed(message)),
+			served: cause instanceof DeepJourneyApiError ? cause.payload : undefined,
+		});
+		return exit;
+	};
+	// A caller reading JSON keeps reading JSON on the next call.
+	const json = input.json ? ["--json"] : [];
 	const target = input.url.trim();
 	if (!target) {
-		console.error("ax deep-journey: a target URL or domain is required");
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "INVALID_TARGET",
+				message: "a target URL or domain is required",
+				next: { call: axCall(["deep-journey", placeholder("domain"), ...json]) },
+			},
+			EXIT.USAGE,
+		);
 	}
 
 	const interactive = !input.json && process.stderr.isTTY;
@@ -421,17 +497,59 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	const task = input.task?.trim() || undefined;
 	const apiKey =
 		input.apiKey || process.env.ORA_PARTNER_API_KEY || process.env.ORA_SCAN_API_KEY || undefined;
+	// The run as a call, for the Next line. The key is never echoed: a key
+	// passed as a flag comes back as a placeholder, one from the environment
+	// needs no flag at all.
+	const runWords = (intent: string | undefined, agentId: string | undefined): Word[] => [
+		"deep-journey",
+		target,
+		...(task ? ["--task", task] : intent ? ["--intent", intent] : []),
+		...(agentId ? ["--agent", agentId] : []),
+		...json,
+		...(input.noStream ? ["--no-stream"] : []),
+	];
+	const keyWords: Word[] = input.apiKey ? ["--api-key", placeholder("key")] : [];
+	const sameCall = (intent: string | undefined, agentId: string | undefined) =>
+		axCall([...runWords(intent, agentId), ...keyWords]);
+	const keyedCall = (intent: string | undefined, agentId: string | undefined) =>
+		`ORA_PARTNER_API_KEY=<partner key> ${axCall(runWords(intent, agentId))}`;
+	// A next action ora served is the Next line. Starting the run again is
+	// this same ax call, which follows the run it starts; any other request
+	// (the run's stream, the agent list) is written as curl. A docs page ora
+	// links to (the partner key page on a 401) puts the keyed retry first.
+	const base = apiBase();
+	const served =
+		(intent: string | undefined, agentId: string | undefined) =>
+		(action: JourneyNextAction): NextStep =>
+			servedNextStep(action, {
+				base,
+				axEquivalent: { method: "POST", url: JOURNEY_RUNS_PATH, call: sameCall(intent, agentId) },
+				pageCall: keyedCall(intent, agentId),
+			});
 	if (task && input.intent !== undefined) {
-		console.error(
-			"ax deep-journey: --task and --intent are mutually exclusive — a free-text task replaces the curated intent",
+		return fail(
+			{
+				code: "INVALID_FLAG",
+				message:
+					"--task and --intent are mutually exclusive — a free-text task replaces the curated intent",
+				next: { call: sameCall(undefined, input.agent), why: "the task alone" },
+			},
+			EXIT.USAGE,
 		);
-		return EXIT.USAGE;
 	}
 	if (task && !apiKey) {
-		console.error(
-			"ax deep-journey: --task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
+		return fail(
+			{
+				code: "NEEDS_KEY",
+				message:
+					"--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
+				next: {
+					call: keyedCall(undefined, input.agent),
+					why: "or drop --task to run a curated task without a key",
+				},
+			},
+			EXIT.USAGE,
 		);
-		return EXIT.USAGE;
 	}
 
 	// Resolve the intent and agent against the live rosters (both static,
@@ -452,12 +570,19 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 			if (intentId === undefined) {
 				intentId = intents.defaultId;
 			} else if (!intents.intents.some((option) => option.id === intentId)) {
-				console.error(
-					`ax deep-journey: unknown intent "${intentId}". Available intents:\n${intents.intents
-						.map((option) => `  ${option.id.padEnd(12)} ${option.hint}`)
-						.join("\n")}`,
+				return fail(
+					{
+						code: "UNKNOWN_INTENT",
+						message: `unknown intent "${intentId}". Available intents:\n${intents.intents
+							.map((option) => `  ${option.id.padEnd(12)} ${option.hint}`)
+							.join("\n")}`,
+						next: {
+							call: sameCall(intents.defaultId, input.agent),
+							why: "or any intent id listed above",
+						},
+					},
+					EXIT.USAGE,
 				);
-				return EXIT.USAGE;
 			}
 			const chosen = intents.intents.find((option) => option.id === intentId);
 			// The curated templates carry a literal `{domain}` token the server fills
@@ -486,16 +611,36 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 		const wantedAgent = input.agent ?? preferredDefault;
 		const found = roster.find((option) => option.id === wantedAgent);
 		if (!found) {
-			console.error(
-				`ax deep-journey: unknown agent "${wantedAgent}". Available agents:\n${roster
-					.map((option) => `  ${option.id.padEnd(12)} ${agentLine(option)}`)
-					.join("\n")}`,
+			return fail(
+				{
+					code: "UNKNOWN_AGENT",
+					message: `unknown agent "${wantedAgent}". Available agents:\n${roster
+						.map((option) => `  ${option.id.padEnd(12)} ${agentLine(option)}`)
+						.join("\n")}`,
+					next: {
+						call: sameCall(intentId, preferredDefault),
+						why: "or any agent id listed above",
+					},
+				},
+				EXIT.USAGE,
 			);
-			return EXIT.USAGE;
 		}
 		agent = found;
 	} catch (error) {
-		return fail(error instanceof Error ? error.message : String(error));
+		return fail(
+			{
+				code: "API_ERROR",
+				message: error instanceof Error ? error.message : String(error),
+				next: failureNext(
+					error,
+					sameCall(intentId, input.agent),
+					keyedCall(intentId, input.agent),
+					served(intentId, input.agent),
+				),
+			},
+			EXIT.API,
+			error,
+		);
 	}
 
 	if (!input.json) {
@@ -554,15 +699,43 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	} catch (error) {
 		if (live) panel.close();
 		else if (interactive) spinner.stop();
-		if (error instanceof DeepJourneyApiError) return fail(error.message);
-		return fail(error instanceof Error ? error.message : String(error));
+		return fail(
+			{
+				code: (error instanceof DeepJourneyApiError && error.code) || "API_ERROR",
+				message: error instanceof Error ? error.message : String(error),
+				next: failureNext(
+					error,
+					sameCall(intentId, agent.id),
+					keyedCall(intentId, agent.id),
+					served(intentId, agent.id),
+				),
+			},
+			EXIT.API,
+			error,
+		);
 	}
 	if (live) panel.close();
 	else if (interactive) spinner.stop();
 
+	const failed = outcome.detail.status === "failed";
+	const servedNext = servedNextAction(outcome.detail);
+	const next: NextStep = servedNext
+		? served(intentId, agent.id)(servedNext)
+		: failed
+			? {
+					call: sameCall(intentId, agent.id),
+					why: "the run ended in an engine error; re-running is free to try",
+				}
+			: {
+					call: axCall(["audit", target, ...json]),
+					why: "the readiness audit: which checks explain what the agent hit",
+				};
+
 	if (input.json) {
 		console.log(JSON.stringify(outcome.detail, null, 2));
-		return outcome.detail.status === "failed" ? EXIT.RUN_FAILED : EXIT.OK;
+		for (const line of flagLines(outcome.detail.flags)) console.error(line);
+		printNext(next, { stderr: true });
+		return failed ? EXIT.RUN_FAILED : EXIT.OK;
 	}
 
 	if (outcome.cached) {
@@ -592,5 +765,6 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 	}
 
 	for (const line of renderOutcome(outcome, target)) console.log(line);
-	return outcome.detail.status === "failed" ? EXIT.RUN_FAILED : EXIT.OK;
+	printNext(next, { stderr: false });
+	return failed ? EXIT.RUN_FAILED : EXIT.OK;
 }

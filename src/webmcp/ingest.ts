@@ -17,6 +17,7 @@
  * server would reject anyway.
  */
 
+import { assertKeyDestination } from "../api/key-destination";
 import { errorBodyText, watchdog } from "../api/shared";
 import { WEBMCP_SHIM_VERSION } from "./vendor/checks";
 import type { PublicWebmcpAudit } from "./vendor/projection";
@@ -40,15 +41,21 @@ export class WebmcpIngestError extends Error {
 	readonly code: string | null;
 	/** Milliseconds to wait, from a 429. */
 	readonly retryAfterMs: number | null;
+	/**
+	 * The error body or `error` frame exactly as ora served it, when it sent
+	 * JSON (what `--json` prints); null or undefined otherwise.
+	 */
+	readonly payload: unknown;
 
 	constructor(
 		message: string,
-		options: { code?: string | null; retryAfterMs?: number | null } = {},
+		options: { code?: string | null; retryAfterMs?: number | null; payload?: unknown } = {},
 	) {
 		super(message);
 		this.name = "WebmcpIngestError";
 		this.code = options.code ?? null;
 		this.retryAfterMs = options.retryAfterMs ?? null;
+		this.payload = options.payload;
 	}
 }
 
@@ -176,6 +183,7 @@ export async function ingestCapture(
 	options: IngestOptions = {},
 ): Promise<PublicWebmcpAudit> {
 	const base = (options.baseUrl ?? process.env.ORA_API_URL ?? PUBLIC_BASE).replace(/\/+$/, "");
+	if (options.apiKey) assertKeyDestination(base, "ORA_API_URL", PUBLIC_BASE);
 	const idleMs = options.idleMs ?? STREAM_IDLE_MS;
 	const dog = watchdog(idleMs);
 	const timeoutError = () =>
@@ -236,27 +244,27 @@ async function httpError(res: Response): Promise<WebmcpIngestError> {
 		const wait = retryAfterMs ? ` — retry in ${Math.ceil(retryAfterMs / 1000)}s` : "";
 		return new WebmcpIngestError(
 			`ora rate limit exceeded${wait} (10/min and 20 per 24h per IP). An ora partner or scan API key lifts the daily limit: set ORA_PARTNER_API_KEY or pass --api-key.`,
-			{ code: code ?? "RATE_LIMITED", retryAfterMs },
+			{ code: code ?? "RATE_LIMITED", retryAfterMs, payload },
 		);
 	}
 
 	if (code === "SHIM_VERSION_MISMATCH") {
 		return new WebmcpIngestError(
 			`This ax build captures with a shim ora no longer scores, so the audit was refused.\nUpgrade with \`npm i -g ax@latest\` (or \`npx ax@latest webmcp-audit …\`) and run it again.\n\nora said: ${payload?.error ?? "shim version mismatch"}`,
-			{ code },
+			{ code, payload },
 		);
 	}
 
 	if (res.status === 503) {
 		return new WebmcpIngestError(
 			`ora cannot score right now: ${sentence(payload?.error ?? "scoring is unavailable")} Nothing was spent against your rate limit; try again shortly.`,
-			{ code: code ?? "SCORING_UNAVAILABLE" },
+			{ code: code ?? "SCORING_UNAVAILABLE", payload },
 		);
 	}
 
 	return new WebmcpIngestError(
 		`ora ingest failed: ${payload?.error ?? (await errorBodyText(res))}`,
-		{ code },
+		{ code, payload },
 	);
 }
 
@@ -297,6 +305,7 @@ async function consumeIngestStream(
 					// the caller would only see "ended before completing".
 					throw new WebmcpIngestError(`ora audit failed: ${event.message}`, {
 						code: event.status,
+						payload: event,
 					});
 				}
 				if (event.type === "done") {

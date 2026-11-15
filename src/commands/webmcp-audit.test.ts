@@ -49,6 +49,7 @@ beforeEach(() => {
 	vi.mocked(ingestCapture).mockResolvedValue(AUDIT);
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
+	vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 });
 
 afterEach(() => {
@@ -204,5 +205,69 @@ describe("warnings the reader must not miss", () => {
 		const err = vi.spyOn(console, "error").mockImplementation(() => {});
 		await webmcpAuditCommand({ ...BASE, json: true });
 		expect(err.mock.calls.map((c) => String(c[0])).join("\n")).not.toMatch(/WebMCPTesting/);
+	});
+});
+
+describe("Next lines and the --json error envelope", () => {
+	const envelope = () => JSON.parse(String(vi.mocked(process.stdout.write).mock.calls[0][0]));
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+
+	it("--json prints the envelope on a URL it cannot drive", async () => {
+		expect(await webmcpAuditCommand({ ...BASE, url: "not a url" })).toBe(EXIT.USAGE);
+		expect(envelope()).toEqual({
+			error: {
+				code: "INVALID_TARGET",
+				message: 'Not an auditable URL: "not a url"',
+				next: "ax webmcp-audit http://localhost:3000 --json",
+			},
+		});
+	});
+
+	it("an outdated capture shim points at the upgrade, not a retry", async () => {
+		vi.mocked(ingestCapture).mockRejectedValue(
+			new WebmcpIngestError("upgrade ax", { code: "SHIM_VERSION_MISMATCH" }),
+		);
+		expect(await webmcpAuditCommand({ ...BASE })).toBe(EXIT.API);
+		expect(envelope().error).toMatchObject({
+			code: "SHIM_VERSION_MISMATCH",
+			next: "npm i -g ax@latest",
+		});
+	});
+
+	it("--json prints ora's refusal body unchanged and keeps the upgrade Next line on stderr", async () => {
+		const served = { error: "capture shim 3 is no longer scored", code: "SHIM_VERSION_MISMATCH" };
+		vi.mocked(ingestCapture).mockRejectedValue(
+			new WebmcpIngestError("upgrade ax", { code: "SHIM_VERSION_MISMATCH", payload: served }),
+		);
+		expect(await webmcpAuditCommand({ ...BASE })).toBe(EXIT.API);
+		expect(process.stdout.write).toHaveBeenCalledTimes(1);
+		expect(process.stdout.write).toHaveBeenCalledWith(`${JSON.stringify(served, null, 2)}\n`);
+		expect(stderrLines()).toEqual([
+			"upgrade ax",
+			"Next: npm i -g ax@latest  # this ax captures with a shim ora no longer scores; then run it again",
+		]);
+	});
+
+	it("keeps stdout the raw payload and suggests a re-run for a local page on stderr", async () => {
+		expect(await webmcpAuditCommand({ ...BASE })).toBe(EXIT.OK);
+		expect(console.log).toHaveBeenCalledTimes(1);
+		expect(process.stdout.write).not.toHaveBeenCalled();
+		expect(stderrLines()).toContain(
+			"Next: ax webmcp-audit http://localhost:3000 --json  # after you fix the failing checks above, run it again",
+		);
+	});
+
+	it("moves a public page that cleared the gate on to the whole site", async () => {
+		expect(await webmcpAuditCommand({ ...BASE, url: "https://shop.example.com/" })).toBe(EXIT.OK);
+		expect(stderrLines()).toContain(
+			"Next: ax audit shop.example.com --json  # the readiness audit of the whole site",
+		);
+	});
+
+	it("prints no envelope when ora returns no score, because the payload is already out", async () => {
+		vi.mocked(ingestCapture).mockResolvedValue({ ...AUDIT, score: null, grade: null });
+		expect(await webmcpAuditCommand({ ...BASE, minScore: "70" })).toBe(EXIT.API);
+		expect(process.stdout.write).not.toHaveBeenCalled();
+		expect(stderrLines().some((line) => line.startsWith("Next: ax webmcp-audit"))).toBe(true);
 	});
 });

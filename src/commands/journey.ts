@@ -1,12 +1,16 @@
 import pc from "picocolors";
+import { KEY_DESTINATION_WHY, KeyDestinationError } from "../api/key-destination";
 import {
 	type JourneyInsight,
 	type JourneyRun,
 	type JourneyStep,
 	launchJourney,
+	PlatformApiError,
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
+import { type CommandError, reportError } from "../report/json-error";
+import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { flow, squeeze, stdoutWidth } from "../ui/ansi";
 import {
 	buildJourneyTree,
@@ -147,6 +151,65 @@ function journeyRunJson(run: JourneyRun): string {
 	);
 }
 
+/** A caller reading JSON keeps reading JSON on the next call. */
+const jsonWords = (input: JourneyCommandInput) => (input.json ? ["--json"] : []);
+
+/** After a run: audit the site it targeted, or name one when the run had none. */
+function resultNext(input: JourneyCommandInput): NextStep {
+	if (input.domain) {
+		return {
+			call: axCall(["audit", input.domain, ...jsonWords(input)]),
+			why: "the readiness audit: which checks explain what the agent hit",
+		};
+	}
+	return {
+		call: axCall(["journey", input.intent, "--domain", placeholder("domain"), ...jsonWords(input)]),
+		why: "name the site so the run can be traced back to it",
+	};
+}
+
+/**
+ * A failed launch. `launchJourney` reads the key from ORA_API_KEY, so an unset
+ * variable is the missing-key failure; anything else is retried as the same call.
+ */
+function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
+	const words = [
+		"journey",
+		input.intent,
+		...(input.domain ? ["--domain", input.domain] : []),
+		"--harness",
+		input.harness,
+		...(input.model ? ["--model", input.model] : []),
+		...jsonWords(input),
+	];
+	const message = cause instanceof Error ? cause.message : String(cause);
+	if (!process.env.ORA_API_KEY) {
+		return {
+			code: "MISSING_API_KEY",
+			message,
+			next: {
+				call: `ORA_API_KEY=<platform key> ${axCall(words)}`,
+				why: "ax journey runs on ora's platform API and needs a platform key",
+			},
+		};
+	}
+	if (cause instanceof KeyDestinationError) {
+		return {
+			code: "KEY_DESTINATION_REFUSED",
+			message,
+			next: { call: axCall(words), why: KEY_DESTINATION_WHY },
+		};
+	}
+	return {
+		code: "PLATFORM_ERROR",
+		message,
+		next: {
+			call: axCall(words),
+			why: "retry; if it fails the same way, check ORA_API_KEY and ORA_PLATFORM_URL",
+		},
+	};
+}
+
 // Exit codes: 0 run outcome "success" · 1 finished otherwise · 2 error.
 export async function journeyCommand(input: JourneyCommandInput): Promise<number> {
 	const request = {
@@ -155,15 +218,24 @@ export async function journeyCommand(input: JourneyCommandInput): Promise<number
 		harness: input.harness,
 		model: input.model,
 	};
+	const fail = (cause: unknown): number => {
+		const error = launchFailure(input, cause);
+		reportError(error, {
+			json: input.json,
+			display: (message) => `Journey failed: ${message}`,
+			served: cause instanceof PlatformApiError ? cause.payload : undefined,
+		});
+		return 2;
+	};
 
 	if (input.json) {
 		try {
 			const run = await launchJourney(request);
 			process.stdout.write(`${journeyRunJson(run)}\n`);
+			printNext(resultNext(input), { stderr: true });
 			return run.result?.outcome === "success" ? 0 : 1;
 		} catch (cause) {
-			console.error(`Journey failed: ${cause instanceof Error ? cause.message : String(cause)}`);
-			return 2;
+			return fail(cause);
 		}
 	}
 
@@ -210,10 +282,10 @@ export async function journeyCommand(input: JourneyCommandInput): Promise<number
 			console.log(pc.dim("  (insight not available for this run)"));
 			console.log();
 		}
+		printNext(resultNext(input), { stderr: false });
 		return run.result?.outcome === "success" ? 0 : 1;
 	} catch (cause) {
 		panel.close();
-		console.error(`Journey failed: ${cause instanceof Error ? cause.message : String(cause)}`);
-		return 2;
+		return fail(cause);
 	}
 }

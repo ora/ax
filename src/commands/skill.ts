@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
 import { fetchSkill, fetchSkillIndex, SkillApiError } from "../api/skills";
+import { reportError } from "../report/json-error";
+import { axCall, printNext } from "../report/next-line";
 import { EXIT } from "./audit";
 
 export interface SkillCommandInput {
@@ -35,8 +37,12 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 	try {
 		if (!input.name) {
 			const index = await fetchSkillIndex();
+			const next = index[0]
+				? { call: axCall(["skill", index[0].name, "--install"]), why: "or any name in the list" }
+				: { call: axCall(["learn"]), why: "the registry is empty; print the ax workflow instead" };
 			if (input.json) {
 				process.stdout.write(`${JSON.stringify(index, null, 2)}\n`);
+				printNext(next, { stderr: true });
 				return EXIT.OK;
 			}
 			console.log("");
@@ -48,8 +54,7 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 				}
 				console.log("");
 			}
-			console.log(pc.dim("  Install one with: ax skill <name> --install"));
-			console.log("");
+			printNext(next, { stderr: false });
 			return EXIT.OK;
 		}
 
@@ -61,15 +66,51 @@ export async function skillCommand(input: SkillCommandInput): Promise<number> {
 			writeFileSync(path, bytes);
 			console.log(`Installed ${entry.name} to ${path}`);
 			if (entry.digest) console.log(pc.dim(`verified ${entry.digest}`));
+			printNext(
+				{
+					call: axCall(["learn"]),
+					why: "the workflow: scan, read the report, run a journey, read its result",
+				},
+				{ stderr: false },
+			);
 			return EXIT.OK;
 		}
+		// stdout is the SKILL.md bytes alone, so `ax skill <name> > SKILL.md` works.
 		process.stdout.write(bytes);
+		printNext(
+			{
+				call: axCall(["skill", entry.name, "--install"]),
+				why: `write it to ${DEFAULT_INSTALL_DIR}`,
+			},
+			{ stderr: true },
+		);
 		return EXIT.OK;
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : String(cause);
-		console.error(`Skill command failed: ${message}`);
 		// An unknown name is a usage mistake; everything else is registry trouble.
-		if (cause instanceof SkillApiError && message.includes("unknown skill")) return EXIT.USAGE;
-		return EXIT.API;
+		const unknown = cause instanceof SkillApiError && cause.code === "UNKNOWN_SKILL";
+		const json = input.json ? ["--json"] : [];
+		const retry = axCall([
+			"skill",
+			...(input.name ? [input.name] : []),
+			...json,
+			...(input.install ? ["--install"] : []),
+			...(input.dir ? ["--dir", input.dir] : []),
+		]);
+		reportError(
+			{
+				code: cause instanceof SkillApiError ? cause.code : "REGISTRY_ERROR",
+				message,
+				next: unknown
+					? { call: axCall(["skill", ...json]), why: "list the skills the registry has" }
+					: { call: retry, why: "retry; the registry may be briefly unreachable" },
+			},
+			{
+				json: input.json,
+				display: (cleaned) => `Skill command failed: ${cleaned}`,
+				served: cause instanceof SkillApiError ? cause.payload : undefined,
+			},
+		);
+		return unknown ? EXIT.USAGE : EXIT.API;
 	}
 }

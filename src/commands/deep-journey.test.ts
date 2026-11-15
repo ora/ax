@@ -42,7 +42,16 @@ vi.mock("../api/deep-journey", async (importOriginal) => {
 	};
 });
 
-import { fetchJourneyIntents, performDeepJourney } from "../api/deep-journey";
+import realDetail from "../api/__fixtures__/deep-journey-detail.json";
+import runningDetail from "../api/__fixtures__/deep-journey-detail-running.json";
+import refusals from "../api/__fixtures__/deep-journey-refusals.json";
+import {
+	DeepJourneyApiError,
+	type DeepJourneyOutcome,
+	fetchJourneyIntents,
+	performDeepJourney,
+} from "../api/deep-journey";
+import type { JourneyNextAction } from "../contract";
 
 const BASE = { url: "zapier.com", json: true, noStream: false };
 
@@ -53,6 +62,7 @@ describe("deepJourneyCommand - keyed tier flags", () => {
 		vi.stubEnv("ORA_SCAN_API_KEY", "");
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.spyOn(console, "log").mockImplementation(() => {});
+		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 	});
 	afterEach(() => {
 		vi.unstubAllEnvs();
@@ -288,5 +298,242 @@ describe("deepJourneyCommand - keyed tier flags", () => {
 		// The intent-category line and the turns chip are intentionally not shown.
 		expect(out).not.toContain("turns");
 		expect(out).not.toContain("intent signup");
+	});
+});
+
+describe("deepJourneyCommand - Next lines and the --json error envelope", () => {
+	const writes: string[] = [];
+	beforeEach(() => {
+		vi.clearAllMocks();
+		writes.length = 0;
+		vi.stubEnv("ORA_PARTNER_API_KEY", "");
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+			writes.push(String(line ?? ""));
+		});
+		vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+			writes.push(String(chunk));
+			return true;
+		});
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
+	});
+
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+	const envelope = () => JSON.parse(writes.join(""));
+
+	it("--json prints the envelope for --task without a key, naming the key in the next call", async () => {
+		expect(await deepJourneyCommand({ ...BASE, task: "Find the pricing page" })).toBe(EXIT.USAGE);
+		expect(envelope().error).toEqual({
+			code: "NEEDS_KEY",
+			message: expect.stringContaining("--task needs an ora partner API key"),
+			next: "ORA_PARTNER_API_KEY=<partner key> ax deep-journey zapier.com --task 'Find the pricing page' --json",
+		});
+	});
+
+	it("an unknown intent suggests the default one", async () => {
+		expect(await deepJourneyCommand({ ...BASE, intent: "nope" })).toBe(EXIT.USAGE);
+		expect(envelope().error.code).toBe("UNKNOWN_INTENT");
+		expect(envelope().error.next).toBe("ax deep-journey zapier.com --intent pricing --json");
+	});
+
+	it("a run still executing is read, never started again", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("run run_1 is still executing; the stream ended", {
+				code: "RUN_STILL_RUNNING",
+				runUrl: "https://ora.ai/api/journey/runs/run_1",
+			}),
+		);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.API);
+		expect(envelope().error).toEqual({
+			code: "RUN_STILL_RUNNING",
+			message: expect.stringContaining("still executing"),
+			next: "curl -s https://ora.ai/api/journey/runs/run_1",
+		});
+	});
+
+	it("a retry after an API error repeats the run with the key as a placeholder", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora's run engine is unavailable right now", {
+				code: "ENGINE_UNAVAILABLE",
+			}),
+		);
+		expect(
+			await deepJourneyCommand({ ...BASE, intent: "pricing", apiKey: "pk_live_not_for_echo" }),
+		).toBe(EXIT.API);
+		expect(envelope().error.next).toBe(
+			"ax deep-journey zapier.com --intent pricing --agent cas-haiku --json --api-key <key>",
+		);
+		expect(`${writes.join("")}${stderrLines().join("\n")}`).not.toContain("pk_live_not_for_echo");
+	});
+
+	it("--json prints ora's error body unchanged and puts the message and Next line on stderr", async () => {
+		const served = {
+			error: "usage_limit_reached",
+			kind: "journey",
+			period: "month",
+			used: 1000,
+			limit: 1000,
+			resets_at: "2026-12-01T00:00:00Z",
+			next_action: { call: "ax deep-journey zapier.com" },
+		};
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora usage limit reached: this API key has used its journey limit", {
+				code: "USAGE_LIMIT_REACHED",
+				payload: served,
+			}),
+		);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.API);
+		expect(writes).toEqual([`${JSON.stringify(served, null, 2)}\n`]);
+		expect(stderrLines()).toEqual([
+			expect.stringContaining("ora usage limit reached"),
+			"Next: ax deep-journey zapier.com --intent pricing --agent cas-haiku --json  # after the wait the message names",
+		]);
+	});
+
+	it("--json passes through ora's body when the roster fetch fails too", async () => {
+		const served = { error: "rate_limited", retry_after_ms: 30_000 };
+		vi.mocked(fetchJourneyIntents).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora request failed: rate_limited", { payload: served }),
+		);
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.API);
+		expect(envelope()).toEqual(served);
+	});
+
+	it("--json keeps stdout the run detail and puts the Next line on stderr", async () => {
+		expect(await deepJourneyCommand(BASE)).toBe(EXIT.OK);
+		expect(envelope()).toMatchObject({ id: "run_1", status: "succeeded" });
+		expect(stderrLines()).toContain(
+			"Next: ax audit zapier.com --json  # the readiness audit: which checks explain what the agent hit",
+		);
+	});
+
+	it("ends the human result with the Next line on stdout", async () => {
+		expect(await deepJourneyCommand({ ...BASE, json: false, noStream: true })).toBe(EXIT.OK);
+		expect(writes.at(-1)).toBe(
+			"Next: ax audit zapier.com  # the readiness audit: which checks explain what the agent hit",
+		);
+	});
+});
+
+// Real 1.42.0 responses (provenance in src/api/deep-journey.test.ts). No local
+// run is flagged, so the raised flag is a delta carrying the reason ora writes
+// for a first request refused with a 403.
+describe("deepJourneyCommand - flags and the next action ora served", () => {
+	const writes: string[] = [];
+	const BLOCKED_REASON = "The site refused the agent's first request with HTTP 403";
+	const blockedDetail = {
+		...realDetail,
+		flags: { ...realDetail.flags, blocked: { flagged: true, reason: BLOCKED_REASON } },
+	};
+	const STREAM_NEXT = runningDetail.next_action as JourneyNextAction;
+	const STREAM_LINE = `Next: curl -s https://ora.ai${runningDetail.stream_url}  # ${STREAM_NEXT.reason}`;
+	const AUDIT_LINE =
+		"Next: ax audit linear.app --json  # the readiness audit: which checks explain what the agent hit";
+	const outcomeWith = (detail: object) =>
+		({
+			record: { id: realDetail.id, status: "succeeded" },
+			cached: false,
+			allowance: {},
+			detail,
+		}) as unknown as DeepJourneyOutcome;
+	const RUN = { url: "linear.app", intent: "pricing", json: true, noStream: false };
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		writes.length = 0;
+		vi.stubEnv("ORA_PARTNER_API_KEY", "");
+		vi.stubEnv("ORA_SCAN_API_KEY", "");
+		vi.stubEnv("ORA_API_URL", "https://ora.ai");
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "log").mockImplementation((line?: unknown) => {
+			writes.push(String(line ?? ""));
+		});
+		vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+			writes.push(String(chunk));
+			return true;
+		});
+	});
+	afterEach(() => {
+		vi.unstubAllEnvs();
+		vi.restoreAllMocks();
+	});
+
+	const stderrLines = () => vi.mocked(console.error).mock.calls.map((c) => String(c[0]));
+	const stdoutJson = () => JSON.parse(writes.join(""));
+
+	it("prints a raised flag in ora's words, right under the verdict", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(blockedDetail));
+		expect(await deepJourneyCommand({ ...RUN, json: false, noStream: true })).toBe(EXIT.OK);
+		const flag = writes.findIndex((line) => line.includes(BLOCKED_REASON));
+		expect(writes[flag]).toMatch(/!.* The site refused the agent's first request with HTTP 403$/);
+		const verdict = writes.findIndex((line) => line.includes("task satisfied"));
+		expect(flag).toBeGreaterThan(verdict);
+		expect(flag - verdict).toBeLessThanOrEqual(2);
+	});
+
+	it("--json keeps ora's detail unchanged on stdout and puts a raised flag on stderr", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(blockedDetail));
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.OK);
+		expect(stdoutJson()).toEqual(blockedDetail);
+		expect(stderrLines()).toEqual([
+			expect.stringMatching(/!.* The site refused the agent's first request with HTTP 403$/),
+			AUDIT_LINE,
+		]);
+	});
+
+	it("prints no note when ora raised no flag", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(outcomeWith(realDetail));
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.OK);
+		expect(stdoutJson()).toEqual(realDetail);
+		expect(stderrLines()).toEqual([AUDIT_LINE]);
+	});
+
+	it("a run left running ends on the stream ora named, --no-stream included", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError(`run ${realDetail.id} is still executing`, {
+				code: "RUN_STILL_RUNNING",
+				runUrl: `https://ora.ai/api/journey/runs/${realDetail.id}`,
+				nextAction: STREAM_NEXT,
+			}),
+		);
+		expect(await deepJourneyCommand({ ...RUN, json: false, noStream: true })).toBe(EXIT.API);
+		expect(stderrLines().at(-1)).toBe(STREAM_LINE);
+	});
+
+	it("a failed run ends on the stream ora named for it", async () => {
+		vi.mocked(performDeepJourney).mockResolvedValueOnce(
+			outcomeWith({ ...runningDetail, status: "failed" }),
+		);
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.RUN_FAILED);
+		expect(stderrLines().at(-1)).toBe(STREAM_LINE);
+	});
+
+	it("a refusal that asks for a new run ends on the same ax call, with ora's reason", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora journey request failed: Invalid input", {
+				payload: refusals.INVALID_DOMAIN,
+			}),
+		);
+		expect(await deepJourneyCommand({ ...RUN, url: "localhost" })).toBe(EXIT.API);
+		expect(stdoutJson()).toEqual(refusals.INVALID_DOMAIN);
+		expect(stderrLines().at(-1)).toBe(
+			`Next: ax deep-journey localhost --intent pricing --agent cas-haiku --json  # ${refusals.INVALID_DOMAIN.next_action.reason}`,
+		);
+	});
+
+	it("a refusal that names another request writes it as curl", async () => {
+		vi.mocked(performDeepJourney).mockRejectedValueOnce(
+			new DeepJourneyApiError("ora journey request failed: Unsupported agent", {
+				payload: refusals.UNSUPPORTED_AGENT,
+			}),
+		);
+		expect(await deepJourneyCommand(RUN)).toBe(EXIT.API);
+		expect(stderrLines().at(-1)).toBe(
+			`Next: curl -s https://ora.ai/api/journey/agents  # ${refusals.UNSUPPORTED_AGENT.next_action.reason}`,
+		);
 	});
 });

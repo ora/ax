@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { type ClientRequest, request as httpRequest, type IncomingMessage } from "node:http";
 import pkg from "../../package.json";
-import { exchangeKey, platformBase } from "../api/platform";
+import { exchangeKey, PlatformApiError, platformBase } from "../api/platform";
 import { type Tunnel, TunnelError, waitRoutable } from "../tunnel";
 import {
 	type HeaderMap,
@@ -109,6 +109,7 @@ export async function openOraTunnel(
 	} catch (cause) {
 		throw new TunnelError(
 			`${cause instanceof Error ? cause.message : String(cause)}\n(--tunnel ora needs a platform key with the ${ORA_TUNNEL_SCOPES} scopes)`,
+			{ payload: cause instanceof PlatformApiError ? cause.payload : undefined },
 		);
 	}
 	if (opts.signal?.aborted) throw interrupted();
@@ -204,14 +205,18 @@ async function createTunnel(base: string, bearer: string): Promise<CreateRespons
 	});
 	const text = await res.text();
 	let payload: Partial<CreateResponse> & { error?: string; message?: string } = {};
+	let served: unknown;
 	try {
 		payload = JSON.parse(text);
+		served = payload;
 	} catch {
 		// non-JSON error page - the status alone is the message
 	}
 	if (!res.ok) {
 		const detail = payload.error ?? payload.message ?? text.trim().slice(0, 200);
-		throw new TunnelError(`${createHint(res.status)}${detail ? `: ${detail}` : ""}`);
+		throw new TunnelError(`${createHint(res.status)}${detail ? `: ${detail}` : ""}`, {
+			payload: served,
+		});
 	}
 	// Without an id there is nothing to delete and nothing to connect; every
 	// other shape problem is checked after the caller can delete the row.

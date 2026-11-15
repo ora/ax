@@ -57,3 +57,9 @@ export function plain(value: string): string {
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point
 	return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
 }
+
+/** `plain` for a message printed as it is, not reflowed: tabs and line breaks stay. */
+export function plainLines(value: string): string {
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: removing them is the point
+	return value.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, " ");
+}

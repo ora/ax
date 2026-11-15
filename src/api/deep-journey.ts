@@ -1,12 +1,14 @@
 import type {
+	JourneyNextAction,
 	JourneyRun,
 	JourneyRunDetail,
 	JourneyRunResult,
 	JourneyTrajectoryStep,
 } from "../contract";
 import { warnOnNewerContract } from "../contract";
+import { assertKeyDestination } from "./key-destination";
 import { decodeEventBlock } from "./platform";
-import { errorBodyText, pause, usageLimitMessage, watchdog } from "./shared";
+import { errorBody, pause, usageLimitMessage, watchdog } from "./shared";
 
 // Client for ora's public deep-journey API (/api/journey/*): a real AI agent
 // attempts a curated task against a domain while ora records the trajectory.
@@ -22,6 +24,8 @@ import { errorBodyText, pause, usageLimitMessage, watchdog } from "./shared";
 // shared from there.
 
 const PUBLIC_BASE = "https://ora.ai";
+/** Where a run is started: `ax deep-journey` is the ax call that sends this POST. */
+export const JOURNEY_RUNS_PATH = "/api/journey/runs";
 // A live engine run can take several minutes end to end, but frames arrive at
 // least every few seconds while it works; this bounds SILENCE, not the run.
 const STREAM_IDLE_MS = 120_000;
@@ -40,8 +44,60 @@ const MAX_RETRY_AFTER_MS = 60_000;
 const STREAM_REOPENS = 5;
 const STREAM_REOPEN_PAUSE_MS = 2_000;
 
-/** Any failure to obtain a run from ora: network, HTTP, rate limit, stream error. */
-export class DeepJourneyApiError extends Error {}
+export type DeepJourneyErrorCode =
+	| "NEEDS_KEY"
+	| "RATE_LIMITED"
+	| "USAGE_LIMIT_REACHED"
+	| "ENGINE_UNAVAILABLE"
+	| "RUN_STILL_RUNNING";
+
+/**
+ * The `next_action` a journey body carries (a run detail or an error body),
+ * when it has one in the REST shape; anything else carries none.
+ */
+export function servedNextAction(body: unknown): JourneyNextAction | undefined {
+	if (!body || typeof body !== "object") return undefined;
+	const action = (body as { next_action?: unknown }).next_action;
+	if (!action || typeof action !== "object") return undefined;
+	const { method, url, reason } = action as Record<string, unknown>;
+	return (method === "GET" || method === "POST") &&
+		typeof url === "string" &&
+		typeof reason === "string"
+		? (action as JourneyNextAction)
+		: undefined;
+}
+
+/**
+ * Any failure to obtain a run from ora: network, HTTP, rate limit, stream error.
+ * `code` names the failures a caller answers differently (a key to fix, a wait,
+ * a run to read rather than start again) and is null for the rest; `runUrl` is
+ * the run's detail URL when the run exists and is still executing; `payload`
+ * is the error body exactly as ora served it when ora answered with JSON
+ * (what `--json` prints), and null or undefined otherwise; `nextAction` is the
+ * request ora says to send next, from that body or from the run's detail.
+ */
+export class DeepJourneyApiError extends Error {
+	readonly code: DeepJourneyErrorCode | null;
+	readonly runUrl: string | undefined;
+	readonly payload: unknown;
+	readonly nextAction: JourneyNextAction | undefined;
+
+	constructor(
+		message: string,
+		options: {
+			code?: DeepJourneyErrorCode | null;
+			runUrl?: string;
+			payload?: unknown;
+			nextAction?: JourneyNextAction;
+		} = {},
+	) {
+		super(message);
+		this.code = options.code ?? null;
+		this.runUrl = options.runUrl;
+		this.payload = options.payload;
+		this.nextAction = options.nextAction ?? servedNextAction(options.payload);
+	}
+}
 
 /** The stream answered with an HTTP error rather than an event stream. */
 class JourneyStreamHttpError extends DeepJourneyApiError {
@@ -49,8 +105,9 @@ class JourneyStreamHttpError extends DeepJourneyApiError {
 		message: string,
 		readonly status: number,
 		readonly retryAfterMs: number | undefined,
+		payload: unknown,
 	) {
-		super(message);
+		super(message, { payload });
 	}
 }
 
@@ -138,7 +195,8 @@ export interface DeepJourneyOutcome {
 	engineError?: string;
 }
 
-function apiBase(baseUrl?: string): string {
+/** The origin journey requests go to: the override, else $ORA_API_URL, else https://ora.ai. */
+export function apiBase(baseUrl?: string): string {
 	return (baseUrl ?? process.env.ORA_API_URL ?? PUBLIC_BASE).replace(/\/+$/, "");
 }
 
@@ -153,7 +211,10 @@ async function getJson<T>(url: string): Promise<T> {
 		const detail = cause instanceof Error ? cause.message : String(cause);
 		throw new DeepJourneyApiError(`ora request failed: ${detail}`);
 	}
-	if (!res.ok) throw new DeepJourneyApiError(`ora request failed: ${await errorBodyText(res)}`);
+	if (!res.ok) {
+		const { message, payload } = await errorBody(res);
+		throw new DeepJourneyApiError(`ora request failed: ${message}`, { payload });
+	}
 	return (await res.json()) as T;
 }
 
@@ -213,7 +274,7 @@ async function triggerRun(
 
 	let res: Response;
 	try {
-		res = await fetch(`${base}/api/journey/runs`, {
+		res = await fetch(`${base}${JOURNEY_RUNS_PATH}`, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",
@@ -231,26 +292,40 @@ async function triggerRun(
 	if (res.status === 401) {
 		// The capability 401: free text needs a recognized partner key. (A
 		// curated body never 401s - a bad key silently degrades to keyless.)
+		const { payload } = await errorBody(res);
 		throw new DeepJourneyApiError(
 			"free-text tasks need an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
+			{ code: "NEEDS_KEY", payload },
 		);
 	}
 	if (res.status === 429) {
 		const usage = await usageLimitMessage(res);
-		if (usage) throw new DeepJourneyApiError(`ora usage limit reached: ${usage}`);
+		const { payload } = await errorBody(res);
+		if (usage) {
+			throw new DeepJourneyApiError(`ora usage limit reached: ${usage}`, {
+				code: "USAGE_LIMIT_REACHED",
+				payload,
+			});
+		}
 		const wait = res.headers.get("retry-after");
 		const caps = options.apiKey
 			? "keyed allowance: 1000 runs per 24h per key"
 			: "burst: 20/min/IP; daily: 20 runs per 24h per IP — an ora partner API key raises this to 1000/24h per key: set ORA_PARTNER_API_KEY or pass --api-key";
 		throw new DeepJourneyApiError(
 			`ora journey caller limit exceeded${wait ? ` — retry after ${formatWait(Number(wait) * 1000)}` : ""} (${caps})`,
+			{ code: "RATE_LIMITED", payload },
 		);
 	}
 	if (res.status === 503) {
-		throw new DeepJourneyApiError("ora's run engine is unavailable right now — try again shortly");
+		const { payload } = await errorBody(res);
+		throw new DeepJourneyApiError("ora's run engine is unavailable right now — try again shortly", {
+			code: "ENGINE_UNAVAILABLE",
+			payload,
+		});
 	}
 	if (!res.ok) {
-		throw new DeepJourneyApiError(`ora journey request failed: ${await errorBodyText(res)}`);
+		const { message, payload } = await errorBody(res);
+		throw new DeepJourneyApiError(`ora journey request failed: ${message}`, { payload });
 	}
 
 	const record = (await res.json()) as TriggeredRun["record"];
@@ -323,10 +398,12 @@ async function followJourneyStream(
 	if (!res.ok || !res.body) {
 		dog.disarm();
 		const retryAfterS = Number(res.headers.get("retry-after"));
+		const { message, payload } = await errorBody(res);
 		throw new JourneyStreamHttpError(
-			`ora journey stream failed (${res.status}): ${await errorBodyText(res)}`,
+			`ora journey stream failed (${res.status}): ${message}`,
 			res.status,
 			Number.isFinite(retryAfterS) && retryAfterS > 0 ? retryAfterS * 1000 : undefined,
+			payload,
 		);
 	}
 
@@ -473,6 +550,7 @@ export async function performDeepJourney(
 			process.env.ORA_SCAN_API_KEY ||
 			undefined,
 	};
+	if (options.apiKey) assertKeyDestination(base, "ORA_API_URL", PUBLIC_BASE);
 
 	const triggered = await triggerRun(base, target, options);
 	const { record } = triggered;
@@ -519,12 +597,14 @@ export async function performDeepJourney(
 		if (engineError) {
 			throw new DeepJourneyApiError(`ora journey run failed: ${engineError}`);
 		}
+		const runUrl = `${base}/api/journey/runs/${record.id}`;
 		throw new DeepJourneyApiError(
 			`run ${record.id} is still executing — ${
 				streamFailure
 					? `the stream could not be followed (${streamFailure}) and polling ran out of time`
 					: "the stream ended"
-			} before a terminal result. Check ${base}/api/journey/runs/${record.id} shortly`,
+			} before a terminal result. Check ${runUrl} shortly`,
+			{ code: "RUN_STILL_RUNNING", runUrl, nextAction: servedNextAction(detail) },
 		);
 	}
 	warnOnNewerContract(detail.contractVersion);

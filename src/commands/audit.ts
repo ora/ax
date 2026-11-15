@@ -1,8 +1,16 @@
 import pc from "picocolors";
-import { AuditApiError, type AuditOutcome, isMcpAuthRequired, performAudit } from "../api/audit";
+import {
+	AuditApiError,
+	type AuditOutcome,
+	type AuditResult,
+	isMcpAuthRequired,
+	performAudit,
+} from "../api/audit";
+import { type CommandError, reportError } from "../report/json-error";
 import { toReport } from "../report/model";
+import { axCall, type NextStep, placeholder, printNext, type Word } from "../report/next-line";
 import { MCP_AUTH_REQUIRED_NOTICE, renderReport } from "../report/terminal";
-import { isLocalTarget, openTunnel, type Tunnel } from "../tunnel";
+import { isLocalTarget, openTunnel, type Tunnel, TunnelError } from "../tunnel";
 import { MISSING_KEY_HINT, openOraTunnel } from "../tunnel/ora";
 import { spinner } from "../ui/spinner";
 
@@ -110,18 +118,117 @@ function mcpUrlOf(payload: unknown): string | undefined {
 	return typeof url === "string" && url ? url : undefined;
 }
 
+/**
+ * The tunnel flags to repeat in a follow-up call. A mode read from the
+ * environment needs none: the same environment selects it again.
+ */
+function tunnelWords(input: AuditCommandInput): string[] {
+	const flagCmd = input.tunnelCmd?.trim();
+	if (flagCmd) return ["--tunnel-cmd", flagCmd];
+	if (input.tunnel?.trim() === "ora") return ["--tunnel", "ora"];
+	return [];
+}
+
+/** The key flag as a placeholder when the user passed one: never echo the key itself. */
+function keyWords(input: AuditCommandInput): Word[] {
+	return input.apiKey?.trim() ? ["--api-key", placeholder("key")] : [];
+}
+
+/** A caller reading JSON keeps reading JSON on the next call. */
+function jsonWords(input: AuditCommandInput): string[] {
+	return input.json ? ["--json"] : [];
+}
+
+/**
+ * For an MCP server that needs credentials: score the site that serves it
+ * instead, its host (port kept) minus a leading `mcp.` label. A server at the
+ * root of a host with no such label would make that the call just run, so the
+ * site is left for the caller to name. `target` has already parsed as a URL
+ * in normalizeTarget.
+ */
+function mcpAuthNext(input: AuditCommandInput, target: string, useTunnel: boolean): NextStep {
+	const url = new URL(target.includes("://") ? target : `https://${target}`);
+	const site = url.host.replace(/^mcp\./, "");
+	const atRoot = url.pathname.replace(/\/+$/, "") === "";
+	const why =
+		"ora cannot inspect an MCP server that needs credentials; score the site that serves it";
+	if (atRoot && site === url.host) {
+		return { call: axCall(["audit", placeholder("site domain"), ...jsonWords(input)]), why };
+	}
+	return {
+		call: axCall(["audit", site, ...jsonWords(input), ...(useTunnel ? tunnelWords(input) : [])]),
+		why,
+	};
+}
+
+/** What to run after a result: the journey on a public site, otherwise a rescan once fixed. */
+function resultNext(
+	input: AuditCommandInput,
+	target: string,
+	result: AuditResult,
+	gate: number | undefined,
+	useTunnel: boolean,
+): NextStep {
+	if (result.mcpAuthRequired) return mcpAuthNext(input, target, useTunnel);
+	// A tunnel host is gone once the audit ends, so a rescan reopens it; a public
+	// target is rescanned with --force so the cache cannot answer for the fix.
+	const rescan = [
+		"audit",
+		target,
+		...jsonWords(input),
+		...(useTunnel ? tunnelWords(input) : ["--force"]),
+		...(gate !== undefined ? ["--min-score", String(gate)] : []),
+		...keyWords(input),
+	];
+	const isSite = !result.urlKind || result.urlKind === "domain";
+	if (useTunnel || !isSite || (gate !== undefined && result.score < gate)) {
+		return { call: axCall(rescan), why: "after you apply the Top fixes above, rescan" };
+	}
+	return {
+		call: axCall(["deep-journey", result.domain, ...jsonWords(input)]),
+		why: "send a real agent at the site on a task, then read its result",
+	};
+}
+
 export async function auditCommand(input: AuditCommandInput): Promise<number> {
+	const fail = (
+		error: CommandError,
+		exit: number,
+		display?: (message: string) => string,
+		served?: unknown,
+	): number => {
+		reportError(error, { json: input.json, display, served });
+		return exit;
+	};
 	const target = normalizeTarget(input.url);
 	if (!target) {
-		console.error(`Not a scannable URL or domain: ${JSON.stringify(input.url)}`);
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "INVALID_TARGET",
+				message: `Not a scannable URL or domain: ${JSON.stringify(input.url)}`,
+				next: {
+					call: axCall(["audit", placeholder("domain"), ...jsonWords(input)]),
+					why: "a public URL or domain, e.g. docs.example.com",
+				},
+			},
+			EXIT.USAGE,
+		);
 	}
 	const minScore = parseIntFlag(input.minScore, "--min-score", 0, 100);
 	const maxAge = parseIntFlag(input.maxAge, "--max-age", 0, 86_400);
-	for (const flag of [minScore, maxAge]) {
-		if (flag.error) {
-			console.error(flag.error);
-			return EXIT.USAGE;
+	for (const [flag, parsed, example] of [
+		["--min-score", minScore, "70"],
+		["--max-age", maxAge, "3600"],
+	] as const) {
+		if (parsed.error) {
+			return fail(
+				{
+					code: "INVALID_FLAG",
+					message: parsed.error,
+					next: { call: axCall(["audit", target, ...jsonWords(input), flag, example]) },
+				},
+				EXIT.USAGE,
+			);
 		}
 	}
 
@@ -131,30 +238,60 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 	// that prints a public https URL. Either way the result is stored as
 	// ephemeral so the throwaway hostname never pollutes rankings.
 	const tunnelMode = resolveTunnelMode(input);
+	const viaOraTunnel = axCall(["audit", target, ...jsonWords(input), "--tunnel", "ora"]);
 	if ("error" in tunnelMode) {
-		console.error(tunnelMode.error);
-		return EXIT.USAGE;
+		return fail(
+			{ code: "INVALID_FLAG", message: tunnelMode.error, next: { call: viaOraTunnel } },
+			EXIT.USAGE,
+		);
 	}
 	const useTunnel = tunnelMode.kind !== "none";
 	if (!useTunnel && isLocalTarget(target)) {
-		console.error(
-			[
-				`${target} only exists on this machine, and ora audits public URLs.`,
-				"Either audit a publicly reachable deployment of this site (e.g. a preview URL),",
-				"or run it through a tunnel:",
-				"  ax audit localhost:3000 --tunnel ora   # ora's own tunnel; needs ORA_API_KEY",
-				"  ax audit localhost:3000 --tunnel-cmd 'ora tunnel 3000 --access public'",
-				"  ax audit localhost:3000 --tunnel-cmd 'ngrok http 3000 --log stdout'",
-				"Any command that prints a public https URL works; the result is stored as",
-				"ephemeral (excluded from rankings, deleted after 7 days).",
-			].join("\n"),
+		return fail(
+			{
+				code: "LOCAL_TARGET",
+				message: [
+					`${target} only exists on this machine, and ora audits public URLs.`,
+					"Either audit a publicly reachable deployment of this site (e.g. a preview URL),",
+					"or run it through a tunnel:",
+					"  ax audit localhost:3000 --tunnel ora   # ora's own tunnel; needs ORA_API_KEY",
+					"  ax audit localhost:3000 --tunnel-cmd 'ora tunnel 3000 --access public'",
+					"  ax audit localhost:3000 --tunnel-cmd 'ngrok http 3000 --log stdout'",
+					"Any command that prints a public https URL works; the result is stored as",
+					"ephemeral (excluded from rankings, deleted after 7 days).",
+				].join("\n"),
+				next: { call: viaOraTunnel, why: "ora's own tunnel; needs ORA_API_KEY" },
+			},
+			EXIT.USAGE,
 		);
-		return EXIT.USAGE;
 	}
 	if (tunnelMode.kind === "ora" && !process.env.ORA_API_KEY) {
-		console.error(MISSING_KEY_HINT);
-		return EXIT.USAGE;
+		return fail(
+			{
+				code: "MISSING_API_KEY",
+				message: MISSING_KEY_HINT,
+				next: {
+					call: `ORA_API_KEY=<platform key> ${viaOraTunnel}`,
+					why: "a key with the tunnels:write + tunnels:connect scopes",
+				},
+			},
+			EXIT.USAGE,
+		);
 	}
+	// The same call again, for a retry after a failure that may clear.
+	const sameCall: NextStep = {
+		call: axCall([
+			"audit",
+			target,
+			...jsonWords(input),
+			...tunnelWords(input),
+			...(minScore.value !== undefined ? ["--min-score", String(minScore.value)] : []),
+			...(maxAge.value !== undefined ? ["--max-age", String(maxAge.value)] : []),
+			...(input.force ? ["--force"] : []),
+			...keyWords(input),
+		]),
+		why: "retry; if ora rate limited you, wait as long as the message says first",
+	};
 
 	const interactive = !input.json;
 	if (interactive) spinner.start(`Auditing ${target} with ora`);
@@ -195,8 +332,16 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			spinner.stop();
 			process.removeListener("SIGINT", onSignal);
 			process.removeListener("SIGTERM", onSignal);
-			console.error(cause instanceof Error ? cause.message : String(cause));
-			return EXIT.USAGE;
+			return fail(
+				{
+					code: "TUNNEL_FAILED",
+					message: cause instanceof Error ? cause.message : String(cause),
+					next: { call: sameCall.call, why: "retry, or bring your own tunnel with --tunnel-cmd" },
+				},
+				EXIT.USAGE,
+				undefined,
+				cause instanceof TunnelError ? cause.payload : undefined,
+			);
 		}
 		auditTarget = tunnel.url;
 	}
@@ -221,6 +366,7 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		// credentials, which is the same unscored state the legacy marker
 		// describes - report it and exit 0.
 		if (isMcpAuthRequired(cause)) {
+			const next = mcpAuthNext(input, target, useTunnel);
 			if (input.json) {
 				// Raw passthrough: the error object exactly as ora served it. An
 				// AuditApiError raised without one (the class is public) still has to
@@ -238,10 +384,21 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 				console.log("");
 			}
 			if (minScore.value !== undefined) process.stderr.write(MIN_SCORE_SKIPPED_NOTE);
+			printNext(next, { stderr: input.json });
 			return EXIT.OK;
 		}
-		console.error(`Audit failed: ${cause instanceof Error ? cause.message : String(cause)}`);
-		return cause instanceof AuditApiError ? EXIT.API : EXIT.USAGE;
+		const message = cause instanceof Error ? cause.message : String(cause);
+		const apiError = cause instanceof AuditApiError;
+		return fail(
+			{
+				code: apiError ? cause.code || "API_ERROR" : "AUDIT_FAILED",
+				message,
+				next: sameCall,
+			},
+			apiError ? EXIT.API : EXIT.USAGE,
+			(cleaned) => `Audit failed: ${cleaned}`,
+			apiError ? cause.payload : undefined,
+		);
 	} finally {
 		await closeTunnel();
 		process.removeListener("SIGINT", onSignal);
@@ -262,20 +419,24 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			console.log(line);
 		}
 	}
+	const next = resultNext(input, target, result, minScore.value, useTunnel);
 
 	if (minScore.value !== undefined) {
 		// Legacy marker on a stored result (older servers, and score polls that
 		// still return a marked row): unscored for the same reason.
 		if (result.mcpAuthRequired) {
 			process.stderr.write(MIN_SCORE_SKIPPED_NOTE);
+			printNext(next, { stderr: input.json });
 			return EXIT.OK;
 		}
 		if (result.score < minScore.value) {
 			if (!input.json) {
 				console.log(`  Score ${result.score} is below the required minimum ${minScore.value}\n`);
 			}
+			printNext(next, { stderr: input.json });
 			return EXIT.BELOW_MIN_SCORE;
 		}
 	}
+	printNext(next, { stderr: input.json });
 	return EXIT.OK;
 }

@@ -1,3 +1,4 @@
+import { assertKeyDestination, keyDestinationProblem } from "./key-destination";
 import { pause, watchdog } from "./shared";
 
 // Client for ora's authenticated platform API — the machinery behind `journey`.
@@ -11,6 +12,39 @@ const PLATFORM_BASE = "https://api.agentfront.sh";
 /** The platform API base: explicit override, else $ORA_PLATFORM_URL, else prod. */
 export function platformBase(override?: string): string {
 	return (override ?? process.env.ORA_PLATFORM_URL ?? PLATFORM_BASE).replace(/\/+$/, "");
+}
+
+/** Why the key must not go to the platform `platformBase()` names, checked before any call. */
+export function platformKeyProblem(): string | undefined {
+	return keyDestinationProblem(platformBase(), "ORA_PLATFORM_URL", PLATFORM_BASE);
+}
+
+const KEY_EXCHANGE_TIMEOUT_MS = 30_000;
+
+/**
+ * The platform answered with an HTTP error. `payload` is the error body
+ * exactly as served when it was JSON (what `--json` prints), null otherwise.
+ */
+export class PlatformApiError extends Error {
+	readonly status: number;
+	readonly payload: unknown;
+
+	constructor(message: string, options: { status: number; payload?: unknown }) {
+		super(message);
+		this.name = "PlatformApiError";
+		this.status = options.status;
+		this.payload = options.payload;
+	}
+}
+
+/** A response body parsed as JSON, or null when it is not JSON. */
+function jsonOrNull(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch (err) {
+		if (err instanceof SyntaxError) return null;
+		throw err;
+	}
 }
 const RUN_IDLE_MS = 120_000; // agents legitimately go quiet between turns
 
@@ -150,16 +184,24 @@ export interface JourneyRun {
 // exchanged for a ~15-minute bearer token used on every later call.
 
 export async function exchangeKey(base: string, secret: string): Promise<string> {
+	assertKeyDestination(base, "ORA_PLATFORM_URL", PLATFORM_BASE);
 	const res = await fetch(`${base}/auth/token`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
 		body: "{}",
+		signal: AbortSignal.timeout(KEY_EXCHANGE_TIMEOUT_MS),
 	});
-	if (res.status === 401) throw new Error("ora rejected the API key (401). Check ORA_API_KEY.");
-	const payload = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
-	if (!res.ok || !payload.token) {
-		throw new Error(`ora auth failed (${res.status})${payload.error ? `: ${payload.error}` : ""}`);
+	const body = jsonOrNull(await res.text());
+	if (res.status === 401) {
+		throw new PlatformApiError("ora rejected the API key (401). Check ORA_API_KEY.", {
+			status: 401,
+			payload: body,
+		});
 	}
+	const payload = (body ?? {}) as { token?: string; error?: string };
+	const failed = `ora auth failed (${res.status})${payload.error ? `: ${payload.error}` : ""}`;
+	if (!res.ok) throw new PlatformApiError(failed, { status: res.status, payload: body });
+	if (!payload.token) throw new Error(failed);
 	return payload.token;
 }
 
@@ -184,18 +226,23 @@ async function createRun(base: string, bearer: string, request: RunRequest): Pro
 		headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
 		body: JSON.stringify(body),
 	});
-	if (res.status === 429) throw new Error("ora rate limit hit (429). Wait a moment and retry.");
-
 	const text = await res.text();
+	if (res.status === 429) {
+		throw new PlatformApiError("ora rate limit hit (429). Wait a moment and retry.", {
+			status: 429,
+			payload: jsonOrNull(text),
+		});
+	}
+
 	let created: CreatedRun & { error?: string; message?: string };
 	try {
 		created = JSON.parse(text);
 	} catch {
 		throw new Error(`ora returned a non-JSON response (${res.status})`);
 	}
-	if (!res.ok || !created.runId) {
-		throw new Error(`ora run failed (${res.status}): ${created.message ?? created.error ?? text}`);
-	}
+	const failed = `ora run failed (${res.status}): ${created.message ?? created.error ?? text}`;
+	if (!res.ok) throw new PlatformApiError(failed, { status: res.status, payload: created });
+	if (!created.runId) throw new Error(failed);
 	return created;
 }
 
@@ -237,7 +284,14 @@ async function followRunStream(
 		headers: { authorization: `Bearer ${bearer}`, accept: "text/event-stream" },
 		signal: dog.signal,
 	});
-	if (!res.ok || !res.body) {
+	if (!res.ok) {
+		dog.disarm();
+		throw new PlatformApiError(`ora run stream failed (${res.status})`, {
+			status: res.status,
+			payload: jsonOrNull(await res.text()),
+		});
+	}
+	if (!res.body) {
 		dog.disarm();
 		throw new Error(`ora run stream failed (${res.status})`);
 	}

@@ -16,6 +16,7 @@ export type JourneyCappedRun = components["schemas"]["JourneyCappedRun"];
 export type JourneyRunDetail = components["schemas"]["JourneyRunDetail"];
 export type JourneyRunResult = components["schemas"]["JourneyRunResult"];
 export type JourneyTrajectoryStep = components["schemas"]["JourneyTrajectoryStep"];
+export type JourneyNextAction = components["schemas"]["JourneyNextAction"];
 
 export { BUILT_AGAINST };
 
