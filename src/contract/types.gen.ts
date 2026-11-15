@@ -160,7 +160,7 @@ export interface paths {
   "/api/agent-files/{domain}": {
     /**
      * Draft a domain's own agent discovery files (ard.json, ai-catalog.json, poppy.json)
-     * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol, Draft 1.0, in progress, the version the spec's authors ask builders to use). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
+     * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol 1.0, the latest published version). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
      */
     get: operations["generateAgentFiles"];
   };
@@ -188,7 +188,7 @@ export interface paths {
   "/api/journey/runs/{id}": {
     /**
      * Get a journey run record (non-streaming)
-     * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), `flags` (two notes beside the verdict that never change it: `blocked` when the site refused the agent, `answered_from_memory` when half or more of the answer came from the model's memory), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'. `next_action` names the one request to send next: the run's stream while it is running, and after it failed, since reopening it reconnects a run that only lost its connection. A succeeded run carries none.
+     * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), `flags` (two notes beside the verdict that never change it: `blocked` when the site refused the agent, `answered_from_memory` when half or more of the answer came from the model's memory), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'. `next_action` names the one request to send next: the run's stream while it is running, and for 15 minutes after it failed, since reopening it reconnects a run that only lost its connection. A succeeded run carries none, and neither does one that failed longer ago, which is final.
      */
     get: operations["getJourneyRun"];
   };
@@ -1059,7 +1059,7 @@ export interface components {
       step_count?: number;
       /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
       flags?: {
-        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 401, 403 or 429, or more than half of those requests were. A 404 never counts. */
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
         blocked: {
           /** @description Whether the note applies to this run */
           flagged: boolean;
@@ -1109,7 +1109,7 @@ export interface components {
       step_count?: number;
       /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
       flags?: {
-        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 401, 403 or 429, or more than half of those requests were. A 404 never counts. */
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
         blocked: {
           /** @description Whether the note applies to this run */
           flagged: boolean;
@@ -1179,7 +1179,7 @@ export interface components {
       step_count?: number;
       /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
       flags?: {
-        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 401, 403 or 429, or more than half of those requests were. A 404 never counts. */
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
         blocked: {
           /** @description Whether the note applies to this run */
           flagged: boolean;
@@ -1210,7 +1210,7 @@ export interface components {
       };
       /** @description Milliseconds until a per-target slot frees */
       retry_after_ms: number;
-      /** @description The one request to send next for the served run: its stream while it is running or after it failed, or the run itself for its full result once it succeeded */
+      /** @description The one request to send next for the served run: its stream while it is running or for 15 minutes after it failed, or the run itself for its full result once it succeeded */
       next_action?: {
         /**
          * @description HTTP method of the next request
@@ -1261,7 +1261,7 @@ export interface components {
       step_count?: number;
       /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
       flags?: {
-        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 401, 403 or 429, or more than half of those requests were. A 404 never counts. */
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
         blocked: {
           /** @description Whether the note applies to this run */
           flagged: boolean;
@@ -1532,7 +1532,7 @@ export interface components {
           journey_layers?: ("discovery" | "identity" | "access" | "payments" | "experience")[];
         };
       };
-      /** @description The one request to send next: the run's stream while it is running, or after it failed, since reopening it reconnects a run that only lost its connection. Absent once the run succeeded, because the result is in this body. */
+      /** @description The one request to send next: the run's stream while it is running, or for 15 minutes after it failed, since reopening it reconnects a run that only lost its connection. Absent once the run succeeded, because the result is in this body, and once a failure is older than 15 minutes, because the run is final. */
       next_action?: {
         /**
          * @description HTTP method of the next request
@@ -1600,7 +1600,7 @@ export interface components {
       step_count?: number;
       /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
       flags?: {
-        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 401, 403 or 429, or more than half of those requests were. A 404 never counts. */
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
         blocked: {
           /** @description Whether the note applies to this run */
           flagged: boolean;
@@ -1910,7 +1910,7 @@ export interface components {
       step_count?: number;
       /** @description Two notes that sit beside the verdict and never change it, present with the verdict once the run finished. */
       flags?: {
-        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 401, 403 or 429, or more than half of those requests were. A 404 never counts. */
+        /** @description The site refused the agent: its first request to the site that got an HTTP status was a 403 or 429, or more than half of those requests were a 401, 403 or 429. A 401 alone on the first request does not count, and a 404 never counts. */
         blocked: {
           /** @description Whether the note applies to this run */
           flagged: boolean;
@@ -3856,7 +3856,7 @@ export interface operations {
   };
   /**
    * Draft a domain's own agent discovery files (ard.json, ai-catalog.json, poppy.json)
-   * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol, Draft 1.0, in progress, the version the spec's authors ask builders to use). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
+   * @description Drafts the agent discovery files a domain publishes about itself: /.well-known/ard.json (Agentic Resource Discovery), /.well-known/ai-catalog.json (the same catalog at the AI Catalog Standard's path) and /.well-known/poppy.json (Personal Agent Protocol 1.0, the latest published version). Built from what ora already holds for the domain - no live crawl - so a domain ora never scanned still gets a valid minimal set (a catalog listing its website, a poppy.json for signed-out browsing) with scannedAt null. Every catalog entry is anchored to the domain itself (urn:air:<domain>:..., identity https://<domain>), never to ora, and carries only https URLs on the domain or its subdomains: anything the scan saw on another host is named in the file's notes instead. MCP servers are listed by their server card (the card the scan found, else the reserved <server-url>/server-card location, which the notes ask the owner to serve). The poppy.json is the minimal valid document; what ora saw that a fuller one could name (an OAuth issuer, MCP servers, an OpenAPI description) is listed in that file's notes. Pass ?include= for llms.txt, an edit of the site's robots.txt, an RFC 9727 api-catalog and draft MCP server cards. Review every file before publishing it. A leading www. is dropped, and any spelling other than the canonical domain answers 308 to /api/agent-files/<domain>. Sends Access-Control-Allow-Origin: * and is CDN-cached. Rate limited to 60 requests per minute per IP - returns 429 if exceeded. Also used by the generator page at directory.ora.ai/generate and by `npx ax generate-files <domain>`.
    */
   generateAgentFiles: {
     parameters: {
@@ -3974,7 +3974,7 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Per-target cap hit - the freshness analog, not an error: the body is the most recent stored run for this exact (domain, intent, harness, model) target, marked `rate_limited: true`, so CI and agents get the newest result without spending a run. When the served run has finished, the body also carries `verdict`, `step_count` and `flags`. Replay it via its `stream_url`. `next_action` names the one request to send next: the run itself, for its full result, once it succeeded; its stream while it is running or after it failed. Anonymous tier only: a keyed caller skips the per-target cap and never receives this response. */
+      /** @description Per-target cap hit - the freshness analog, not an error: the body is the most recent stored run for this exact (domain, intent, harness, model) target, marked `rate_limited: true`, so CI and agents get the newest result without spending a run. When the served run has finished, the body also carries `verdict`, `step_count` and `flags`. Replay it via its `stream_url`. `next_action` names the one request to send next: the run itself, for its full result, once it succeeded; its stream while it is running or for 15 minutes after it failed. Anonymous tier only: a keyed caller skips the per-target cap and never receives this response. */
       200: {
         headers: {
           /** @description Seconds until the target's oldest in-window run ages out */
@@ -4048,7 +4048,7 @@ export interface operations {
   };
   /**
    * Get a journey run record (non-streaming)
-   * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), `flags` (two notes beside the verdict that never change it: `blocked` when the site refused the agent, `answered_from_memory` when half or more of the answer came from the model's memory), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'. `next_action` names the one request to send next: the run's stream while it is running, and after it failed, since reopening it reconnects a run that only lost its connection. A succeeded run carries none.
+   * @description Returns the run record by id. While the run executes, `status` is 'running' - open the stream or poll. Once finished and persisted, `status` is 'succeeded' and the body carries `verdict`, `step_count` (billable steps - the same counter run pricing uses), `flags` (two notes beside the verdict that never change it: `blocked` when the site refused the agent, `answered_from_memory` when half or more of the answer came from the model's memory), and the full `result` (trajectory + insight + signals). `status` 'failed' is terminal with no result. `result` is present iff status is 'succeeded'. `next_action` names the one request to send next: the run's stream while it is running, and for 15 minutes after it failed, since reopening it reconnects a run that only lost its connection. A succeeded run carries none, and neither does one that failed longer ago, which is final.
    */
   getJourneyRun: {
     parameters: {
