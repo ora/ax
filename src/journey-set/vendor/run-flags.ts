@@ -1,6 +1,6 @@
 // Copied from ora's journey code. DO NOT EDIT BY HAND.
 //
-// Source: ora's src/lib/journey/run-flags.ts at commit 075e9fe8f. A set's
+// Source: ora's src/lib/journey/run-flags.ts at commit ccce175 (eralabs-ai/ora#1726). A set's
 // "blocked" flag has to mean what the free journey's flag means, so this file
 // is a COPY of ora's rule rather than a reimplementation of it. One deviation,
 // marked inline: the step type. Re-copy the whole directory whenever ora's
@@ -11,7 +11,11 @@
  * change it. Derived only from the stored trajectory steps and run signals.
  *
  * - blocked: the site refused the agent's first request that got an HTTP
- *   status (401, 403 or 429), or more than half of those requests. Status
+ *   status (403 or 429), or more than half of those requests (401, 403 or
+ *   429). A 401 alone on the first request does not raise it: it asks for
+ *   credentials, which is what an API answers an unauthenticated call, so an
+ *   agent whose first on-site call hits `api.<site>` would otherwise accuse a
+ *   site that served it everything else. Status
  *   codes only, because the engine sends no signal for bot challenge pages.
  *   404 never counts: agents probe for files that do not exist. A step with
  *   no status (the fetch tool often reports none) is no evidence either way.
@@ -48,6 +52,8 @@ export type RunFlagCause =
   | { flag: "answered_from_memory"; memoryShare: number };
 
 const REFUSAL_STATUSES: ReadonlySet<number> = new Set([401, 403, 429]);
+/** A refusal on the first request alone: a 401 there only asks for credentials, so it needs company. */
+const FIRST_REQUEST_REFUSALS: ReadonlySet<number> = new Set([403, 429]);
 const MEMORY_SHARE_THRESHOLD = 0.5;
 
 /** True when `host` is the site or one of its subdomains. */
@@ -100,7 +106,7 @@ function blockedCause(result: RunFlagsInput, site: string | null | undefined): R
     typeof step.status === "number" ? [step.status] : [],
   );
   if (statuses.length === 0) return null;
-  if (REFUSAL_STATUSES.has(statuses[0])) {
+  if (FIRST_REQUEST_REFUSALS.has(statuses[0])) {
     return { flag: "blocked", kind: "first_request", status: statuses[0] };
   }
   const refused = statuses.filter((status) => REFUSAL_STATUSES.has(status));

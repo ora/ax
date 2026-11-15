@@ -1,6 +1,6 @@
 // Copied from ora's journey code. DO NOT EDIT BY HAND.
 //
-// Source: ora's src/lib/journey/run-flags.spec.ts at commit 075e9fe8f, with
+// Source: ora's src/lib/journey/run-flags.spec.ts at commit ccce175 (eralabs-ai/ora#1726), with
 // its fixtures copied byte for byte into ./__fixtures__/run-flags/. These are
 // ora's own cases for the rule in ./run-flags.ts, so a re-copy of the rule
 // comes with a re-copy of this file. Renamed to .test.ts because ax's vitest
@@ -120,6 +120,26 @@ describe("deriveRunFlags rules", () => {
     expect(deriveRunFlags(reordered, "fiverr.com").blocked).toEqual({
       flagged: true,
       reason: "The site refused the agent's first request with HTTP 403",
+    });
+  });
+
+  it("does not flag a lone 401 on the first request when the site answered the rest", () => {
+    // fiverr.com with its first on-site 403 turned into a 401 from api.fiverr.com,
+    // the shape of an unauthenticated API call: 1 of 2 answered requests refused.
+    const apiFirst = { trajectory: { steps: [{ ...steps[0], url_host: "api.fiverr.com", status: 401 }, ...steps.slice(1)] } };
+    expect(deriveRunFlags(apiFirst, "fiverr.com").blocked).toEqual(NOT_FLAGGED);
+  });
+
+  it("still counts a 401 toward most requests refused", () => {
+    // The same 401 first, with the later 200 turned into a 401 too: 2 of 2 refused.
+    const allRefused = {
+      trajectory: {
+        steps: [{ ...steps[0], status: 401 }, steps[1], steps[2], { ...steps[3], status: 401 }, ...steps.slice(4)],
+      },
+    };
+    expect(deriveRunFlags(allRefused, "fiverr.com").blocked).toEqual({
+      flagged: true,
+      reason: "The site refused 2 of the agent's 2 requests that got a response, with HTTP 401",
     });
   });
 
