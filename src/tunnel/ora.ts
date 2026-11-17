@@ -159,8 +159,9 @@ export async function openOraTunnel(
 	try {
 		created = validateCreated(row);
 		ws = await Promise.race([dial(created, bearer), abortRace]);
+		const socket = adaptSocket(ws);
 		connector = new TunnelConnector({
-			socket: adaptSocket(ws),
+			socket,
 			codec: new V1Codec(),
 			hello: {
 				agentVersion: `ax/${pkg.version}`,
@@ -169,7 +170,7 @@ export async function openOraTunnel(
 			},
 			forwarder: localForwarder(target.host, target.port),
 			onConnectionClosed: (reason) => {
-				if (!closing) reportDrop(droppedError(reason.message));
+				if (!closing) reportDrop(droppedError(socket.closed, reason.message));
 			},
 		});
 		await Promise.race([connector.start(), abortRace]);
@@ -207,16 +208,17 @@ export async function openOraTunnel(
 
 /**
  * ora closes the connection of a tunnel whose browser sign-in ended (disconnected, signed out
- * everywhere, removed from the organization) with the reason `sign-in ended: ...`: that one says
- * what to do. Anything else is a plain drop.
+ * everywhere, removed from the organization) with {@link CREDENTIAL_ENDED_CLOSE_CODE}: that one
+ * says what to do. Any other close is a plain drop. The code decides, never the reason's words.
  */
-function droppedError(reason: string): TunnelError {
-	if (/sign-in ended/i.test(reason)) {
-		return new TunnelError(`ora closed the tunnel: your sign-in ended (${reason}). Run ax login.`, {
-			signInEnded: true,
-		});
+function droppedError(close: TunnelSocket["closed"], message: string): TunnelError {
+	if (close?.code === CREDENTIAL_ENDED_CLOSE_CODE) {
+		return new TunnelError(
+			`ora closed the tunnel: your sign-in ended (${close.reason || close.code}). Run ax login.`,
+			{ signInEnded: true },
+		);
 	}
-	return new TunnelError(`ora tunnel connection dropped: ${reason}`);
+	return new TunnelError(`ora tunnel connection dropped: ${message}`);
 }
 
 /** The create response must describe a tunnel this ax can connect to. */
@@ -318,17 +320,21 @@ async function deleteTunnel(
 // --- Data plane ---
 
 /**
- * Dial the tunnel's WebSocket. The bearer rides the query string because
- * the browser-style WebSocket cannot set headers; the service accepts either.
- * A pre-upgrade rejection (401/403/429) reaches us only as a bare `error`
- * event - the status never surfaces - so the message names all three causes.
+ * Dial the tunnel's WebSocket. The bearer rides the upgrade's Authorization
+ * header and never the URL, which lands in access logs: Node's WebSocket
+ * takes headers (from 22.4, ax's floor), and the tunnel id is the only thing
+ * in the query string. A pre-upgrade rejection (401/403/429) reaches us only
+ * as a bare `error` event - the status never surfaces - so the message names
+ * all three causes.
  */
 function dial(created: CreatedTunnel, bearer: string): Promise<WebSocket> {
 	const url = new URL(created.connection.url);
 	url.searchParams.set("tunnelId", created.id);
-	url.searchParams.set("token", bearer);
 	return new Promise<WebSocket>((resolve, reject) => {
-		const ws = new WebSocket(url, [created.connection.subprotocol]);
+		const ws = new WebSocket(url, {
+			protocols: [created.connection.subprotocol],
+			headers: { authorization: `Bearer ${bearer}` },
+		});
 		ws.binaryType = "arraybuffer";
 		const settle = (outcome: () => void) => {
 			ws.removeEventListener("open", onOpen);
@@ -364,16 +370,37 @@ function dial(created: CreatedTunnel, bearer: string): Promise<WebSocket> {
 }
 
 /**
+ * The close code ora's tunnel service ends a held connection with once the credential it was
+ * admitted for no longer stands (a sign-in that ended): 4401, the code it refuses a connection
+ * with for the same reason, so one code means "this credential no longer works here". It is the
+ * server's value, copied: @ora-ai/tunnel-protocol does not export it yet, and a lockstep test
+ * against the package can only come once it does.
+ */
+export const CREDENTIAL_ENDED_CLOSE_CODE = 4401;
+
+/** RFC 6455 §7.1.5: the code for a connection that closed without a close frame. */
+const ABNORMAL_CLOSURE = 1006;
+
+/** The protocol's socket over Node's WebSocket, which also keeps the close the server sent. */
+export interface TunnelSocket extends ISocket {
+	/** How the connection closed, once it has: its code says what a drop means. */
+	readonly closed: { code: number; reason: string } | undefined;
+}
+
+/**
  * Node's WebSocket as the protocol's transport. The ISocket contract is that
  * every `on*` call REPLACES the previous handler (the handshake hands the
  * socket over to the multiplexer): one listener per event is registered
  * here, once, and dispatches to a mutable slot - registering a new listener
- * per call would deliver every frame to every handler ever installed.
+ * per call would deliver every frame to every handler ever installed. The
+ * close is kept before it is handed on: the vendored multiplexer folds the
+ * code into a message, and the code is what a caller has to read.
  */
-export function adaptSocket(ws: WebSocket): ISocket {
+export function adaptSocket(ws: WebSocket): TunnelSocket {
 	let onMessage: ((data: Uint8Array) => void) | undefined;
 	let onClose: ((code: number, reason: string) => void) | undefined;
 	let onError: ((error: Error) => void) | undefined;
+	let closed: TunnelSocket["closed"];
 	ws.addEventListener("message", (event) => {
 		const data = (event as MessageEvent).data;
 		if (data instanceof ArrayBuffer) onMessage?.(new Uint8Array(data));
@@ -382,10 +409,14 @@ export function adaptSocket(ws: WebSocket): ISocket {
 	});
 	ws.addEventListener("close", (event) => {
 		const { code, reason } = event as Partial<{ code: number; reason: string }>;
-		onClose?.(code ?? 1006, reason ?? "");
+		closed = { code: code ?? ABNORMAL_CLOSURE, reason: reason ?? "" };
+		onClose?.(closed.code, closed.reason);
 	});
 	ws.addEventListener("error", () => onError?.(new Error("tunnel socket error")));
 	return {
+		get closed() {
+			return closed;
+		},
 		get bufferedAmount() {
 			return ws.bufferedAmount;
 		},

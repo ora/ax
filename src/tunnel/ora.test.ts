@@ -9,7 +9,7 @@ import {
 } from "@ora-ai/tunnel-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TunnelError } from "../tunnel";
-import { adaptSocket, openOraTunnel, parseLocalTarget } from "./ora";
+import { adaptSocket, CREDENTIAL_ENDED_CLOSE_CODE, openOraTunnel, parseLocalTarget } from "./ora";
 
 const BASE = "https://platform.test";
 const TUNNEL_ID = "0f3c1c1e-6a1b-4c1f-9a2e-000000000001";
@@ -26,7 +26,9 @@ let dialOutcome: DialOutcome = "accept";
 class FakeWebSocket extends EventTarget {
 	static instances: FakeWebSocket[] = [];
 	readonly url: string;
-	readonly protocols: string[];
+	readonly protocols: string | string[] | undefined;
+	/** The upgrade request's headers, as Node's WebSocket sends them from its init object. */
+	readonly headers: Headers;
 	readyState = 0;
 	binaryType = "blob";
 	bufferedAmount = 0;
@@ -35,10 +37,11 @@ class FakeWebSocket extends EventTarget {
 	readonly accepted: Promise<unknown>;
 	private readonly client: MemorySocket;
 
-	constructor(url: string | URL, protocols: string[]) {
+	constructor(url: string | URL, init: WebSocketInit) {
 		super();
 		this.url = String(url);
-		this.protocols = protocols;
+		this.protocols = init.protocols;
+		this.headers = new Headers(init.headers);
 		FakeWebSocket.instances.push(this);
 		const [server, client] = createMemorySocketPair();
 		this.client = client;
@@ -202,9 +205,11 @@ describe("openOraTunnel", () => {
 			access: "public",
 			name: expect.stringMatching(/^ax-[0-9a-f]{8}$/),
 		});
-		// data plane: dialed with the bearer + tunnel id and the negotiated subprotocol
+		// data plane: dialed with the tunnel id in the URL, the bearer in the Authorization
+		// header (never the URL, which lands in access logs) and the negotiated subprotocol
 		const [ws] = FakeWebSocket.instances;
-		expect(ws.url).toBe(`${CONNECT_URL}?tunnelId=${TUNNEL_ID}&token=bearer-1`);
+		expect(ws.url).toBe(`${CONNECT_URL}?tunnelId=${TUNNEL_ID}`);
+		expect(ws.headers.get("authorization")).toBe("Bearer bearer-1");
 		expect(ws.protocols).toEqual(["ora-tunnel.v1"]);
 		expect(ws.binaryType).toBe("arraybuffer");
 		await ws.accepted;
@@ -382,7 +387,9 @@ describe("openOraTunnel", () => {
 		});
 		const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/tunnels/v1"));
 		expect(create?.headers.authorization).toBe("Bearer access-1");
-		expect(new URL(FakeWebSocket.instances[0].url).searchParams.get("token")).toBe("access-1");
+		const [ws] = FakeWebSocket.instances;
+		expect(ws.headers.get("authorization")).toBe("Bearer access-1");
+		expect(ws.url).not.toContain("access-1");
 		const original = vi.mocked(fetch).getMockImplementation();
 		let first = true;
 		vi.mocked(fetch).mockImplementation(async (input, init) => {
@@ -412,10 +419,22 @@ describe("openOraTunnel", () => {
 		});
 		const [ws] = FakeWebSocket.instances;
 		await ws.accepted;
-		ws.session.close(4401, "sign-in ended: grant_inactive");
+		// The close code decides, whatever words ride along.
+		ws.session.close(CREDENTIAL_ENDED_CLOSE_CODE, "grant_inactive");
 		const error = await tunnel.dropped;
 		expect(error?.message).toContain("your sign-in ended");
 		expect(error?.message).toContain("ax login");
+		await tunnel.close();
+	});
+
+	it("a close with another code is a plain drop, even when its reason says the sign-in ended", async () => {
+		const tunnel = await open(`localhost:${localPort}`);
+		const [ws] = FakeWebSocket.instances;
+		await ws.accepted;
+		ws.session.close(4001, "sign-in ended: grant_inactive");
+		const error = await tunnel.dropped;
+		expect(error?.message).toMatch(/dropped/);
+		expect(error?.message).not.toContain("ax login");
 		await tunnel.close();
 	});
 
@@ -461,6 +480,24 @@ describe("adaptSocket", () => {
 		ws.dispatchEvent(Object.assign(new Event("close"), { code: 1001, reason: "bye" }));
 		expect(closeA).not.toHaveBeenCalled();
 		expect(closeB).toHaveBeenCalledWith(1001, "bye");
+	});
+
+	it("keeps the close the server sent before the handler hears of it", () => {
+		const ws = new EventTarget() as unknown as WebSocket & EventTarget;
+		Object.assign(ws, { readyState: 1, bufferedAmount: 0, send: vi.fn(), close: vi.fn() });
+		const socket = adaptSocket(ws);
+		expect(socket.closed).toBeUndefined();
+		let seenByHandler: unknown;
+		socket.onClose(() => {
+			seenByHandler = socket.closed;
+		});
+		ws.dispatchEvent(Object.assign(new Event("close"), { code: 4401, reason: "grant_inactive" }));
+		expect(seenByHandler).toEqual({ code: 4401, reason: "grant_inactive" });
+
+		const silent = new EventTarget() as unknown as WebSocket & EventTarget;
+		const dropped = adaptSocket(silent);
+		silent.dispatchEvent(new Event("close"));
+		expect(dropped.closed).toEqual({ code: 1006, reason: "" });
 	});
 
 	it("only sends while the socket is open and never throws from close()", () => {
