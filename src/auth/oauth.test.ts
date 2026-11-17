@@ -9,7 +9,14 @@ import {
 	revokeToken,
 	startDeviceAuthorization,
 } from "./oauth";
-import { AX_CLIENT_ID, platformResource, SIGN_IN_SCOPE, signInTarget } from "./sign-in-target";
+import { PLATFORM_FEATURES, scopeList, TUNNEL_FEATURE } from "./platform-features";
+import {
+	AX_CLIENT_ID,
+	AX_SCOPES,
+	platformResource,
+	SIGN_IN_SCOPE,
+	signInTarget,
+} from "./sign-in-target";
 
 // ax's OAuth client against a stand-in for ora's sign-in server. Each case changes one answer.
 
@@ -36,15 +43,22 @@ describe("where ax signs in", () => {
 	});
 
 	it("asks for what ax's commands use and nothing else, plus a refresh token", () => {
+		// No tunnels:read: ax creates, connects and deletes a tunnel, and never lists or reads one.
 		expect(SIGN_IN_SCOPE.split(" ")).toEqual([
 			"openid",
 			"offline_access",
 			"runs:read",
 			"runs:write",
-			"tunnels:read",
 			"tunnels:write",
 			"tunnels:connect",
 		]);
+	});
+
+	it("asks for every feature's scopes, so a feature's hint never names one ax does not request", () => {
+		for (const feature of PLATFORM_FEATURES) {
+			for (const scope of feature.scopes) expect(AX_SCOPES).toContain(scope);
+		}
+		expect(scopeList(TUNNEL_FEATURE)).toBe("tunnels:write + tunnels:connect");
 	});
 });
 

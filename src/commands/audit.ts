@@ -7,6 +7,7 @@ import {
 	performAudit,
 } from "../api/audit";
 import type { PlatformCredential } from "../auth/credential";
+import { scopeList, TUNNEL_FEATURE } from "../auth/platform-features";
 import { type CommandError, reportError } from "../report/json-error";
 import { toReport } from "../report/model";
 import { axCall, type NextStep, placeholder, printNext, type Word } from "../report/next-line";
@@ -280,7 +281,7 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 					message: cause.message,
 					next: {
 						call: "ax login",
-						why: `sign in through your browser, then run ${viaOraTunnel} again; or set ORA_API_KEY to a key with the tunnels:write + tunnels:connect scopes`,
+						why: `sign in through your browser, then run ${viaOraTunnel} again; or set ORA_API_KEY to a key with the ${scopeList(TUNNEL_FEATURE)} scopes`,
 					},
 				},
 				EXIT.USAGE,

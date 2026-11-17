@@ -336,7 +336,7 @@ ax whoami     # who ax calls ora's platform as
 ax logout     # end the sign-in, on ora and on this machine
 ```
 
-`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `runs:read` + `runs:write` for journeys and `tunnels:read` + `tunnels:write` + `tunnels:connect` for `--tunnel ora`. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
+`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `runs:read` + `runs:write` for journeys and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
 
 The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_CONFIG_HOME/ax` when set, `%APPDATA%\ax` on Windows), readable by your account only. It lasts until you run `ax logout` or disconnect **ax** in ora under Settings › Connected apps. After that, ora refuses the next command, and a tunnel the sign-in opened closes within about half a minute. A sign-in is for the platform it was made for: point `ORA_PLATFORM_URL` elsewhere and ax neither uses nor sends it.
 

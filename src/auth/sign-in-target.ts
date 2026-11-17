@@ -1,3 +1,5 @@
+import { PLATFORM_FEATURES } from "./platform-features";
+
 // Where `ax login` signs in, and what it asks for. ax is one of ora's own CLIs: a first-party
 // client of ora's sign-in server, with its own name ("ax" on the approval page and in Connected
 // apps) and its own ceiling, the scopes below. The server offers ax those and nothing else.
@@ -6,17 +8,12 @@
 export const AX_CLIENT_ID = "ax-cli";
 
 /**
- * Everything ax's commands use, and so all a sign-in asks for: a journey is a run (create it,
- * follow its stream, read its totals); `--tunnel ora` is a tunnel (create it, hold its
- * connection, delete it).
+ * Everything ax's commands use, and so all a sign-in asks for: each feature's scopes
+ * (platform-features.ts), once each. A scope no feature names is never asked for.
  */
-export const AX_SCOPES = [
-	"runs:read",
-	"runs:write",
-	"tunnels:read",
-	"tunnels:write",
-	"tunnels:connect",
-] as const;
+export const AX_SCOPES: readonly string[] = [
+	...new Set(PLATFORM_FEATURES.flatMap((feature) => feature.scopes)),
+];
 
 /** `openid` names who signed in; `offline_access` brings the refresh token a sign-in lasts by. */
 export const SIGN_IN_SCOPE = ["openid", "offline_access", ...AX_SCOPES].join(" ");

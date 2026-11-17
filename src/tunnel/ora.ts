@@ -4,6 +4,7 @@ import { type ClientRequest, request as httpRequest, type IncomingMessage } from
 import pkg from "../../package.json";
 import { PlatformApiError, platformBase, resolvePlatformCredential } from "../api/platform";
 import { NotSignedInError, type PlatformCredential, SignInEndedError } from "../auth/credential";
+import { scopeList, TUNNEL_FEATURE } from "../auth/platform-features";
 import { type Tunnel, TunnelError, waitRoutable } from "../tunnel";
 import {
 	type HeaderMap,
@@ -44,8 +45,8 @@ export interface OraTunnelOptions {
 	signal?: AbortSignal;
 }
 
-/** The scopes the platform key needs, quoted in every credential error. */
-export const ORA_TUNNEL_SCOPES = "tunnels:write + tunnels:connect";
+/** The scopes the tunnel's credential needs, quoted in every credential error. */
+export const ORA_TUNNEL_SCOPES = scopeList(TUNNEL_FEATURE);
 
 export const MISSING_KEY_HINT = [
 	"--tunnel ora needs you signed in to ora's platform: run ax login to sign in through your browser,",
@@ -276,7 +277,7 @@ function createHint(status: number, kind: PlatformCredential["kind"]): string {
 		case 403:
 			return kind === "sign_in"
 				? `your sign-in cannot open tunnels (403): it needs the ${ORA_TUNNEL_SCOPES} scopes, which a viewer cannot grant. Ask for a developer role, or use a platform key`
-				: `the platform key lacks the ${ORA_TUNNEL_SCOPES} scopes (403). Issue one with both and retry`;
+				: `the platform key lacks the ${ORA_TUNNEL_SCOPES} scopes (403). Issue one with them and retry`;
 		case 429:
 			return "ora rate-limited the tunnel request (429). Wait a moment and retry";
 		default:

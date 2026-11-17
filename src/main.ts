@@ -3,6 +3,7 @@ import pc from "picocolors";
 import pkg from "../package.json";
 import { platformBase } from "./api/platform";
 import { resolveBase } from "./api/skills";
+import { scopeList, TUNNEL_FEATURE } from "./auth/platform-features";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
@@ -50,8 +51,7 @@ const audit = defineCommand({
 		},
 		tunnel: {
 			type: "string",
-			description:
-				"Open ora's own tunnel to a local target (value: ora); needs ax login, or ORA_API_KEY with the tunnels:write + tunnels:connect scopes. Also read from ORA_TUNNEL. The result is stored as ephemeral",
+			description: `Open ora's own tunnel to a local target (value: ora); needs ax login, or ORA_API_KEY with the ${scopeList(TUNNEL_FEATURE)} scopes. Also read from ORA_TUNNEL. The result is stored as ephemeral`,
 		},
 		"tunnel-cmd": {
 			type: "string",
@@ -492,7 +492,7 @@ function helpScreen(): string {
 		`    --min-score <n>  ${d("Exit 1 when the score is below n (0-100); the CI gate")}`,
 		`    --max-age <s>    ${d("Accept a cached result up to s seconds old (default 6h)")}`,
 		`    --force          ${d("Bypass the cache and rescan (6/day budget)")}`,
-		`    --tunnel ora     ${d("Expose a local target through ora's own tunnel (needs ax login, or ORA_API_KEY: tunnels:write + tunnels:connect)")}`,
+		`    --tunnel ora     ${d(`Expose a local target through ora's own tunnel (needs ax login, or ORA_API_KEY: ${scopeList(TUNNEL_FEATURE)})`)}`,
 		`    --tunnel-cmd <c> ${d("...or through your own tunnel command (e.g. 'ngrok http 3000 --log stdout')")}`,
 		`    --api-key <k>    ${d("ora-issued scan API key that lifts the rate limits; also read from ORA_SCAN_API_KEY")}`,
 		`    --json           ${d("Print the raw ora audit payload as JSON")}`,

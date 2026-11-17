@@ -43,7 +43,7 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 			access_token: `access-${state.issued}`,
 			refresh_token: `refresh-${state.issued}`,
 			expires_in: 900,
-			scope: "runs:read runs:write tunnels:read tunnels:write tunnels:connect",
+			scope: "runs:read runs:write tunnels:write tunnels:connect",
 			token_type: "Bearer",
 		};
 	};
@@ -100,7 +100,7 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 				organizationName: "Acme",
 				email: "member@acme.test",
 				role: "developer",
-				scopes: ["runs:read", "runs:write", "tunnels:connect", "tunnels:read", "tunnels:write"],
+				scopes: ["runs:read", "runs:write", "tunnels:connect", "tunnels:write"],
 			});
 		}
 		return json({ error: "unexpected", url }, 599);
