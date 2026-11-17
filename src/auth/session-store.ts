@@ -1,16 +1,8 @@
-import {
-	chmodSync,
-	closeSync,
-	mkdirSync,
-	openSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { FileLock, type FileLockTiming } from "./file-lock";
+import { REQUEST_TIMEOUT_MS } from "./oauth";
 
 // THE ONE FILE AX WRITES (invariant 7): the sign-in `ax login` stores, so later commands can act
 // as you. Only your own account can read it (0600, in a 0700 directory), it holds tokens and no
@@ -55,18 +47,25 @@ function isStoredSignIn(value: unknown): value is StoredSignIn {
 	);
 }
 
-/** A lock older than this was left by an ax that died: every request made while holding it has a 15 s deadline. */
-const LOCK_STALE_MS = 30_000;
-const LOCK_WAIT_MS = 40_000;
-const LOCK_POLL_MS = 100;
+/**
+ * The sign-in lock's timing, derived from the one request its holder makes: a refresh, which the
+ * sign-in server answers within {@link REQUEST_TIMEOUT_MS} or not at all. A live holder is done
+ * within that deadline, so a lock twice as old was left by an ax that died; a waiter outlasts
+ * that window by one more request before it gives up.
+ */
+export const SIGN_IN_LOCK_TIMING: FileLockTiming = {
+	staleMs: 2 * REQUEST_TIMEOUT_MS,
+	waitMs: 3 * REQUEST_TIMEOUT_MS,
+	pollMs: 100,
+};
 
 export class SessionStore {
 	readonly file: string;
-	private readonly lockFile: string;
+	private readonly lock: FileLock;
 
 	constructor(readonly dir: string = configDir()) {
 		this.file = join(dir, "session.json");
-		this.lockFile = join(dir, "session.lock");
+		this.lock = new FileLock(join(dir, "session.lock"), SIGN_IN_LOCK_TIMING);
 	}
 
 	read(): StoredSignIn | null {
@@ -94,63 +93,9 @@ export class SessionStore {
 	/**
 	 * Runs `fn` holding the sign-in's lock, so two ax commands never refresh at once: the server
 	 * rotates the refresh token on every use, and a second use of a spent one is read as a stolen
-	 * token and ends the sign-in.
+	 * token and ends the sign-in. `fn` makes at most one request to the sign-in server.
 	 */
-	async withLock<T>(fn: () => Promise<T>): Promise<T> {
-		mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-		const started = Date.now();
-		while (!this.tryLock()) {
-			if (Date.now() - started > LOCK_WAIT_MS) {
-				throw new Error(`another ax command is holding the sign-in (${this.lockFile})`);
-			}
-			await new Promise((resolve) => setTimeout(resolve, LOCK_POLL_MS));
-		}
-		try {
-			return await fn();
-		} finally {
-			rmSync(this.lockFile, { force: true });
-		}
-	}
-
-	private tryLock(): boolean {
-		try {
-			closeSync(openSync(this.lockFile, "wx", 0o600));
-			return true;
-		} catch (err) {
-			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-			this.breakIfStale();
-			return false;
-		}
-	}
-
-	/**
-	 * A dead holder's lock is moved aside, then looked at: another waiter may have broken it first
-	 * and taken a fresh one in the meantime, and a fresh lock is put back untouched.
-	 */
-	private breakIfStale(): void {
-		if (this.ageMs(this.lockFile) <= LOCK_STALE_MS) return;
-		const aside = `${this.lockFile}.${process.pid}.${Date.now()}`;
-		try {
-			renameSync(this.lockFile, aside);
-		} catch {
-			return;
-		}
-		if (this.ageMs(aside) <= LOCK_STALE_MS) {
-			try {
-				renameSync(aside, this.lockFile);
-			} catch {
-				// the holder is gone or a new lock exists; either way nothing to restore
-			}
-			return;
-		}
-		rmSync(aside, { force: true });
-	}
-
-	private ageMs(path: string): number {
-		try {
-			return Date.now() - statSync(path).mtimeMs;
-		} catch {
-			return 0;
-		}
+	withLock<T>(fn: () => Promise<T>): Promise<T> {
+		return this.lock.withLock(fn);
 	}
 }

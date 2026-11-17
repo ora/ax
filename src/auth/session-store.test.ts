@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { configDir, SessionStore, type StoredSignIn } from "./session-store";
+import { REQUEST_TIMEOUT_MS } from "./oauth";
+import { configDir, SessionStore, SIGN_IN_LOCK_TIMING, type StoredSignIn } from "./session-store";
 
 // The one file ax writes: where it lives, who can read it, and the lock that keeps two ax
 // commands from spending the same refresh token.
@@ -130,4 +131,52 @@ describe("the sign-in's lock", () => {
 		expect(() => statSync(lockOf(store))).toThrow();
 		expect(await store.withLock(async () => "next")).toBe("next");
 	});
+
+	it("a holder whose stale lock was broken leaves its successor's lock alone", async () => {
+		// Three ax commands on one machine: the first stalls past the stale window (a laptop lid
+		// closed mid-refresh), the second breaks its lock and takes one of its own, then the first
+		// finishes. The third must still wait for the second.
+		const first = freshStore();
+		const second = new SessionStore(first.dir);
+		const third = new SessionStore(first.dir);
+		const firstGate = deferred();
+		const secondGate = deferred();
+		const secondIn = deferred();
+		const firstDone = first.withLock(() => firstGate.promise);
+		const minuteAgo = new Date(Date.now() - 60_000);
+		utimesSync(lockOf(first), minuteAgo, minuteAgo);
+		const secondDone = second.withLock(async () => {
+			secondIn.resolve();
+			await secondGate.promise;
+		});
+		await secondIn.promise;
+
+		firstGate.resolve();
+		await firstDone;
+		expect(() => statSync(lockOf(first))).not.toThrow();
+
+		let thirdRan = false;
+		const thirdDone = third.withLock(async () => {
+			thirdRan = true;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 250));
+		expect(thirdRan).toBe(false);
+		secondGate.resolve();
+		await Promise.all([secondDone, thirdDone]);
+		expect(thirdRan).toBe(true);
+	});
+
+	it("breaks a dead holder's lock only after every request a live one makes could have ended", () => {
+		// The window is derived from the request deadline; this fails if either moves on its own.
+		expect(SIGN_IN_LOCK_TIMING.staleMs).toBeGreaterThan(REQUEST_TIMEOUT_MS);
+		expect(SIGN_IN_LOCK_TIMING.waitMs).toBeGreaterThan(SIGN_IN_LOCK_TIMING.staleMs);
+	});
 });
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+	let resolve: () => void = () => {};
+	const promise = new Promise<void>((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+}

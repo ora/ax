@@ -3,10 +3,13 @@ import type { SignInTarget } from "./sign-in-target";
 // The few OAuth 2.1 calls a browser sign-in from a terminal needs, over fetch and nothing else
 // (ax has no runtime dependencies): discovery (RFC 8414), the device flow (RFC 8628), refresh
 // with rotation, and revocation (RFC 7009). ax is a public client: its id travels in the body and
-// there is no secret. Every request has a deadline shorter than the sign-in lock's stale window,
-// so a hung refresh can never have its lock broken while it is still in flight.
+// there is no secret.
 
-const REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * Every request's deadline. The sign-in lock's stale window is derived from it
+ * (session-store.ts), so a hung refresh can never have its lock broken while it is in flight.
+ */
+export const REQUEST_TIMEOUT_MS = 15_000;
 export const DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
 /** The sign-in server refused, or did not answer as one. `code` is OAuth's own when it sent one. */
