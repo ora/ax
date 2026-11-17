@@ -24,7 +24,7 @@ function isThisMachine(hostname: string): boolean {
 /**
  * Why ax will not send a key to `base`, or undefined when it may.
  *
- * The default host is always fine. Any other host gets the key only over https
+ * The default host is always fine (ora's own hosts, when `defaultBase` lists more than one). Any other host gets the key only over https
  * (plain http only to this machine), and only when the user chose it: a host
  * that came from a `.env` in the current directory is refused, because that
  * file may belong to whatever repository ax happens to run in.
@@ -32,7 +32,7 @@ function isThisMachine(hostname: string): boolean {
 export function keyDestinationProblem(
 	base: string,
 	variable: KeyBaseVariable,
-	defaultBase: string,
+	defaultBase: string | readonly string[],
 ): string | undefined {
 	let url: URL;
 	try {
@@ -40,7 +40,8 @@ export function keyDestinationProblem(
 	} catch {
 		return `${variable} is not a URL, so ax did not send your key anywhere.`;
 	}
-	if (url.origin === new URL(defaultBase).origin) return undefined;
+	const defaults = typeof defaultBase === "string" ? [defaultBase] : defaultBase;
+	if (defaults.some((value) => url.origin === new URL(value).origin)) return undefined;
 	const local = isThisMachine(url.hostname);
 	if (url.protocol !== "https:" && !local) {
 		return `${variable} is ${url.origin}. ax sends your key only over https, or over plain http to this machine.`;
@@ -67,7 +68,7 @@ function sameOrigin(value: string | undefined, url: URL): boolean {
 export function assertKeyDestination(
 	base: string,
 	variable: KeyBaseVariable,
-	defaultBase: string,
+	defaultBase: string | readonly string[],
 ): void {
 	const problem = keyDestinationProblem(base, variable, defaultBase);
 	if (problem) throw new KeyDestinationError(problem);

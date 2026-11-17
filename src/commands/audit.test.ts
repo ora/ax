@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import realAuditScan from "../api/__fixtures__/audit-scan.json";
 import * as api from "../api/audit";
+import { SessionStore } from "../auth/session-store";
 import type { AuditScanResult } from "../contract";
 import { MCP_AUTH_REQUIRED_NOTICE } from "../report/terminal";
 import * as tunnel from "../tunnel";
@@ -354,6 +355,48 @@ describe("auditCommand tunnels", () => {
 		expect(api.performAudit).not.toHaveBeenCalled();
 	});
 
+	describe("with a browser sign-in and no key", () => {
+		const store = new SessionStore();
+		const signIn = (resource: string) =>
+			store.write({
+				version: 1,
+				issuer: "https://account.ora.ai",
+				clientId: "ax-cli",
+				resource,
+				tokenEndpoint: "https://account.ora.ai/oauth2/token",
+				accessToken: "access-1",
+				refreshToken: "refresh-1",
+				expiresAt: Date.now() + 600_000,
+				scope: "tunnels:write tunnels:connect",
+			});
+		beforeEach(() => vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.ai"));
+		afterEach(() => {
+			store.clear();
+			vi.unstubAllEnvs();
+		});
+
+		it("--tunnel ora opens the tunnel with the sign-in", async () => {
+			signIn("https://api.ora.ai");
+			vi.mocked(oraTunnel.openOraTunnel).mockResolvedValue(fakeTunnel());
+			resolveWith();
+			expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.OK);
+			expect(oraTunnel.openOraTunnel).toHaveBeenCalledWith(
+				"localhost:3000",
+				expect.objectContaining({ credential: expect.objectContaining({ kind: "sign_in" }) }),
+			);
+		});
+
+		it("--tunnel ora with a sign-in for another platform says which, before any request", async () => {
+			signIn("https://api.other.test");
+			expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.USAGE);
+			expect(vi.mocked(console.error).mock.calls.flat().join("\n")).toContain(
+				"Your ax sign-in is for https://api.other.test, not https://api.ora.ai.",
+			);
+			expect(fetch).not.toHaveBeenCalled();
+			expect(oraTunnel.openOraTunnel).not.toHaveBeenCalled();
+		});
+	});
+
 	it("--tunnel with anything but ora, or with no value, is a usage error", async () => {
 		process.env.ORA_API_KEY = "ora_sk_test";
 		expect(await run({ url: "localhost:3000", tunnel: "ngrok" })).toBe(EXIT.USAGE);
@@ -381,6 +424,32 @@ describe("auditCommand tunnels", () => {
 		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.USAGE);
 		expect(handle.close).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(console.error).mock.calls.flat().join("\n")).toMatch(/dropped/);
+	});
+
+	it("a tunnel ora closed because the sign-in ended stops the audit and says ax login", async () => {
+		process.env.ORA_API_KEY = "ora_sk_test";
+		const ended = new tunnel.TunnelError("ora closed the tunnel: your sign-in ended (4401)", {
+			signInEnded: true,
+		});
+		const handle = { ...fakeTunnel(), dropped: Promise.resolve(ended) };
+		vi.mocked(oraTunnel.openOraTunnel).mockResolvedValue(handle);
+		let stopSignal: AbortSignal | undefined;
+		vi.mocked(api.performAudit).mockImplementation((_target, options) => {
+			stopSignal = options?.signal;
+			// A scan that never ends on its own, and rejects the moment it is stopped, as the real one does.
+			return new Promise((_, reject) =>
+				options?.signal?.addEventListener("abort", () =>
+					reject(new api.AuditApiError("ora audit stopped")),
+				),
+			);
+		});
+		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.USAGE);
+		expect(stopSignal?.aborted).toBe(true);
+		expect(handle.close).toHaveBeenCalledTimes(1);
+		const stderr = vi.mocked(console.error).mock.calls.flat().join("\n");
+		expect(stderr).toContain("your sign-in ended");
+		expect(stderr).not.toContain("ora audit stopped");
+		expect(stderr).toMatch(/Next: ax login/);
 	});
 
 	it("--tunnel ora audits the tunnel's public URL as ephemeral and closes it afterwards", async () => {

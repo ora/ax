@@ -1,5 +1,8 @@
 import { defineCommand } from "citty";
 import pc from "picocolors";
+import { platformBase } from "../api/platform";
+import { signInFor } from "../auth/credential";
+import { SessionStore } from "../auth/session-store";
 import { reportError } from "../report/json-error";
 import { axCall, placeholder } from "../report/next-line";
 import { EXIT } from "./audit";
@@ -189,7 +192,9 @@ async function runJourney(input: JourneyArgs, rawArgs: readonly string[]): Promi
 		goal,
 		publicFlags: present(rawArgs, PUBLIC_FLAGS),
 		platformFlags: present(rawArgs, PLATFORM_FLAGS),
-		platformKey: Boolean(process.env.ORA_API_KEY),
+		// Signed in through the browser counts as having a platform key: a goal then runs on the platform.
+		platformKey:
+			Boolean(process.env.ORA_API_KEY) || signInFor(platformBase(), new SessionStore()) !== null,
 		partnerKey: Boolean(
 			input.apiKey || process.env.ORA_PARTNER_API_KEY || process.env.ORA_SCAN_API_KEY,
 		),
@@ -260,7 +265,7 @@ export function journeyUsage(): string {
 		`  ax journey "<goal>" [--domain <site>] [--harness <h>] [--model <m>] [--json]`,
 		"",
 		"  With no goal, ax runs one of ora's curated tasks on ora.ai's public journeys: free, no key.",
-		"  With a goal, the journey runs on ora's platform with your platform key.",
+		"  With a goal, the journey runs on ora's platform: signed in with ax login, or with your platform key.",
 		"",
 		h("FREE, NO GOAL OF YOUR OWN"),
 		"",
@@ -280,7 +285,7 @@ export function journeyUsage(): string {
 		`  --harness <h>    ${d(`Agent harness: ${DEFAULT_HARNESS} (default), codex, openclaw, hermess, claude-agent, eve, ...`)}`,
 		`  --model <m>      ${d("Model override (the harness default when omitted)")}`,
 		`  --json           ${d("Print the run as JSON")}`,
-		`  ${d("needs ORA_API_KEY (see .env.example)")}`,
+		`  ${d("needs ax login (a browser sign-in), or ORA_API_KEY (see .env.example)")}`,
 		`  ${d("exit codes: 0 the run succeeded · 1 it finished without success · 2 error")}`,
 	].join("\n");
 }

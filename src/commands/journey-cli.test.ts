@@ -1,5 +1,6 @@
 import { runCommand } from "citty";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SessionStore } from "../auth/session-store";
 import { deepJourneyCommand } from "./deep-journey";
 import { journeyCommand } from "./journey";
 import { journey, journeyRoute, journeyUsage } from "./journey-cli";
@@ -144,6 +145,29 @@ describe("a free journey, with no goal of its own", () => {
 		vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
 		await argv(GOAL, "--domain", "stripe.com");
 		expectOnly(oneMock);
+	});
+
+	it("keeps a goal on ora's platform when signed in with ax login, with no platform key", async () => {
+		vi.stubEnv("ORA_API_KEY", "");
+		vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
+		vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.test");
+		new SessionStore().write({
+			version: 1,
+			issuer: "https://account.ora.test",
+			clientId: "ax-cli",
+			resource: "https://api.ora.test",
+			tokenEndpoint: "https://account.ora.test/oauth2/token",
+			accessToken: "access-1",
+			refreshToken: "refresh-1",
+			expiresAt: Date.now() + 900_000,
+			scope: "runs:write",
+		});
+		try {
+			await argv(GOAL, "--domain", "stripe.com");
+			expectOnly(oneMock);
+		} finally {
+			new SessionStore().clear();
+		}
 	});
 
 	it("refuses public and platform flags together, exit 2, with the call for the platform", async () => {

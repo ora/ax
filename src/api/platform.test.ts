@@ -121,6 +121,28 @@ describe("launchJourney", () => {
 		expect(String(fetchMock.mock.calls[3][0])).toContain("/runs?pageSize=");
 	});
 
+	it("with a browser sign-in: no key trade, the access token on every call, asked again for the totals", async () => {
+		const fetchMock = platformMock({ stream: runStream(FINALE) });
+		vi.stubGlobal("fetch", fetchMock);
+		const bearers = ["access-1", "access-2"];
+		const credential = {
+			kind: "sign_in" as const,
+			bearer: vi.fn(async () => bearers.shift() ?? "x"),
+			renew: vi.fn(),
+		};
+		const { apiKey: _none, ...request } = REQUEST;
+		await launchJourney({ ...request, credential });
+
+		const urls = fetchMock.mock.calls.map(([url]) => String(url));
+		expect(urls.some((url) => url.endsWith("/auth/token"))).toBe(false);
+		const auth = (i: number) =>
+			(fetchMock.mock.calls[i][1] as { headers: Record<string, string> }).headers.authorization;
+		expect(auth(0)).toBe("Bearer access-1");
+		// The totals are read after the run: the credential is asked again (a sign-in renews there).
+		expect(auth(fetchMock.mock.calls.length - 1)).toBe("Bearer access-2");
+		expect(credential.bearer).toHaveBeenCalledTimes(2);
+	});
+
 	it("relays every growing trajectory snapshot and keeps the last", async () => {
 		const one = [{ id: 0, turn: 1, type: "text", kind: "reasoning", thinking: "look" }];
 		const two = [

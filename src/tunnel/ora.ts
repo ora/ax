@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { type ClientRequest, request as httpRequest, type IncomingMessage } from "node:http";
 import pkg from "../../package.json";
-import { exchangeKey, PlatformApiError, platformBase } from "../api/platform";
+import { PlatformApiError, platformBase, resolvePlatformCredential } from "../api/platform";
+import { NotSignedInError, type PlatformCredential, SignInEndedError } from "../auth/credential";
 import { type Tunnel, TunnelError, waitRoutable } from "../tunnel";
 import {
 	type HeaderMap,
@@ -26,8 +27,10 @@ import {
 // an unguessable UUID that stops answering the moment the row is deleted.
 
 export interface OraTunnelOptions {
-	/** The ora_sk_ platform key; falls back to $ORA_API_KEY. */
+	/** The ora_sk_ platform key; falls back to $ORA_API_KEY, then the sign-in `ax login` stored. */
 	apiKey?: string;
+	/** How to sign the calls, instead of resolving one from apiKey/ORA_API_KEY/ax login. */
+	credential?: PlatformCredential;
 	/** Platform API base; falls back to $ORA_PLATFORM_URL, then production. */
 	platformUrl?: string;
 	/** How long to wait for the public hostname to route (default 90s). */
@@ -45,10 +48,31 @@ export interface OraTunnelOptions {
 export const ORA_TUNNEL_SCOPES = "tunnels:write + tunnels:connect";
 
 export const MISSING_KEY_HINT = [
-	`--tunnel ora needs ORA_API_KEY: an ora platform key (ora_sk_...) with the ${ORA_TUNNEL_SCOPES} scopes.`,
-	"Create one at https://agentfront.sh (API keys), export it or put it in a local .env,",
-	"or bring your own tunnel instead: --tunnel-cmd 'ngrok http 3000 --log stdout'",
+	"--tunnel ora needs you signed in to ora's platform: run ax login to sign in through your browser,",
+	`or set ORA_API_KEY to an ora platform key (ora_sk_...) with the ${ORA_TUNNEL_SCOPES} scopes`,
+	"(Settings, API keys), exported or in a local .env.",
+	"Or bring your own tunnel instead: --tunnel-cmd 'ngrok http 3000 --log stdout'",
 ].join("\n");
+
+/**
+ * The credential `--tunnel ora` signs its calls with: a platform key (the option, else
+ * $ORA_API_KEY), else the sign-in `ax login` stored for this platform. Resolved before anything is
+ * sent; with neither, a TunnelError that says both ways in.
+ */
+export function oraTunnelCredential(
+	opts: Pick<OraTunnelOptions, "apiKey" | "platformUrl"> = {},
+): PlatformCredential {
+	const base = platformBase(opts.platformUrl);
+	try {
+		return resolvePlatformCredential({ base, apiKey: opts.apiKey });
+	} catch (cause) {
+		if (!(cause instanceof NotSignedInError)) throw cause;
+		const elsewhere = cause.signedInFor
+			? `\nYour ax sign-in is for ${cause.signedInFor}, not ${base}.`
+			: "";
+		throw new TunnelError(`${MISSING_KEY_HINT}${elsewhere}`);
+	}
+}
 
 const WS_OPEN = 1;
 const MAX_STREAMS = 32;
@@ -99,26 +123,26 @@ export async function openOraTunnel(
 	opts: OraTunnelOptions = {},
 ): Promise<Tunnel> {
 	const target = parseLocalTarget(localTarget);
-	const apiKey = opts.apiKey ?? process.env.ORA_API_KEY;
-	if (!apiKey) throw new TunnelError(MISSING_KEY_HINT);
 	const base = platformBase(opts.platformUrl);
+	const credential = opts.credential ?? oraTunnelCredential(opts);
 
 	let bearer: string;
 	try {
-		bearer = await exchangeKey(base, apiKey);
+		bearer = await credential.bearer();
 	} catch (cause) {
 		throw new TunnelError(
-			`${cause instanceof Error ? cause.message : String(cause)}\n(--tunnel ora needs a platform key with the ${ORA_TUNNEL_SCOPES} scopes)`,
+			`${cause instanceof Error ? cause.message : String(cause)}\n(--tunnel ora needs ax login, or a platform key with the ${ORA_TUNNEL_SCOPES} scopes)`,
 			{ payload: cause instanceof PlatformApiError ? cause.payload : undefined },
 		);
 	}
 	if (opts.signal?.aborted) throw interrupted();
-	const row = await createTunnel(base, bearer);
+	const row = await createTunnel(base, bearer, credential.kind);
 	// From here on the row exists and every exit path must delete it. The
 	// bearer lives ~15 minutes and a deep audit can outlast it, so the delete
-	// re-exchanges the key once on 401: a tunnel that survives the audit is
-	// the one outcome this module exists to prevent.
-	const remove = () => deleteTunnel(base, bearer, row.id, () => exchangeKey(base, apiKey));
+	// renews it once on 401 (a key traded again, a sign-in refreshed): a
+	// tunnel that survives the audit is the one outcome this module exists to
+	// prevent.
+	const remove = () => deleteTunnel(base, bearer, row.id, () => credential.renew());
 
 	let ws: WebSocket | undefined;
 	let connector: TunnelConnector | undefined;
@@ -145,8 +169,7 @@ export async function openOraTunnel(
 			},
 			forwarder: localForwarder(target.host, target.port),
 			onConnectionClosed: (reason) => {
-				if (!closing)
-					reportDrop(new TunnelError(`ora tunnel connection dropped: ${reason.message}`));
+				if (!closing) reportDrop(droppedError(reason.message));
 			},
 		});
 		await Promise.race([connector.start(), abortRace]);
@@ -182,6 +205,20 @@ export async function openOraTunnel(
 	return { url: created.publicUrl, close, dropped };
 }
 
+/**
+ * ora closes the connection of a tunnel whose browser sign-in ended (disconnected, signed out
+ * everywhere, removed from the organization) with the reason `sign-in ended: ...`: that one says
+ * what to do. Anything else is a plain drop.
+ */
+function droppedError(reason: string): TunnelError {
+	if (/sign-in ended/i.test(reason)) {
+		return new TunnelError(`ora closed the tunnel: your sign-in ended (${reason}). Run ax login.`, {
+			signInEnded: true,
+		});
+	}
+	return new TunnelError(`ora tunnel connection dropped: ${reason}`);
+}
+
 /** The create response must describe a tunnel this ax can connect to. */
 function validateCreated(row: CreateResponse): CreatedTunnel {
 	if (!row.publicUrl || !row.connection?.url || !row.connection.subprotocol) {
@@ -197,7 +234,11 @@ function validateCreated(row: CreateResponse): CreatedTunnel {
 
 // --- Control plane ---
 
-async function createTunnel(base: string, bearer: string): Promise<CreateResponse> {
+async function createTunnel(
+	base: string,
+	bearer: string,
+	kind: PlatformCredential["kind"],
+): Promise<CreateResponse> {
 	const res = await fetch(`${base}/tunnels/v1`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
@@ -214,7 +255,7 @@ async function createTunnel(base: string, bearer: string): Promise<CreateRespons
 	}
 	if (!res.ok) {
 		const detail = payload.error ?? payload.message ?? text.trim().slice(0, 200);
-		throw new TunnelError(`${createHint(res.status)}${detail ? `: ${detail}` : ""}`, {
+		throw new TunnelError(`${createHint(res.status, kind)}${detail ? `: ${detail}` : ""}`, {
 			payload: served,
 		});
 	}
@@ -224,12 +265,16 @@ async function createTunnel(base: string, bearer: string): Promise<CreateRespons
 	return payload as CreateResponse;
 }
 
-function createHint(status: number): string {
+function createHint(status: number, kind: PlatformCredential["kind"]): string {
 	switch (status) {
 		case 401:
-			return "ora rejected the platform key (401). Check ORA_API_KEY";
+			return kind === "sign_in"
+				? "ora no longer accepts your sign-in (401). Run ax login"
+				: "ora rejected the platform key (401). Check ORA_API_KEY";
 		case 403:
-			return `the platform key lacks the ${ORA_TUNNEL_SCOPES} scopes (403). Issue one with both and retry`;
+			return kind === "sign_in"
+				? `your sign-in cannot open tunnels (403): it needs the ${ORA_TUNNEL_SCOPES} scopes, which a viewer cannot grant. Ask for a developer role, or use a platform key`
+				: `the platform key lacks the ${ORA_TUNNEL_SCOPES} scopes (403). Issue one with both and retry`;
 		case 429:
 			return "ora rate-limited the tunnel request (429). Wait a moment and retry";
 		default:
@@ -258,8 +303,14 @@ async function deleteTunnel(
 			);
 		}
 	} catch (cause) {
+		const why =
+			cause instanceof SignInEndedError
+				? "deleting it needs your sign-in, which ended; it carries no traffic"
+				: cause instanceof Error
+					? cause.message
+					: String(cause);
 		console.error(
-			`could not delete ora tunnel ${id} (${cause instanceof Error ? cause.message : String(cause)}); remove it with: ora tunnels delete ${id}`,
+			`could not delete ora tunnel ${id} (${why}); remove it with: ora tunnels delete ${id}`,
 		);
 	}
 }

@@ -15,10 +15,13 @@ import { spawn } from "node:child_process";
  */
 export class TunnelError extends Error {
 	readonly payload: unknown;
+	/** ora closed the tunnel because the sign-in it was opened with ended: `ax login` is the way on. */
+	readonly signInEnded: boolean;
 
-	constructor(message: string, options: { payload?: unknown } = {}) {
+	constructor(message: string, options: { payload?: unknown; signInEnded?: boolean } = {}) {
 		super(message);
 		this.payload = options.payload;
+		this.signInEnded = options.signInEnded ?? false;
 	}
 }
 

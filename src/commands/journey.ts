@@ -9,6 +9,7 @@ import {
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
+import { NotSignedInError, SignInEndedError } from "../auth/credential";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { flow, squeeze, stdoutWidth } from "../ui/ansi";
@@ -169,8 +170,9 @@ function resultNext(input: JourneyCommandInput): NextStep {
 }
 
 /**
- * A failed launch. `launchJourney` reads the key from ORA_API_KEY, so an unset
- * variable is the missing-key failure; anything else is retried as the same call.
+ * A failed launch. No key and no sign-in is the missing-credential failure (its code stays
+ * MISSING_API_KEY, which scripts read); a sign-in that ended says to sign in again; anything else
+ * is retried as the same call.
  */
 function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
 	const words = [
@@ -183,14 +185,21 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 		...jsonWords(input),
 	];
 	const message = cause instanceof Error ? cause.message : String(cause);
-	if (!process.env.ORA_API_KEY) {
+	if (cause instanceof NotSignedInError) {
 		return {
 			code: "MISSING_API_KEY",
 			message,
 			next: {
-				call: `ORA_API_KEY=<platform key> ${axCall(words)}`,
-				why: "a goal of your own runs on ora's platform and needs a platform key; with no goal, ax journey --domain <site> runs one of ora's curated tasks free",
+				call: "ax login",
+				why: "a goal of your own runs on ora's platform: sign in through your browser, or set ORA_API_KEY to a platform key; with no goal, ax journey --domain <site> runs one of ora's curated tasks free",
 			},
+		};
+	}
+	if (cause instanceof SignInEndedError) {
+		return {
+			code: "SIGN_IN_ENDED",
+			message,
+			next: { call: "ax login", why: "your browser sign-in ended; sign in again, then rerun" },
 		};
 	}
 	if (cause instanceof KeyDestinationError) {
@@ -205,7 +214,7 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 		message,
 		next: {
 			call: axCall(words),
-			why: "retry; if it fails the same way, check ORA_API_KEY and ORA_PLATFORM_URL",
+			why: "retry; if it fails the same way, check your sign-in (ax whoami) or ORA_API_KEY, and ORA_PLATFORM_URL",
 		},
 	};
 }

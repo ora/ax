@@ -87,6 +87,12 @@ export interface AuditOptions {
 	 * blind — the server degrades an unrecognized key to keyless, never a 401.
 	 */
 	apiKey?: string;
+	/**
+	 * Stops the audit: the stream is cancelled and no further poll is made, and the audit rejects.
+	 * `ax audit --tunnel ora` aborts it when the tunnel drops, so ax exits instead of waiting for
+	 * a scan of a hostname that no longer answers.
+	 */
+	signal?: AbortSignal;
 }
 
 /** Bearer header for the scan API key, or nothing when the caller is keyless. */
@@ -143,16 +149,19 @@ async function consumeScanStream(
 	const dog = watchdog(idleMs);
 	const timeoutError = () =>
 		new AuditApiError(`ora audit timed out — no progress for ${Math.round(idleMs / 1000)}s`);
+	const stopped = () => options.signal?.aborted === true;
+	const stoppedError = () => new AuditApiError("ora audit stopped");
 
 	let res: Response;
 	try {
 		res = await fetch(streamUrl(base, target, options), {
 			headers: { accept: "text/event-stream", ...authHeaders(options.apiKey) },
-			signal: dog.signal,
+			signal: options.signal ? AbortSignal.any([dog.signal, options.signal]) : dog.signal,
 		});
 	} catch (cause) {
 		dog.disarm();
 		if (dog.tripped()) throw timeoutError();
+		if (stopped()) throw stoppedError();
 		const detail = cause instanceof Error ? cause.message : String(cause);
 		throw new AuditApiError(`ora audit request failed: ${detail}`);
 	}
@@ -226,6 +235,7 @@ async function consumeScanStream(
 		}
 	} catch (cause) {
 		if (dog.tripped()) throw timeoutError();
+		if (stopped()) throw stoppedError();
 		if (cause instanceof AuditApiError) throw cause;
 		const detail = cause instanceof Error ? cause.message : String(cause);
 		throw new AuditApiError(`ora audit stream error: ${detail}`);
@@ -307,10 +317,12 @@ async function awaitDeepAnalysis(
 			left ? `Analyzing… ${left} check${left === 1 ? "" : "s"} pending` : "Analyzing…",
 		);
 		await pause(every);
+		if (options.signal?.aborted) throw new AuditApiError("ora audit stopped");
 		try {
+			const deadline = AbortSignal.timeout(15_000);
 			const res = await fetch(scoreUrl, {
 				headers: { accept: "application/json", ...authHeaders(options.apiKey) },
-				signal: AbortSignal.timeout(15_000),
+				signal: options.signal ? AbortSignal.any([deadline, options.signal]) : deadline,
 			});
 			if (res.ok) latest = (await res.json()) as AuditScoreResult;
 		} catch {

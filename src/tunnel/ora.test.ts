@@ -360,13 +360,63 @@ describe("openOraTunnel", () => {
 		const saved = process.env.ORA_API_KEY;
 		delete process.env.ORA_API_KEY;
 		try {
-			await expect(openOraTunnel("localhost:3000", { platformUrl: BASE })).rejects.toThrow(
-				/tunnels:write \+ tunnels:connect/,
-			);
+			const error = await openOraTunnel("localhost:3000", { platformUrl: BASE }).catch((e) => e);
+			expect(error.message).toMatch(/tunnels:write \+ tunnels:connect/);
+			expect(error.message).toContain("ax login");
 			expect(calls).toHaveLength(0);
 		} finally {
 			if (saved !== undefined) process.env.ORA_API_KEY = saved;
 		}
+	});
+
+	it("with a browser sign-in: never trades a key, sends the access token, and renews it to delete", async () => {
+		const credential = {
+			kind: "sign_in" as const,
+			bearer: vi.fn(async () => "access-1"),
+			renew: vi.fn(async () => "access-2"),
+		};
+		const tunnel = await openOraTunnel(`localhost:${localPort}`, {
+			credential,
+			platformUrl: BASE,
+			probeEveryMs: 10,
+		});
+		const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/tunnels/v1"));
+		expect(create?.headers.authorization).toBe("Bearer access-1");
+		expect(new URL(FakeWebSocket.instances[0].url).searchParams.get("token")).toBe("access-1");
+		const original = vi.mocked(fetch).getMockImplementation();
+		let first = true;
+		vi.mocked(fetch).mockImplementation(async (input, init) => {
+			if (init?.method === "DELETE" && first) {
+				first = false;
+				calls.push({ method: "DELETE", url: String(input), headers: {} });
+				return new Response("", { status: 401 });
+			}
+			return original?.(input, init) as Promise<Response>;
+		});
+		await tunnel.close();
+		expect(deletes()).toHaveLength(2);
+		expect(credential.renew).toHaveBeenCalledTimes(1);
+		expect(calls.filter((c) => c.url === `${BASE}/auth/token`)).toHaveLength(0);
+	});
+
+	it("a connection ora closes because the sign-in ended says to sign in again", async () => {
+		const credential = {
+			kind: "sign_in" as const,
+			bearer: async () => "access-1",
+			renew: async () => "access-2",
+		};
+		const tunnel = await openOraTunnel(`localhost:${localPort}`, {
+			credential,
+			platformUrl: BASE,
+			probeEveryMs: 10,
+		});
+		const [ws] = FakeWebSocket.instances;
+		await ws.accepted;
+		ws.session.close(4401, "sign-in ended: grant_inactive");
+		const error = await tunnel.dropped;
+		expect(error?.message).toContain("your sign-in ended");
+		expect(error?.message).toContain("ax login");
+		await tunnel.close();
 	});
 
 	it("maps 401/403/429 on create to actionable hints without dialing", async () => {

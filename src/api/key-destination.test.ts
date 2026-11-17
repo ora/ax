@@ -130,3 +130,18 @@ describe("assertKeyDestination", () => {
 		).not.toThrow();
 	});
 });
+
+describe("ora's own platform hosts", () => {
+	it("either may be the destination, even when named in ./.env", () => {
+		const defaults = ["https://api.ora.ai", "https://api.agentfront.sh"];
+		expect(
+			keyDestinationProblem("https://api.agentfront.sh", "ORA_PLATFORM_URL", defaults),
+		).toBeUndefined();
+		expect(
+			keyDestinationProblem("https://api.ora.ai", "ORA_PLATFORM_URL", defaults),
+		).toBeUndefined();
+		expect(keyDestinationProblem("http://api.ora.ai", "ORA_PLATFORM_URL", defaults)).toContain(
+			"https",
+		);
+	});
+});
