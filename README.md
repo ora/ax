@@ -422,7 +422,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | `ORA_PLATFORM_URL` | journey, audit `--tunnel ora`, login, whoami, logout | `https://api.ora.ai` | Authenticated platform API base. `ax login` signs in at its `account.` host. `https://api.agentfront.sh`, the default before 0.12, serves the same API and still works with a key |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_KEY` | journey, audit `--tunnel ora` | — (or `ax login`) | ora platform key (`ora_sk_…`); exchanged for a bearer token (the tunnel needs the `tunnels:write` + `tunnels:connect` scopes). Used before a sign-in when both are there |
+| `ORA_API_KEY` | journey, audit `--tunnel ora`, whoami | — (or `ax login`) | ora platform key (`ora_sk_…`); exchanged for a bearer token for a journey and the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
 | `ORA_SCAN_API_KEY` | audit, journey (free), webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). the free journey and webmcp-audit accept it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | journey (free), webmcp-audit | — (optional) | ora-issued partner API key; unlocks a goal of your own and the 1000/24h keyed allowance on the free journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |

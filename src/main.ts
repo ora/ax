@@ -335,7 +335,7 @@ const whoami = defineCommand({
 	meta: {
 		name: "whoami",
 		description:
-			"Who ax calls ora's platform as: your browser sign-in, or ORA_API_KEY (exit codes: 0, 2 not signed in, 3 refused)",
+			"Who ax calls ora's platform as: your browser sign-in, or ORA_API_KEY (exit codes: 0, 2 not signed in or an address ax will not send to, 3 refused)",
 	},
 	args: {
 		json: { type: "boolean", description: "Print the identity as JSON", default: false },
