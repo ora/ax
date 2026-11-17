@@ -342,7 +342,7 @@ The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_C
 
 `ORA_API_KEY`, when set, is used before the sign-in, so CI and scripts work as before. Use a key wherever no person is at the terminal.
 
-`ax whoami` exits `0` signed in · `2` neither a sign-in nor a key · `3` ora refused the credential or could not answer. `ax login` exits `0` signed in · `2` a platform address ax will not sign in to · `3` the sign-in did not complete (cancelled, expired, or ora unreachable).
+`ax whoami` asks ora who the credential ax would use is, a sign-in or a key alike, and exits `0` · `2` neither a sign-in nor a key, or a platform address ax will not send one to · `3` ora refused the credential or could not answer. `ax login` exits `0` signed in · `2` a platform address ax will not sign in to · `3` the sign-in did not complete (cancelled, expired, or ora unreachable).
 
 ### journey
 

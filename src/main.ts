@@ -1,7 +1,7 @@
 import { defineCommand, renderUsage, runMain, showUsage } from "citty";
 import pc from "picocolors";
 import pkg from "../package.json";
-import { platformBase } from "./api/platform";
+import { platformBase } from "./api/platform-origins";
 import { resolveBase } from "./api/skills";
 import { scopeList, TUNNEL_FEATURE } from "./auth/platform-features";
 import { auditCommand } from "./commands/audit";

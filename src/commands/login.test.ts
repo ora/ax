@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeSignInServer, ISSUER, PLATFORM } from "../auth/fake-sign-in-server.test-support";
+import { platformCredentials } from "../auth/resolve-credential";
 import { SessionStore } from "../auth/session-store";
 import { type LoginDeps, loginCommand } from "./login";
 import { logoutCommand } from "./logout";
@@ -41,7 +42,7 @@ function harness(overrides: Parameters<typeof fakeSignInServer>[0] = {}) {
 	const opened: string[] = [];
 	const deps: LoginDeps = {
 		fetchFn: server.fetchFn,
-		store,
+		credentials: platformCredentials({ store, fetchFn: server.fetchFn }),
 		openBrowser: (url) => {
 			opened.push(url);
 			return true;
@@ -165,7 +166,15 @@ describe("ax login", () => {
 		vi.stubEnv("ORA_API_KEY", "ora_sk_env");
 		const { deps } = harness();
 		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
-		expect(errors.join("\n")).toContain("ORA_API_KEY is set here");
+		expect(errors.join("\n")).toContain(
+			"ORA_API_KEY (a platform key) is set here, and ax uses it before your sign-in",
+		);
+	});
+
+	it("says nothing of a key when none is set: the sign-in is what ax uses", async () => {
+		const { deps } = harness();
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		expect(errors.join("\n")).not.toContain("before your sign-in");
 	});
 
 	it("--json puts one document on stdout and the code on stderr", async () => {
@@ -221,6 +230,31 @@ describe("ax whoami and ax logout", () => {
 		expect(server.state.revoked).toEqual(["refresh-1"]);
 		expect(store.read()).toBeNull();
 		expect(printed.join("\n")).toContain(`Signed out of ${PLATFORM}.`);
+	});
+
+	it("whoami with a platform key asks /auth/identity with the key itself, never trading it", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_env");
+		const { deps, server } = harness();
+		expect(await whoamiCommand({ json: true }, deps)).toBe(0);
+		expect(server.state.identityCalls).toEqual(["Bearer ora_sk_env"]);
+		expect(JSON.parse(stdout.join(""))).toMatchObject({
+			credential: "api_key",
+			identity: { organizationId: "org-1" },
+		});
+	});
+
+	it("whoami names the platform key it read", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_env");
+		const { deps } = harness();
+		expect(await whoamiCommand({ json: false }, deps)).toBe(0);
+		expect(printed.join("\n")).toContain("ORA_API_KEY (a platform key)");
+	});
+
+	it("logout says the key ax keeps using, when one is set", async () => {
+		const { deps } = await signedIn();
+		vi.stubEnv("ORA_API_KEY", "ora_sk_env");
+		expect(await logoutCommand({ json: false }, deps)).toBe(0);
+		expect(errors.join("\n")).toContain("ORA_API_KEY (a platform key) is still set here");
 	});
 
 	it("logout with nothing stored is a no-op that says so", async () => {

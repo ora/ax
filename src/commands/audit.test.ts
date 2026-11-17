@@ -1,12 +1,18 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import realAuditScan from "../api/__fixtures__/audit-scan.json";
 import * as api from "../api/audit";
+import { SignInEndedError } from "../auth/errors";
+import { platformCredentials } from "../auth/resolve-credential";
 import { SessionStore } from "../auth/session-store";
 import type { AuditScanResult } from "../contract";
 import { MCP_AUTH_REQUIRED_NOTICE } from "../report/terminal";
 import * as tunnel from "../tunnel";
 import * as oraTunnel from "../tunnel/ora";
-import { auditCommand, EXIT } from "./audit";
+import { auditCommand } from "./audit";
+import { EXIT } from "./exit-codes";
 
 vi.mock("../api/audit", async (importOriginal) => {
 	const original = await importOriginal<typeof api>();
@@ -46,15 +52,25 @@ const rejectWithMcpAuth = () =>
 		}),
 	);
 
+// Every run gets a sign-in store of its own, empty unless a test writes into it: whatever this
+// machine has stored never reaches these tests.
+let store: SessionStore;
+beforeEach(() => {
+	store = new SessionStore(mkdtempSync(join(tmpdir(), "ax-audit-")));
+});
+
 const run = (over: Partial<Parameters<typeof auditCommand>[0]> = {}) =>
-	auditCommand({
-		url: "example.com",
-		json: true, // no spinner / renderer noise in tests
-		showSkipped: false,
-		showPassing: false,
-		force: false,
-		...over,
-	});
+	auditCommand(
+		{
+			url: "example.com",
+			json: true, // no spinner / renderer noise in tests
+			showSkipped: false,
+			showPassing: false,
+			force: false,
+			...over,
+		},
+		{ credentials: platformCredentials({ store }) },
+	);
 
 describe("auditCommand exit codes", () => {
 	beforeEach(() => {
@@ -356,7 +372,6 @@ describe("auditCommand tunnels", () => {
 	});
 
 	describe("with a browser sign-in and no key", () => {
-		const store = new SessionStore();
 		const signIn = (resource: string) =>
 			store.write({
 				version: 1,
@@ -370,10 +385,7 @@ describe("auditCommand tunnels", () => {
 				scope: "tunnels:write tunnels:connect",
 			});
 		beforeEach(() => vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.ai"));
-		afterEach(() => {
-			store.clear();
-			vi.unstubAllEnvs();
-		});
+		afterEach(() => vi.unstubAllEnvs());
 
 		it("--tunnel ora opens the tunnel with the sign-in", async () => {
 			signIn("https://api.ora.ai");
@@ -428,9 +440,9 @@ describe("auditCommand tunnels", () => {
 
 	it("a tunnel ora closed because the sign-in ended stops the audit and says ax login", async () => {
 		process.env.ORA_API_KEY = "ora_sk_test";
-		const ended = new tunnel.TunnelError("ora closed the tunnel: your sign-in ended (4401)", {
-			signInEnded: true,
-		});
+		const ended = new SignInEndedError(
+			"ora closed the tunnel (4401): your sign-in no longer works. Run ax login.",
+		);
 		const handle = { ...fakeTunnel(), dropped: Promise.resolve(ended) };
 		vi.mocked(oraTunnel.openOraTunnel).mockResolvedValue(handle);
 		let stopSignal: AbortSignal | undefined;
@@ -447,9 +459,29 @@ describe("auditCommand tunnels", () => {
 		expect(stopSignal?.aborted).toBe(true);
 		expect(handle.close).toHaveBeenCalledTimes(1);
 		const stderr = vi.mocked(console.error).mock.calls.flat().join("\n");
-		expect(stderr).toContain("your sign-in ended");
+		expect(stderr).toContain("your sign-in no longer works");
 		expect(stderr).not.toContain("ora audit stopped");
 		expect(stderr).toMatch(/Next: ax login/);
+	});
+
+	it("a sign-in that ends while the tunnel opens reads as it does mid-audit: SIGN_IN_ENDED", async () => {
+		process.env.ORA_API_KEY = "ora_sk_test";
+		const ended = new SignInEndedError("Your ax sign-in no longer works. Run ax login.");
+		// openOraTunnel wraps a credential's failure, keeping it as the cause.
+		vi.mocked(oraTunnel.openOraTunnel).mockRejectedValue(
+			new tunnel.TunnelError(`${ended.message}\n(--tunnel ora needs ax login)`, { cause: ended }),
+		);
+		expect(await run({ url: "localhost:3000", tunnel: "ora" })).toBe(EXIT.USAGE);
+		const printed = vi
+			.mocked(process.stdout.write)
+			.mock.calls.map((c) => String(c[0]))
+			.join("");
+		expect(JSON.parse(printed).error).toMatchObject({
+			code: "SIGN_IN_ENDED",
+			message: ended.message,
+			next: "ax login",
+		});
+		expect(api.performAudit).not.toHaveBeenCalled();
 	});
 
 	it("--tunnel ora audits the tunnel's public URL as ephemeral and closes it afterwards", async () => {

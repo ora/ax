@@ -24,6 +24,15 @@ export interface StoredSignIn {
 	scope: string;
 }
 
+/** Where the sign-in `ax login` stored is kept: the file below, or a test's own. */
+export interface SignInStore {
+	read(): StoredSignIn | null;
+	write(session: StoredSignIn): void;
+	clear(): void;
+	/** Runs `fn` while no other ax command refreshes this sign-in. */
+	withLock<T>(fn: () => Promise<T>): Promise<T>;
+}
+
 /** `$XDG_CONFIG_HOME/ax`, else `%APPDATA%\ax` on Windows, else `~/.config/ax`. */
 export function configDir(
 	env: NodeJS.ProcessEnv = process.env,
@@ -59,7 +68,7 @@ export const SIGN_IN_LOCK_TIMING: FileLockTiming = {
 	pollMs: 100,
 };
 
-export class SessionStore {
+export class SessionStore implements SignInStore {
 	readonly file: string;
 	private readonly lock: FileLock;
 

@@ -1,15 +1,17 @@
 import pc from "picocolors";
-import { KEY_DESTINATION_WHY, KeyDestinationError } from "../api/key-destination";
 import {
 	type JourneyInsight,
 	type JourneyRun,
 	type JourneyStep,
 	launchJourney,
-	PlatformApiError,
+	type RunRequest,
 	type RunSpend,
 	type RunSummary,
 } from "../api/platform";
-import { NotSignedInError, SignInEndedError } from "../auth/credential";
+import { platformBase } from "../api/platform-origins";
+import { JOURNEY_FEATURE } from "../auth/platform-features";
+import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { flow, squeeze, stdoutWidth } from "../ui/ansi";
@@ -21,6 +23,7 @@ import {
 	splitUrl,
 } from "../ui/graph";
 import { LivePanel } from "../ui/panel";
+import { credentialFailure } from "./credential-failure";
 
 export interface JourneyCommandInput {
 	intent: string;
@@ -170,12 +173,12 @@ function resultNext(input: JourneyCommandInput): NextStep {
 }
 
 /**
- * A failed launch. No key and no sign-in is the missing-credential failure (its code stays
- * MISSING_API_KEY, which scripts read); a sign-in that ended says to sign in again; anything else
- * is retried as the same call.
+ * A failed launch: a credential's failure reads as it does for every command (no credential is
+ * MISSING_API_KEY, which scripts read; a sign-in that ended says ax login); anything else is
+ * retried as the same call.
  */
 function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
-	const words = [
+	const retry = axCall([
 		"journey",
 		input.intent,
 		...(input.domain ? ["--domain", input.domain] : []),
@@ -183,59 +186,53 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 		input.harness,
 		...(input.model ? ["--model", input.model] : []),
 		...jsonWords(input),
-	];
-	const message = cause instanceof Error ? cause.message : String(cause);
-	if (cause instanceof NotSignedInError) {
-		return {
-			code: "MISSING_API_KEY",
-			message,
+	]);
+	const otherwise = "with no goal, ax journey --domain <site> runs one of ora's curated tasks free";
+	return (
+		credentialFailure(cause, { retry, otherwise }) ?? {
+			code: "PLATFORM_ERROR",
+			message: cause instanceof Error ? cause.message : String(cause),
 			next: {
-				call: "ax login",
-				why: "a goal of your own runs on ora's platform: sign in through your browser, or set ORA_API_KEY to a platform key; with no goal, ax journey --domain <site> runs one of ora's curated tasks free",
+				call: retry,
+				why: "retry; if it fails the same way, check your sign-in (ax whoami) or ORA_API_KEY, and ORA_PLATFORM_URL",
 			},
-		};
-	}
-	if (cause instanceof SignInEndedError) {
-		return {
-			code: "SIGN_IN_ENDED",
-			message,
-			next: { call: "ax login", why: "your browser sign-in ended; sign in again, then rerun" },
-		};
-	}
-	if (cause instanceof KeyDestinationError) {
-		return {
-			code: "KEY_DESTINATION_REFUSED",
-			message,
-			next: { call: axCall(words), why: KEY_DESTINATION_WHY },
-		};
-	}
-	return {
-		code: "PLATFORM_ERROR",
-		message,
-		next: {
-			call: axCall(words),
-			why: "retry; if it fails the same way, check your sign-in (ax whoami) or ORA_API_KEY, and ORA_PLATFORM_URL",
-		},
-	};
+		}
+	);
+}
+
+export interface JourneyDeps {
+	/** Which credential the run signs its calls with. */
+	credentials: PlatformCredentials;
 }
 
 // Exit codes: 0 run outcome "success" · 1 finished otherwise · 2 error.
-export async function journeyCommand(input: JourneyCommandInput): Promise<number> {
-	const request = {
-		intent: input.intent,
-		domain: input.domain,
-		harness: input.harness,
-		model: input.model,
-	};
+export async function journeyCommand(
+	input: JourneyCommandInput,
+	deps: JourneyDeps = { credentials: platformCredentials() },
+): Promise<number> {
 	const fail = (cause: unknown): number => {
 		const error = launchFailure(input, cause);
 		reportError(error, {
 			json: input.json,
 			display: (message) => `Journey failed: ${message}`,
-			served: cause instanceof PlatformApiError ? cause.payload : undefined,
+			served: servedBody(cause),
 		});
 		return 2;
 	};
+	let request: RunRequest;
+	try {
+		const base = platformBase();
+		request = {
+			intent: input.intent,
+			domain: input.domain,
+			harness: input.harness,
+			model: input.model,
+			baseUrl: base,
+			credential: deps.credentials.chain.resolve(base, JOURNEY_FEATURE),
+		};
+	} catch (cause) {
+		return fail(cause);
+	}
 
 	if (input.json) {
 		try {

@@ -1,11 +1,5 @@
-import {
-	NotSignedInError,
-	type PlatformCredential,
-	SignInCredential,
-	signInFor,
-} from "../auth/credential";
-import { SessionStore } from "../auth/session-store";
-import { assertKeyDestination, keyDestinationProblem } from "./key-destination";
+import { jsonOrNull, PlatformApiError } from "./platform-error";
+import { platformBase } from "./platform-origins";
 import { pause, watchdog } from "./shared";
 
 // Client for ora's authenticated platform API — the machinery behind `journey`.
@@ -14,54 +8,16 @@ import { pause, watchdog } from "./shared";
 // fan-out needing the journeys:write scope; a runs:read + runs:write key is all
 // this client requires, so it stays away from that endpoint on purpose.)
 
-// ora's canonical platform address, the one its sign-in server issues tokens for. The older
-// https://api.agentfront.sh serves the same API and still works when named in ORA_PLATFORM_URL;
-// a browser sign-in (ax login) needs the canonical one.
-export const PLATFORM_BASE = "https://api.ora.ai";
-/** The default before ax 0.12, and what `.env.example` used to set. */
-export const LEGACY_PLATFORM_BASE = "https://api.agentfront.sh";
-
-/** ora's own platform hosts: either may be named in ./.env and still gets a key or a sign-in. */
-const ORA_PLATFORM_ORIGINS = [PLATFORM_BASE, LEGACY_PLATFORM_BASE] as const;
-
-/** The platform API base: explicit override, else $ORA_PLATFORM_URL, else prod. */
-export function platformBase(override?: string): string {
-	return (override ?? process.env.ORA_PLATFORM_URL ?? PLATFORM_BASE).replace(/\/+$/, "");
-}
-
-/** Why the key must not go to the platform `platformBase()` names, checked before any call. */
-export function platformKeyProblem(): string | undefined {
-	return keyDestinationProblem(platformBase(), "ORA_PLATFORM_URL", ORA_PLATFORM_ORIGINS);
-}
-
-const KEY_EXCHANGE_TIMEOUT_MS = 30_000;
+const RUN_IDLE_MS = 120_000; // agents legitimately go quiet between turns
 
 /**
- * The platform answered with an HTTP error. `payload` is the error body
- * exactly as served when it was JSON (what `--json` prints), null otherwise.
+ * What this client needs of a credential: a bearer for each call, asked again for a later one
+ * (it may have been renewed meanwhile). ../auth's platform credentials are the ones ax passes;
+ * the client never decides which, and never sees a key or a sign-in.
  */
-export class PlatformApiError extends Error {
-	readonly status: number;
-	readonly payload: unknown;
-
-	constructor(message: string, options: { status: number; payload?: unknown }) {
-		super(message);
-		this.name = "PlatformApiError";
-		this.status = options.status;
-		this.payload = options.payload;
-	}
+export interface BearerSource {
+	bearer(): Promise<string>;
 }
-
-/** A response body parsed as JSON, or null when it is not JSON. */
-function jsonOrNull(text: string): unknown {
-	try {
-		return JSON.parse(text);
-	} catch (err) {
-		if (err instanceof SyntaxError) return null;
-		throw err;
-	}
-}
-const RUN_IDLE_MS = 120_000; // agents legitimately go quiet between turns
 
 // --- Wire shapes ---
 
@@ -177,9 +133,8 @@ export interface RunRequest {
 	/** "harness" = tool-using agent (default); "direct" = single LLM answer. */
 	executionKind?: "harness" | "direct";
 	baseUrl?: string;
-	apiKey?: string;
-	/** How to sign the calls; otherwise ORA_API_KEY, then the sign-in `ax login` stored. */
-	credential?: PlatformCredential;
+	/** What signs every call: the credential the command resolved (auth/resolve-credential.ts). */
+	credential: BearerSource;
 	idleMs?: number;
 }
 
@@ -194,84 +149,6 @@ export interface JourneyRun {
 	steps: RawRunStep[];
 	/** The last trajectory snapshot seen — the definitive step list. */
 	trajectory: JourneyStep[];
-}
-
-// --- Auth ---
-// Two ways in. A platform key: the ora_sk_ secret goes in the authorization HEADER (never the
-// body) and is exchanged for a ~15-minute bearer token used on every later call. Or the browser
-// sign-in `ax login` stored: its access token is the bearer, sent only to the platform it was
-// issued for, and renewed before it expires (auth/credential.ts).
-
-/** What to tell someone with neither: both ways in, the browser one first. */
-export const NOT_SIGNED_IN =
-	"Not signed in to ora's platform. Run ax login to sign in through your browser, or set ORA_API_KEY to a platform key (ora_sk_...) in your environment or a local .env file (see .env.example).";
-
-/** A platform key, traded once per command for a ~15-minute token, and again after a 401. */
-export class ApiKeyCredential implements PlatformCredential {
-	readonly kind = "api_key";
-	private token: Promise<string> | undefined;
-
-	constructor(
-		private readonly base: string,
-		private readonly secret: string,
-	) {}
-
-	bearer(): Promise<string> {
-		this.token ??= exchangeKey(this.base, this.secret);
-		return this.token;
-	}
-
-	renew(): Promise<string> {
-		this.token = exchangeKey(this.base, this.secret);
-		return this.token;
-	}
-}
-
-/**
- * How a platform call signs in: an explicit key, then ORA_API_KEY (CI and scripts set it, and
- * it beats a laptop's sign-in), then the sign-in `ax login` stored for THIS platform.
- * Throws {@link NotSignedInError} when there is none.
- */
-export function resolvePlatformCredential(input: {
-	base: string;
-	apiKey?: string;
-	store?: SessionStore;
-	fetchFn?: typeof fetch;
-}): PlatformCredential {
-	const secret = input.apiKey ?? process.env.ORA_API_KEY;
-	if (secret) return new ApiKeyCredential(input.base, secret);
-	const store = input.store ?? new SessionStore();
-	const session = signInFor(input.base, store);
-	if (session) return new SignInCredential(store, session, input.fetchFn ?? fetch);
-	const elsewhere = store.read();
-	throw new NotSignedInError(
-		elsewhere
-			? `${NOT_SIGNED_IN} (Your ax sign-in is for ${elsewhere.resource}, not ${input.base}.)`
-			: NOT_SIGNED_IN,
-		elsewhere?.resource,
-	);
-}
-
-export async function exchangeKey(base: string, secret: string): Promise<string> {
-	assertKeyDestination(base, "ORA_PLATFORM_URL", ORA_PLATFORM_ORIGINS);
-	const res = await fetch(`${base}/auth/token`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-		body: "{}",
-		signal: AbortSignal.timeout(KEY_EXCHANGE_TIMEOUT_MS),
-	});
-	const body = jsonOrNull(await res.text());
-	if (res.status === 401) {
-		throw new PlatformApiError("ora rejected the API key (401). Check ORA_API_KEY.", {
-			status: 401,
-			payload: body,
-		});
-	}
-	const payload = (body ?? {}) as { token?: string; error?: string };
-	const failed = `ora auth failed (${res.status})${payload.error ? `: ${payload.error}` : ""}`;
-	if (!res.ok) throw new PlatformApiError(failed, { status: res.status, payload: body });
-	if (!payload.token) throw new Error(failed);
-	return payload.token;
 }
 
 // --- Run creation ---
@@ -495,18 +372,14 @@ async function readRunSpend(
 	}
 }
 
-// --- Orchestration: key → token → create → stream → spend ---
+// --- Orchestration: bearer → create → stream → spend ---
 
 export async function launchJourney(
 	request: RunRequest,
 	hooks: JourneyHooks = {},
 ): Promise<JourneyRun> {
-	const base = (request.baseUrl ?? process.env.ORA_PLATFORM_URL ?? PLATFORM_BASE).replace(
-		/\/+$/,
-		"",
-	);
-	const credential =
-		request.credential ?? resolvePlatformCredential({ base, apiKey: request.apiKey });
+	const base = platformBase(request.baseUrl);
+	const { credential } = request;
 
 	const bearer = await credential.bearer();
 	const created = await createRun(base, bearer, request);

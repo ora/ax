@@ -1,12 +1,11 @@
 import { defineCommand } from "citty";
 import pc from "picocolors";
-import { platformBase } from "../api/platform";
-import { signInFor } from "../auth/credential";
-import { SessionStore } from "../auth/session-store";
+import { platformBase } from "../api/platform-origins";
+import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
 import { reportError } from "../report/json-error";
 import { axCall, placeholder } from "../report/next-line";
-import { EXIT } from "./audit";
 import { deepJourneyCommand } from "./deep-journey";
+import { EXIT } from "./exit-codes";
 import { journeyCommand } from "./journey";
 
 // The citty definition of `ax journey`. With no goal of its own it runs one of ora's curated
@@ -84,15 +83,16 @@ export type JourneyRoute =
 /**
  * Which system a journey runs on. A public flag, or no goal at all, means ora.ai's public
  * journeys: a curated task, free, or a goal of your own with a partner key. Otherwise a goal runs
- * on ora's platform, except that a goal with only a partner key set (no ORA_API_KEY) takes the
- * partner tier, which is what `ax deep-journey --task` did. `drop` names the flags to remove when
- * both kinds were given.
+ * on ora's platform, except that a goal with only a partner key set (no platform credential: no
+ * ORA_API_KEY and no sign-in) takes the partner tier, which is what `ax deep-journey --task` did.
+ * `drop` names the flags to remove when both kinds were given.
  */
 export function journeyRoute(input: {
 	goal: string | undefined;
 	publicFlags: readonly string[];
 	platformFlags: readonly string[];
-	platformKey: boolean;
+	/** A credential for ora's platform is there: a key, or a sign-in for it. */
+	platformCredential: boolean;
 	partnerKey: boolean;
 }): JourneyRoute {
 	const { goal, publicFlags, platformFlags } = input;
@@ -107,7 +107,7 @@ export function journeyRoute(input: {
 	if (publicFlags.length > 0) return { route: "public" };
 	if (platformFlags.length > 0) return { route: "platform" };
 	if (goal === undefined) return { route: "public" };
-	if (!input.platformKey && input.partnerKey) return { route: "public" };
+	if (!input.platformCredential && input.partnerKey) return { route: "public" };
 	return { route: "platform" };
 }
 
@@ -186,15 +186,18 @@ function runFree(input: JourneyArgs): Promise<number> | number {
 	});
 }
 
-async function runJourney(input: JourneyArgs, rawArgs: readonly string[]): Promise<number> {
+async function runJourney(
+	input: JourneyArgs,
+	rawArgs: readonly string[],
+	credentials: PlatformCredentials,
+): Promise<number> {
 	const { goal, json } = input;
 	const route = journeyRoute({
 		goal,
 		publicFlags: present(rawArgs, PUBLIC_FLAGS),
 		platformFlags: present(rawArgs, PLATFORM_FLAGS),
-		// Signed in through the browser counts as having a platform key: a goal then runs on the platform.
-		platformKey:
-			Boolean(process.env.ORA_API_KEY) || signInFor(platformBase(), new SessionStore()) !== null,
+		// The chain every platform call signs with decides: a key, or a sign-in for this platform.
+		platformCredential: credentials.chain.find(platformBase()) !== null,
 		partnerKey: Boolean(
 			input.apiKey || process.env.ORA_PARTNER_API_KEY || process.env.ORA_SCAN_API_KEY,
 		),
@@ -218,39 +221,53 @@ async function runJourney(input: JourneyArgs, rawArgs: readonly string[]): Promi
 		reportError({ code: "INVALID_FLAG", message, next }, { json });
 		return EXIT.USAGE;
 	}
-	return journeyCommand({
-		intent: goal,
-		domain: input.domain,
-		harness: input.harness ?? DEFAULT_HARNESS,
-		model: input.model,
-		json,
-	});
+	return journeyCommand(
+		{
+			intent: goal,
+			domain: input.domain,
+			harness: input.harness ?? DEFAULT_HARNESS,
+			model: input.model,
+			json,
+		},
+		{ credentials },
+	);
 }
 
 const JOURNEY_DESCRIPTION =
 	"Send a real AI agent at a site and watch it live: free on one of ora's curated tasks, or on a goal of your own with a platform key";
 
-export const journey = defineCommand({
-	meta: { name: "journey", description: JOURNEY_DESCRIPTION },
-	args: JOURNEY_ARGS,
-	async run({ args, rawArgs }) {
-		// Same exitCode-over-exit rule as audit: let stdout drain before exiting.
-		process.exitCode = await runJourney(
-			{
-				goal: args.goal as string | undefined,
-				intent: args.intent as string | undefined,
-				agent: args.agent as string | undefined,
-				apiKey: args["api-key"] as string | undefined,
-				noStream: noStreamFlag(args),
-				domain: args.domain as string | undefined,
-				harness: args.harness as string | undefined,
-				model: args.model as string | undefined,
-				json: Boolean(args.json),
-			},
-			rawArgs,
-		);
-	},
-});
+/**
+ * `ax journey`, with the credentials a goal of your own signs in with: ax's own chain unless a
+ * caller (a test) hands in another. Made when the command runs, after the local .env is loaded.
+ */
+export function journeyCommandDefinition(
+	credentials: () => PlatformCredentials = () => platformCredentials(),
+) {
+	return defineCommand({
+		meta: { name: "journey", description: JOURNEY_DESCRIPTION },
+		args: JOURNEY_ARGS,
+		async run({ args, rawArgs }) {
+			// Same exitCode-over-exit rule as audit: let stdout drain before exiting.
+			process.exitCode = await runJourney(
+				{
+					goal: args.goal as string | undefined,
+					intent: args.intent as string | undefined,
+					agent: args.agent as string | undefined,
+					apiKey: args["api-key"] as string | undefined,
+					noStream: noStreamFlag(args),
+					domain: args.domain as string | undefined,
+					harness: args.harness as string | undefined,
+					model: args.model as string | undefined,
+					json: Boolean(args.json),
+				},
+				rawArgs,
+				credentials(),
+			);
+		},
+	});
+}
+
+export const journey = journeyCommandDefinition();
 
 /** `ax journey --help`: citty's generated usage cannot show both forms. */
 export function journeyUsage(): string {

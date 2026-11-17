@@ -12,16 +12,15 @@ import { spawn } from "node:child_process";
  * Tunnel setup failure - a usage-class error (exit 2), never an API error.
  * `payload` is the platform's error body exactly as served when a control
  * plane call failed with JSON (what `--json` prints), undefined otherwise.
+ * `cause` is the error it wraps, when it wraps one (a credential's own failure).
  */
 export class TunnelError extends Error {
 	readonly payload: unknown;
-	/** ora closed the tunnel because the sign-in it was opened with ended: `ax login` is the way on. */
-	readonly signInEnded: boolean;
 
-	constructor(message: string, options: { payload?: unknown; signInEnded?: boolean } = {}) {
-		super(message);
+	constructor(message: string, options: { payload?: unknown; cause?: unknown } = {}) {
+		super(message, { cause: options.cause });
+		this.name = "TunnelError";
 		this.payload = options.payload;
-		this.signInEnded = options.signInEnded ?? false;
 	}
 }
 
@@ -34,11 +33,12 @@ export interface Tunnel {
 	 */
 	close: () => void | Promise<void>;
 	/**
-	 * Settles when the tunnel dies on its own (connection dropped, revoked)
-	 * rather than through close(). An audit racing against it fails instead
-	 * of scoring a hostname that no longer answers.
+	 * Settles, with the error that says why, when the tunnel dies on its own
+	 * (connection dropped, revoked, its sign-in ended) rather than through
+	 * close(). An audit racing against it fails instead of scoring a hostname
+	 * that no longer answers. It never rejects, so nobody has to listen.
 	 */
-	dropped?: Promise<TunnelError>;
+	dropped?: Promise<Error>;
 }
 
 const TUNNEL_READY_MS = 30_000;

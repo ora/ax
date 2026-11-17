@@ -47,7 +47,7 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 			token_type: "Bearer",
 		};
 	};
-	const fetchFn = vi.fn(async (input: string | URL, init?: RequestInit) => {
+	const fetchFn = vi.fn<typeof fetch>(async (input, init) => {
 		const url = String(input);
 		const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
 		if (init?.method === "POST") forms.push({ url, form });
@@ -111,5 +111,5 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 		if (!last) throw new Error("the sign-in server received no form");
 		return last.form;
 	};
-	return { state, forms, lastForm, fetchFn: fetchFn as unknown as typeof fetch, calls: fetchFn };
+	return { state, forms, lastForm, fetchFn, calls: fetchFn };
 }

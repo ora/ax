@@ -6,15 +6,20 @@ import {
 	isMcpAuthRequired,
 	performAudit,
 } from "../api/audit";
+import { platformBase } from "../api/platform-origins";
 import type { PlatformCredential } from "../auth/credential";
-import { scopeList, TUNNEL_FEATURE } from "../auth/platform-features";
+import { TUNNEL_FEATURE } from "../auth/platform-features";
+import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { toReport } from "../report/model";
 import { axCall, type NextStep, placeholder, printNext, type Word } from "../report/next-line";
 import { MCP_AUTH_REQUIRED_NOTICE, renderReport } from "../report/terminal";
-import { isLocalTarget, openTunnel, type Tunnel, TunnelError } from "../tunnel";
-import { openOraTunnel, oraTunnelCredential } from "../tunnel/ora";
+import { isLocalTarget, openTunnel, type Tunnel } from "../tunnel";
+import { openOraTunnel } from "../tunnel/ora";
 import { spinner } from "../ui/spinner";
+import { credentialFailure } from "./credential-failure";
+import { EXIT } from "./exit-codes";
 
 export interface AuditCommandInput {
 	url: string;
@@ -34,14 +39,13 @@ export interface AuditCommandInput {
 	apiKey?: string;
 }
 
-/**
- * The documented exit-code contract (README + --help):
- *   0 success (and score >= --min-score when given)
- *   1 score below --min-score
- *   2 usage error (bad flags, malformed URL, local target without a tunnel)
- *   3 API unreachable / timeout / rate limit exhausted
- */
-export const EXIT = { OK: 0, BELOW_MIN_SCORE: 1, USAGE: 2, API: 3 } as const;
+export interface AuditDeps {
+	/** Which credential `--tunnel ora` signs its calls with. */
+	credentials: PlatformCredentials;
+}
+
+/** What `--tunnel ora` points at when no platform credential is there. */
+const WITHOUT_A_CREDENTIAL = "or bring your own tunnel with --tunnel-cmd";
 
 // Documented contract guidance: an auth-gated MCP target is unscored, so a
 // gate has nothing to compare against and must not fail on it. Both routes to
@@ -192,7 +196,10 @@ function resultNext(
 	};
 }
 
-export async function auditCommand(input: AuditCommandInput): Promise<number> {
+export async function auditCommand(
+	input: AuditCommandInput,
+	deps: AuditDeps = { credentials: platformCredentials() },
+): Promise<number> {
 	const fail = (
 		error: CommandError,
 		exit: number,
@@ -267,27 +274,6 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			EXIT.USAGE,
 		);
 	}
-	// ora's tunnel signs its calls with a platform key or the sign-in `ax login` stored, settled
-	// here so that with neither the run stops before anything is sent.
-	let oraCredential: PlatformCredential | undefined;
-	if (tunnelMode.kind === "ora") {
-		try {
-			oraCredential = oraTunnelCredential();
-		} catch (cause) {
-			if (!(cause instanceof TunnelError)) throw cause;
-			return fail(
-				{
-					code: "MISSING_API_KEY",
-					message: cause.message,
-					next: {
-						call: "ax login",
-						why: `sign in through your browser, then run ${viaOraTunnel} again; or set ORA_API_KEY to a key with the ${scopeList(TUNNEL_FEATURE)} scopes`,
-					},
-				},
-				EXIT.USAGE,
-			);
-		}
-	}
 	// The same call again, for a retry after a failure that may clear.
 	const sameCall: NextStep = {
 		call: axCall([
@@ -302,6 +288,28 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		]),
 		why: "retry; if ora rate limited you, wait as long as the message says first",
 	};
+	// A credential's failure reads the same wherever it surfaces: before anything is sent, while
+	// the tunnel opens, or when ora closes it mid-audit.
+	const failedCredential = (cause: unknown) =>
+		credentialFailure(cause, { retry: sameCall.call, otherwise: WITHOUT_A_CREDENTIAL });
+
+	// How the chosen tunnel opens. ora's signs its calls with a platform key or the sign-in
+	// `ax login` stored, settled here so that with neither the run stops before anything is sent.
+	let openChosenTunnel: ((signal: AbortSignal) => Promise<Tunnel>) | undefined;
+	if (tunnelMode.kind === "ora") {
+		let credential: PlatformCredential;
+		try {
+			credential = deps.credentials.chain.resolve(platformBase(), TUNNEL_FEATURE);
+		} catch (cause) {
+			const failure = failedCredential(cause);
+			if (!failure) throw cause;
+			return fail(failure, EXIT.USAGE);
+		}
+		openChosenTunnel = (signal) => openOraTunnel(target, { signal, credential });
+	} else if (tunnelMode.kind === "cmd") {
+		const { command } = tunnelMode;
+		openChosenTunnel = () => openTunnel(command);
+	}
 
 	const interactive = !input.json;
 	if (interactive) spinner.start(`Auditing ${target} with ora`);
@@ -328,29 +336,27 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		})().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
 	};
 	let auditTarget = target;
-	if (tunnelMode.kind !== "none") {
+	if (openChosenTunnel) {
 		if (interactive) spinner.update(`Opening a tunnel to ${target}`);
 		process.on("SIGINT", onSignal);
 		process.on("SIGTERM", onSignal);
 		try {
-			opening =
-				tunnelMode.kind === "ora"
-					? openOraTunnel(target, { signal: interrupt.signal, credential: oraCredential })
-					: openTunnel(tunnelMode.command);
+			opening = openChosenTunnel(interrupt.signal);
 			tunnel = await opening;
 		} catch (cause) {
 			spinner.stop();
 			process.removeListener("SIGINT", onSignal);
 			process.removeListener("SIGTERM", onSignal);
+			const message = cause instanceof Error ? cause.message : String(cause);
 			return fail(
-				{
+				failedCredential(cause) ?? {
 					code: "TUNNEL_FAILED",
-					message: cause instanceof Error ? cause.message : String(cause),
+					message,
 					next: { call: sameCall.call, why: "retry, or bring your own tunnel with --tunnel-cmd" },
 				},
 				EXIT.USAGE,
 				undefined,
-				cause instanceof TunnelError ? cause.payload : undefined,
+				servedBody(cause),
 			);
 		}
 		auditTarget = tunnel.url;
@@ -408,14 +414,11 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		}
 		const message = cause instanceof Error ? cause.message : String(cause);
 		const apiError = cause instanceof AuditApiError;
-		const signInEnded = cause instanceof TunnelError && cause.signInEnded;
 		return fail(
-			{
-				code: apiError ? cause.code || "API_ERROR" : signInEnded ? "SIGN_IN_ENDED" : "AUDIT_FAILED",
+			failedCredential(cause) ?? {
+				code: apiError ? cause.code || "API_ERROR" : "AUDIT_FAILED",
 				message,
-				next: signInEnded
-					? { call: "ax login", why: `sign in again, then ${sameCall.call}` }
-					: sameCall,
+				next: sameCall,
 			},
 			apiError ? EXIT.API : EXIT.USAGE,
 			(cleaned) => `Audit failed: ${cleaned}`,

@@ -1,4 +1,4 @@
-import { PlatformApiError } from "../api/platform";
+import { jsonOrNull, PlatformApiError } from "../api/platform-error";
 import { plainLines } from "../ui/ansi";
 
 // Who a credential is, as `ax login` and `ax whoami` print it.
@@ -7,8 +7,12 @@ export type Identity = Record<string, unknown>;
 
 const IDENTITY_TIMEOUT_MS = 15_000;
 
-/** A sign-in's identity, asked of the platform (GET /auth/identity answers who, and hands out no token). */
-export async function readIdentity(
+/**
+ * Who `bearer` is, asked of the platform: GET /auth/identity answers for the two credentials a
+ * caller presents directly (a platform key, sent as itself, and a sign-in's access token), runs
+ * the same checks a call would, and hands out no token.
+ */
+export async function fetchIdentity(
 	base: string,
 	bearer: string,
 	fetchFn: typeof fetch = fetch,
@@ -17,32 +21,14 @@ export async function readIdentity(
 		headers: { authorization: `Bearer ${bearer}`, accept: "application/json" },
 		signal: AbortSignal.timeout(IDENTITY_TIMEOUT_MS),
 	});
-	const text = await res.text();
-	let body: unknown = null;
-	try {
-		body = JSON.parse(text);
-	} catch {
-		// not JSON: the status says enough
-	}
+	const body = jsonOrNull(await res.text());
 	if (!res.ok || body === null || typeof body !== "object") {
-		throw new PlatformApiError(`ora could not say who this sign-in is (${res.status})`, {
+		throw new PlatformApiError(`ora could not say who this credential is (${res.status})`, {
 			status: res.status,
 			payload: body,
 		});
 	}
 	return body as Identity;
-}
-
-/** A key's identity: the claims of the token it was just traded for (display only, never trusted). */
-export function tokenClaims(token: string): Identity {
-	const payload = token.split(".")[1];
-	if (!payload) return {};
-	try {
-		const value: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-		return value !== null && typeof value === "object" ? (value as Identity) : {};
-	} catch {
-		return {};
-	}
 }
 
 const text = (value: unknown): string | undefined =>

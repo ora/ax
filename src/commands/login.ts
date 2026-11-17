@@ -1,31 +1,27 @@
 import pc from "picocolors";
 import {
-	LEGACY_PLATFORM_BASE,
+	oraPlatformOrigin,
 	PLATFORM_BASE,
 	platformBase,
-	platformKeyProblem,
-} from "../api/platform";
+	platformDestinationProblem,
+} from "../api/platform-origins";
 import { openBrowser } from "../auth/browser";
-import { identityLines, readIdentity } from "../auth/identity";
+import { endSignIn } from "../auth/end-sign-in";
+import { fetchIdentity, identityLines } from "../auth/identity";
 import {
 	type DeviceAuthorization,
 	discover,
 	OAuthError,
 	pollDeviceToken,
-	revokeToken,
 	type ServerMetadata,
 	startDeviceAuthorization,
 	type TokenSet,
 } from "../auth/oauth";
-import { SessionStore, type StoredSignIn } from "../auth/session-store";
-import {
-	platformResource,
-	SIGN_IN_SCOPE,
-	type SignInTarget,
-	signInTarget,
-} from "../auth/sign-in-target";
+import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import type { StoredSignIn } from "../auth/session-store";
+import { SIGN_IN_SCOPE, type SignInTarget, signInTarget } from "../auth/sign-in-target";
 import { type CommandError, reportError } from "../report/json-error";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 
 // `ax login`: a browser sign-in for ora's platform, the same as the ora CLI's (the device flow,
 // RFC 8628). ax prints a link and a code, opens your browser when it can, and waits while you
@@ -40,7 +36,8 @@ export interface LoginInput {
 
 export interface LoginDeps {
 	fetchFn: typeof fetch;
-	store: SessionStore;
+	/** The chain ax signs platform calls with, and the stored sign-in in it (written here). */
+	credentials: PlatformCredentials;
 	openBrowser: (url: string) => boolean;
 	sleep: (ms: number) => Promise<void>;
 	now: () => number;
@@ -51,7 +48,7 @@ export interface LoginDeps {
 export function loginDeps(): LoginDeps {
 	return {
 		fetchFn: fetch,
-		store: new SessionStore(),
+		credentials: platformCredentials(),
 		openBrowser,
 		sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 		now: Date.now,
@@ -79,14 +76,20 @@ export async function loginCommand(
 ): Promise<number> {
 	const { json } = input;
 	const base = platformBase();
+	const store = deps.credentials.signIns.store;
 	// The sign-in's tokens will go to this platform, so it is held to the key's rule.
-	const problem = platformKeyProblem();
+	const problem = platformDestinationProblem(base, "a sign-in");
 	if (problem) {
-		const message = problem.replace(/your key/g, "a sign-in");
-		return fail({ code: "KEY_DESTINATION_REFUSED", message, next: LOGIN_NEXT }, json, EXIT.USAGE);
+		return fail(
+			{ code: "KEY_DESTINATION_REFUSED", message: problem, next: LOGIN_NEXT },
+			json,
+			EXIT.USAGE,
+		);
 	}
-	if (platformResource(base) === LEGACY_PLATFORM_BASE) {
-		const message = `ora's sign-in is for ${PLATFORM_BASE}, the same API as ${LEGACY_PLATFORM_BASE}. Unset ORA_PLATFORM_URL (or set it to ${PLATFORM_BASE}) and run ax login again.`;
+	// Another of ora's own addresses serves the same API, but a sign-in is issued for one only.
+	const origin = oraPlatformOrigin(base);
+	if (origin && !origin.canonical) {
+		const message = `ora's sign-in is for ${PLATFORM_BASE}, the same API as ${origin.origin}. Unset ORA_PLATFORM_URL (or set it to ${PLATFORM_BASE}) and run ax login again.`;
 		const next = {
 			call: `ORA_PLATFORM_URL=${PLATFORM_BASE} ax login`,
 			why: "sign in to ora's API",
@@ -130,32 +133,32 @@ export async function loginCommand(
 		expiresAt: deps.now() + tokens.expiresIn * 1000,
 		scope: tokens.scope,
 	};
-	const previous = deps.store.read();
-	deps.store.write(session);
+	const previous = store.read();
+	store.write(session);
 	// The sign-in this one replaces on this machine is ended on the server too, best effort.
-	if (previous?.revocationEndpoint && previous.refreshToken !== session.refreshToken) {
-		await revokeToken(
-			previous.revocationEndpoint,
-			previous.clientId,
-			previous.refreshToken,
-			deps.fetchFn,
-		);
+	if (previous && previous.refreshToken !== session.refreshToken) {
+		await endSignIn(previous, deps.fetchFn);
 	}
 
-	const identity = await readIdentity(base, tokens.accessToken, deps.fetchFn).catch(() => null);
+	// Who signed in, asked of the platform with the new access token (it is minutes old).
+	const identity = await fetchIdentity(base, tokens.accessToken, deps.fetchFn).catch(() => null);
+	const credential = deps.credentials.signIns.find(base);
 	if (json) {
 		process.stdout.write(
 			`${JSON.stringify({ signedIn: true, platform: base, identity }, null, 2)}\n`,
 		);
 	} else {
 		console.log(pc.green("✓ Signed in to ora."));
-		if (identity)
-			console.log(identityLines(identity, "ax login (browser sign-in)", base).join("\n"));
+		if (identity && credential) {
+			console.log(identityLines(identity, credential.label, base).join("\n"));
+		}
 	}
-	if (process.env.ORA_API_KEY) {
+	// The chain decides which credential ax signs with; say so when it is not this sign-in.
+	const ahead = deps.credentials.chain.ahead(base, deps.credentials.signIns);
+	if (ahead) {
 		console.error(
 			pc.yellow(
-				"ORA_API_KEY is set here, and ax uses it before your sign-in. Unset it to use the sign-in.",
+				`${ahead.label} is set here, and ax uses it before your sign-in. Unset it to use the sign-in.`,
 			),
 		);
 	}
