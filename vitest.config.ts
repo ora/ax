@@ -4,7 +4,7 @@ export default defineConfig({
 	test: {
 		globals: true,
 		environment: "node",
-		include: ["src/**/*.test.ts"],
+		include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
 		// vitest 4's restoreAllMocks only restores vi.spyOn spies; it no longer
 		// clears vi.fn() call history. Clear it before every test so one test's
 		// calls never leak into the next one's assertions.

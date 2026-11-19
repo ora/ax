@@ -411,7 +411,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 
 ## Contract versioning
 
-The audit types are generated from ora's served OpenAPI spec (`pnpm contract:gen`); the build is pinned to a contract version and CI fails when production drifts from the checked-in types. At runtime, the CLI prints one stderr warning when ora reports a newer contract than the build — upgrade with `npm i -g ax@latest`.
+The audit types are generated from ora's served OpenAPI spec (`pnpm contract:gen`); the build is pinned to a contract version and CI fails when production's types or contract version drift from the checked-in ones (a reworded description only opens a sync PR). At runtime, the CLI prints one stderr warning when ora reports a newer contract than the build — upgrade with `npm i -g ax@latest`.
 
 ## Migrating from 0.1.x
 

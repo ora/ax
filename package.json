@@ -26,6 +26,7 @@
 	"scripts": {
 		"build": "rm -rf dist && tsup && tsc -p tsconfig.lib.json",
 		"contract:gen": "node scripts/contract-gen.mjs",
+		"contract:drift": "node scripts/contract-drift.mjs",
 		"smoke": "node scripts/smoke.mjs",
 		"smoke:webmcp": "node scripts/smoke-webmcp.mjs",
 		"verify:pack": "node scripts/verify-pack.mjs",

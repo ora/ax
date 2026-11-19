@@ -1,0 +1,132 @@
+name: Contract sync
+
+# The daily alarm for "ora.ai shipped a contract this build was not generated
+# against". Before this ran on a schedule, 1.20.0 shipped and every `ax` run
+# warned about a stale contract for days before anyone noticed.
+#
+# Each run regenerates src/contract/ from production and sorts the result:
+#   none      nothing to do; a leftover sync PR is closed.
+#   docs      only spec descriptions (comments in types.gen.ts) changed. Opens
+#             or updates the sync PR; the run stays green.
+#   contract  a type or the pinned version changed. Opens or updates the sync
+#             PR AND fails the run, because the CLI may be out of step with
+#             what ora.ai returns.
+#
+# Run it by hand (Actions -> Contract sync -> Run workflow) straight after a
+# known ora release instead of waiting for the schedule.
+#
+# Needs the repository setting "Allow GitHub Actions to create and approve pull
+# requests" (Settings -> Actions -> General -> Workflow permissions).
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+# Write access is confined to this workflow; ci.yml stays read-only.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: contract-sync
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22"
+  SYNC_BRANCH: contract-sync
+
+jobs:
+  sync:
+    name: Contract drift vs production
+    runs-on: ubuntu-latest
+    steps:
+      # Keeps the token in the checkout so the sync branch can be pushed.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Regenerate from https://ora.ai/api/openapi.json
+        run: pnpm contract:gen
+
+      - name: Classify drift
+        id: drift
+        run: pnpm contract:drift --report
+
+      - name: Open or update the sync PR
+        if: steps.drift.outputs.drift != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRIFT: ${{ steps.drift.outputs.drift }}
+          VERSION: ${{ steps.drift.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898799+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$SYNC_BRANCH"
+          git add src/contract
+          git commit --quiet --message "chore(contract): sync from production $VERSION"
+
+          # The sync branch is owned by this workflow: it is always main plus
+          # one regenerated commit, so it is replaced rather than merged into.
+          # Skip the push when it already carries this exact contract, so an
+          # unchanged drift does not rewrite the branch every day.
+          if git fetch --quiet origin "$SYNC_BRANCH" 2>/dev/null \
+            && git diff --quiet FETCH_HEAD HEAD -- src/contract; then
+            echo "$SYNC_BRANCH already carries this contract; not pushing."
+          else
+            git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          fi
+
+          if [ "$DRIFT" = "docs" ]; then
+            title="chore(contract): sync spec descriptions from production $VERSION"
+            impact="Only the spec descriptions that openapi-typescript copies into comments in types.gen.ts changed, so no type, command, flag or exit code changes for CLI users; the new wording can still describe behaviour worth using."
+          else
+            title="chore(contract): sync contract $VERSION from production"
+            impact="Types or the pinned contract version changed, so the CLI may be out of step with what ora.ai now returns: check the diff for fields the code reads before merging."
+          fi
+          body="$RUNNER_TEMP/contract-sync-body.md"
+          cat > "$body" <<EOF
+          ## What
+
+          Brings src/contract/ in line with the contract ora.ai serves today ($VERSION), regenerated with pnpm contract:gen. $impact This PR was opened by the daily Contract sync workflow, which updates it while the drift lasts and closes it once main matches production.
+
+          ## Why
+
+          Production's /api/openapi.json no longer matches the committed contract (drift kind: $DRIFT). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          ## Checks
+
+          - [ ] CI has run. Pull requests opened by GitHub Actions do not trigger workflows, so close and reopen this PR (or push a commit to it) before merging.
+          EOF
+
+          number="$(gh pr list --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body-file "$body"
+          else
+            gh pr create --base main --head "$SYNC_BRANCH" --title "$title" --body-file "$body"
+          fi
+
+      - name: Close a sync PR that is no longer needed
+        if: steps.drift.outputs.drift == 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          number="$(gh pr list --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr close "$number" --delete-branch \
+              --comment "main already matches the contract production serves, so this sync is no longer needed."
+          fi
+
+      - name: Fail on contract drift
+        if: steps.drift.outputs.drift == 'contract'
+        run: |
+          echo "::error title=Contract drift::Production's contract types or version changed. Review and merge the open '$SYNC_BRANCH' PR."
+          exit 1
