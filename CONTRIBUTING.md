@@ -35,8 +35,12 @@ individual commit messages on your branch are yours to shape freely.
 ## Contract types
 
 `src/contract/` is generated from the production Ora OpenAPI spec — never
-edit it by hand. If the scheduled contract-drift job is red, run
-`pnpm contract:gen`, review the diff, and commit the result.
+edit it by hand. The daily Contract sync workflow regenerates it from
+production and opens (or updates) a `contract-sync` PR when anything differs.
+It goes red only when a type or the contract version changed; reworded spec
+descriptions just get the PR. Review that PR and merge it, or run
+`pnpm contract:gen && pnpm contract:drift` yourself, review the diff, and
+commit the result.
 
 ## Releases
 

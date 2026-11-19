@@ -7,15 +7,8 @@ on:
   # the PR flow (an admin bypass, a release workflow push).
   push:
     branches: [main]
-  # The contract-drift job below is the alarm for "ora shipped a contract this
-  # build was not generated against". Until now it only ran on our own PRs, so
-  # nothing woke it when ora released: 1.20.0 shipped and every `ax` run warned
-  # about a stale contract for days before anyone noticed. On this schedule the
-  # alarm fires on its own; workflow_dispatch is for checking straight after a
-  # known ora release instead of waiting for the next run.
-  schedule:
-    - cron: "17 7 * * *"
-  workflow_dispatch:
+  # The daily check against production (and its manual trigger) lives in
+  # contract-sync.yml, which opens a sync PR instead of failing main.
 
 # Least privilege: CI only ever reads the repo.
 permissions:
@@ -188,14 +181,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       # Regenerate the checked-in contract artifacts from the spec production
-      # serves. A diff means ora.ai shipped a contract this build has not been
-      # generated against - the red build IS the drift alarm. Fix: pnpm
-      # contract:gen, review, commit.
+      # serves. A type or version change means ora.ai shipped a contract this
+      # build has not been generated against - the red build IS the drift
+      # alarm. Reworded descriptions alone (comments in types.gen.ts) only
+      # warn: contract-sync.yml opens the PR that brings them in. Fix either
+      # way: pnpm contract:gen, review, commit.
       - name: Regenerate from https://ora.ai/api/openapi.json
         run: pnpm contract:gen
 
-      - name: Fail on drift
-        run: git diff --exit-code src/contract
+      - name: Fail on contract drift
+        run: pnpm contract:drift
 
   # Aggregate gate: branch protection on `main` requires a single status check
   # named `ci` instead of chasing per-matrix job names. contract-drift is
