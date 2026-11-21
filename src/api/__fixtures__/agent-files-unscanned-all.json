@@ -1,6 +1,6 @@
 {
-	"domain": "stripe.com",
-	"productName": "stripe.com",
+	"domain": "debian.org",
+	"productName": "debian.org",
 	"scannedAt": null,
 	"files": [
 		{
@@ -13,34 +13,34 @@
 			"content": {
 				"specVersion": "1.0",
 				"host": {
-					"displayName": "stripe.com",
-					"documentationUrl": "https://stripe.com/"
+					"displayName": "debian.org",
+					"documentationUrl": "https://debian.org/"
 				},
 				"entries": [
 					{
-						"identifier": "urn:air:stripe.com:site:home",
-						"displayName": "stripe.com website",
+						"identifier": "urn:air:debian.org:site:home",
+						"displayName": "debian.org website",
 						"type": "text/html",
-						"url": "https://stripe.com/",
-						"description": "The stripe.com website.",
+						"url": "https://debian.org/",
+						"description": "The debian.org website.",
 						"tags": [
 							"website"
 						],
 						"trustManifest": {
-							"identity": "https://stripe.com",
+							"identity": "https://debian.org",
 							"identityType": "https"
 						}
 					}
 				]
 			},
 			"notes": [
-				"Serve this file at https://stripe.com/.well-known/ard.json with Content-Type application/json.",
+				"Serve this file at https://debian.org/.well-known/ard.json with Content-Type application/json.",
 				"Read every entry before you publish it, and remove anything you do not want agents to use.",
-				"Ora has not scanned stripe.com yet, so this catalog only lists your website. Scan it on ora.ai and generate again to add your MCP servers, APIs, docs and skills."
+				"Ora has not scanned debian.org yet, so this catalog only lists your website. Scan it on ora.ai and generate again to add your MCP servers, APIs, docs and skills."
 			],
 			"mediaType": "application/json",
-			"body": "{\n  \"specVersion\": \"1.0\",\n  \"host\": {\n    \"displayName\": \"stripe.com\",\n    \"documentationUrl\": \"https://stripe.com/\"\n  },\n  \"entries\": [\n    {\n      \"identifier\": \"urn:air:stripe.com:site:home\",\n      \"displayName\": \"stripe.com website\",\n      \"type\": \"text/html\",\n      \"url\": \"https://stripe.com/\",\n      \"description\": \"The stripe.com website.\",\n      \"tags\": [\n        \"website\"\n      ],\n      \"trustManifest\": {\n        \"identity\": \"https://stripe.com\",\n        \"identityType\": \"https\"\n      }\n    }\n  ]\n}\n",
-			"url": "https://stripe.com/.well-known/ard.json"
+			"body": "{\n  \"specVersion\": \"1.0\",\n  \"host\": {\n    \"displayName\": \"debian.org\",\n    \"documentationUrl\": \"https://debian.org/\"\n  },\n  \"entries\": [\n    {\n      \"identifier\": \"urn:air:debian.org:site:home\",\n      \"displayName\": \"debian.org website\",\n      \"type\": \"text/html\",\n      \"url\": \"https://debian.org/\",\n      \"description\": \"The debian.org website.\",\n      \"tags\": [\n        \"website\"\n      ],\n      \"trustManifest\": {\n        \"identity\": \"https://debian.org\",\n        \"identityType\": \"https\"\n      }\n    }\n  ]\n}\n",
+			"url": "https://debian.org/.well-known/ard.json"
 		},
 		{
 			"path": "/.well-known/ai-catalog.json",
@@ -52,62 +52,61 @@
 			"content": {
 				"specVersion": "1.0",
 				"host": {
-					"displayName": "stripe.com",
-					"documentationUrl": "https://stripe.com/"
+					"displayName": "debian.org",
+					"documentationUrl": "https://debian.org/"
 				},
 				"entries": [
 					{
-						"identifier": "urn:air:stripe.com:site:home",
-						"displayName": "stripe.com website",
+						"identifier": "urn:air:debian.org:site:home",
+						"displayName": "debian.org website",
 						"type": "text/html",
-						"url": "https://stripe.com/",
-						"description": "The stripe.com website.",
+						"url": "https://debian.org/",
+						"description": "The debian.org website.",
 						"tags": [
 							"website"
-						],
-						"trustManifest": {
-							"identity": "https://stripe.com",
-							"identityType": "https"
-						}
+						]
 					}
 				]
 			},
 			"notes": [
-				"The same catalog as ard.json, at the path the AI Catalog Standard reads. Serve both: ARD crawlers read ard.json first, other agents read ai-catalog.json."
+				"The same entries as ard.json, at the path the AI Catalog Standard reads. Serve both: ARD crawlers read ard.json first, other agents read ai-catalog.json.",
+				"It carries no trust manifest. The AI Catalog Standard keeps trust metadata in a trustManifests array, where each manifest names its contributor and carries evidence: a signature, attestations, provenance, a trust schema or extensions. Add one when you have that evidence to publish."
 			],
 			"mediaType": "application/json",
-			"body": "{\n  \"specVersion\": \"1.0\",\n  \"host\": {\n    \"displayName\": \"stripe.com\",\n    \"documentationUrl\": \"https://stripe.com/\"\n  },\n  \"entries\": [\n    {\n      \"identifier\": \"urn:air:stripe.com:site:home\",\n      \"displayName\": \"stripe.com website\",\n      \"type\": \"text/html\",\n      \"url\": \"https://stripe.com/\",\n      \"description\": \"The stripe.com website.\",\n      \"tags\": [\n        \"website\"\n      ],\n      \"trustManifest\": {\n        \"identity\": \"https://stripe.com\",\n        \"identityType\": \"https\"\n      }\n    }\n  ]\n}\n",
-			"url": "https://stripe.com/.well-known/ai-catalog.json"
+			"body": "{\n  \"specVersion\": \"1.0\",\n  \"host\": {\n    \"displayName\": \"debian.org\",\n    \"documentationUrl\": \"https://debian.org/\"\n  },\n  \"entries\": [\n    {\n      \"identifier\": \"urn:air:debian.org:site:home\",\n      \"displayName\": \"debian.org website\",\n      \"type\": \"text/html\",\n      \"url\": \"https://debian.org/\",\n      \"description\": \"The debian.org website.\",\n      \"tags\": [\n        \"website\"\n      ]\n    }\n  ]\n}\n",
+			"url": "https://debian.org/.well-known/ai-catalog.json"
 		},
 		{
 			"path": "/.well-known/poppy.json",
 			"spec": {
 				"name": "Personal Agent Protocol",
-				"version": "0.1",
-				"url": "https://personalagentprotocol.org/docs/spec"
+				"version": "1.0",
+				"url": "https://personalagentprotocol.org/docs/1.0/spec"
 			},
 			"content": {
-				"protocol_version": "0.1",
+				"protocol_version": "1.0",
 				"organization": {
-					"name": "stripe.com",
-					"domain": "stripe.com"
+					"name": "debian.org",
+					"domain": "debian.org"
 				},
 				"web": {}
 			},
 			"notes": [
-				"Serve this file at https://stripe.com/.well-known/poppy.json. As written it is a valid Draft 0.1 document that lets personal agents browse stripe.com signed out.",
-				"To let personal agents sign in and use your APIs, add an auth block naming your OAuth issuer and list your APIs under apis, each with a type, url and description. Do this only once your issuer's RFC 8414 metadata lists this domain in poppy_domains, every listed API accepts Personal Agent Protocol session tokens (DPoP, or Bearer on MCP servers only), and each listed MCP server's protected resource metadata names your issuer in authorization_servers.",
-				"Ora has not scanned stripe.com yet, so it could not look for an issuer or APIs.",
-				"The Personal Agent Protocol is a first draft (0.1) and may change in ways that are not backward compatible."
+				"Serve this file at https://debian.org/.well-known/poppy.json. As written it is a valid version 1.0 document that lets personal agents browse debian.org signed out, as long as debian.org names no OAuth issuer (see below).",
+				"Serve it from debian.org itself, without a redirect: the file speaks for the host that finally serves it, so organization.domain must name that host. If it is served from another host, such as www.debian.org, change organization.domain to that host.",
+				"Agents look for your OAuth issuer at https://debian.org/.well-known/oauth-protected-resource. With no issuer at all, that URL should answer 404. If it already serves metadata, its resource must be exactly https://debian.org, and the authorization server it lists becomes your Personal Agent Protocol issuer: that server's RFC 8414 metadata must then list https://debian.org in protected_resources, and if it lists several servers, set auth.issuer to the one agents use. Otherwise agents will not use this file. If that issuer offers agents no sign-in yet, add \"auth\": { \"disabled\": true }.",
+				"To let personal agents sign in and use your APIs, publish protected resource metadata at https://debian.org/.well-known/oauth-protected-resource with resource set to https://debian.org and your OAuth issuer in authorization_servers, and list your APIs under apis, each with a type, url and description. Do this only once your issuer's RFC 8414 metadata lists https://debian.org in protected_resources and refresh_token in grant_types_supported, every listed API accepts the Personal Agent Protocol Session header and your access tokens, and each listed MCP server's protected resource metadata names its own url as the resource and your issuer in authorization_servers.",
+				"Ora has not scanned debian.org yet, so it could not look for an issuer or APIs.",
+				"This file follows version 1.0 of the Personal Agent Protocol, the latest published version (2026-11-14). From 1.0, versions with the same major are compatible, so agents on a later 1.x version can use it too."
 			],
 			"mediaType": "application/json",
-			"body": "{\n  \"protocol_version\": \"0.1\",\n  \"organization\": {\n    \"name\": \"stripe.com\",\n    \"domain\": \"stripe.com\"\n  },\n  \"web\": {}\n}\n",
-			"url": "https://stripe.com/.well-known/poppy.json"
+			"body": "{\n  \"protocol_version\": \"1.0\",\n  \"organization\": {\n    \"name\": \"debian.org\",\n    \"domain\": \"debian.org\"\n  },\n  \"web\": {}\n}\n",
+			"url": "https://debian.org/.well-known/poppy.json"
 		}
 	],
 	"notes": [
-		"No llms.txt draft: Ora found no docs, API or agent endpoint on stripe.com to list. Scan it to fill one in.",
-		"No robots.txt draft: Ora could not read stripe.com's robots.txt because it has not scanned the domain, and it never replaces a file it has not seen.",
-		"No api-catalog draft: Ora found no OpenAPI description on stripe.com for it to point at."
+		"No llms.txt draft: Ora found no docs, API or agent endpoint on debian.org to list. Scan it to fill one in.",
+		"No robots.txt draft: Ora could not read debian.org's robots.txt because it has not scanned the domain, and it never replaces a file it has not seen.",
+		"No api-catalog draft: Ora found no OpenAPI description on debian.org for it to point at."
 	]
 }
