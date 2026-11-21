@@ -130,3 +130,32 @@ describe("assertKeyDestination", () => {
 		).not.toThrow();
 	});
 });
+
+describe("what a refusal calls the credential", () => {
+	it("is your key, unless the caller names what it was about to send", () => {
+		expect(problem("http://api.example")).toContain("ax sends your key only over https");
+		const signIn = keyDestinationProblem(
+			"http://api.example",
+			"ORA_PLATFORM_URL",
+			DEFAULT,
+			"a sign-in",
+		);
+		expect(signIn).toContain("ax sends a sign-in only over https");
+		expect(signIn).not.toContain("your key");
+	});
+});
+
+describe("ora's own platform hosts", () => {
+	it("either may be the destination, even when named in ./.env", () => {
+		const defaults = ["https://api.ora.ai", "https://api.agentfront.sh"];
+		expect(
+			keyDestinationProblem("https://api.agentfront.sh", "ORA_PLATFORM_URL", defaults),
+		).toBeUndefined();
+		expect(
+			keyDestinationProblem("https://api.ora.ai", "ORA_PLATFORM_URL", defaults),
+		).toBeUndefined();
+		expect(keyDestinationProblem("http://api.ora.ai", "ORA_PLATFORM_URL", defaults)).toContain(
+			"https",
+		);
+	});
+});

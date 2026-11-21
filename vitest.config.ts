@@ -5,6 +5,8 @@ export default defineConfig({
 		globals: true,
 		environment: "node",
 		include: ["src/**/*.test.ts"],
+		// Each test file starts with no stored sign-in, whatever this machine has (vitest.setup.ts).
+		setupFiles: ["./vitest.setup.ts"],
 		// vitest 4's restoreAllMocks only restores vi.spyOn spies; it no longer
 		// clears vi.fn() call history. Clear it before every test so one test's
 		// calls never leak into the next one's assertions.

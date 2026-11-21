@@ -55,6 +55,49 @@ describe("performAudit", () => {
 		expect(seen).toEqual(["https://ora.ai/api/scan/stream?domain=example.com&format=audit"]);
 	});
 
+	it("a stopped audit rejects at once instead of waiting for a scan that never ends", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string | URL, init?: RequestInit) => {
+				// A scan that never finishes, its body erroring when the request is aborted (as fetch does).
+				const body = new ReadableStream<Uint8Array>({
+					start(controller) {
+						controller.enqueue(new TextEncoder().encode('data: {"type":"kind_detected"}\n\n'));
+						init?.signal?.addEventListener("abort", () =>
+							controller.error(new DOMException("aborted", "AbortError")),
+						);
+					},
+				});
+				return new Response(body, {
+					status: 200,
+					headers: { "content-type": "text/event-stream" },
+				});
+			}),
+		);
+		const stop = new AbortController();
+		const audit = performAudit("abc.t.agentfront.sh", { signal: stop.signal, idleMs: 60_000 });
+		setTimeout(() => stop.abort(), 20);
+		await expect(audit).rejects.toThrow("ora audit stopped");
+	});
+
+	it("a stopped audit makes no further deep-analysis poll", async () => {
+		const stop = new AbortController();
+		const fetchMock = vi.fn(async (url: string | URL) => {
+			if (String(url).includes("/api/scan/stream")) {
+				stop.abort();
+				return scanStream([
+					{ type: "scan_complete", result: settled({ analysisStatus: "partial" }) },
+				]);
+			}
+			return asJson(settled());
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		await expect(
+			performAudit("example.com", { signal: stop.signal, pollEveryMs: 1, pollLimit: 3 }),
+		).rejects.toThrow("ora audit stopped");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
 	it("threads the freshness flags onto the stream URL", async () => {
 		const seen: string[] = [];
 		vi.stubGlobal(

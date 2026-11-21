@@ -8,7 +8,9 @@
 // a missing shebang or a non-executable bin.
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 const BIN = "dist/main.cjs";
 const failures = [];
@@ -61,6 +63,9 @@ check("--help exits 0 and lists every command", () => {
 		"journey",
 		"skill",
 		"generate-files",
+		"login",
+		"logout",
+		"whoami",
 	]) {
 		if (!help.includes(command)) throw new Error(`help omits "${command}"`);
 	}
@@ -79,12 +84,46 @@ check("audit --help exits 0", () => ax(["audit", "--help"]));
 check("webmcp-audit --help exits 0", () => ax(["webmcp-audit", "--help"]));
 check("deep-journey --help exits 0", () => ax(["deep-journey", "--help"]));
 check("journey --help exits 0", () => ax(["journey", "--help"]));
+check("login --help exits 0", () => ax(["login", "--help"]));
+check("logout --help exits 0", () => ax(["logout", "--help"]));
+check("whoami --help exits 0", () => ax(["whoami", "--help"]));
 
 // Each call below fails on its flags before any network call, so these run offline.
 function axFails(args) {
 	const run = spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8" });
 	return { status: run.status, stderr: run.stderr };
 }
+
+// The sign-in commands, from an empty directory (no .env) with an empty config home, so a
+// developer's own sign-in or key never reaches them. Each one ends before any network call.
+const home = mkdtempSync(join(tmpdir(), "ax-smoke-"));
+function axSignedOut(args, env = {}) {
+	const run = spawnSync(process.execPath, [resolve(BIN), ...args], {
+		cwd: home,
+		encoding: "utf8",
+		env: { ...process.env, XDG_CONFIG_HOME: home, ORA_API_KEY: "", ...env },
+	});
+	return { status: run.status, stdout: run.stdout, stderr: run.stderr };
+}
+
+check("whoami with no sign-in and no key exits 2 and says ax login", () => {
+	const { status, stderr } = axSignedOut(["whoami"]);
+	if (status !== 2) throw new Error(`exit ${status}, want 2`);
+	if (!stderr.includes("ax login")) throw new Error("does not point at ax login");
+});
+
+check("logout with nothing stored exits 0 and says so", () => {
+	const { status, stdout } = axSignedOut(["logout"]);
+	if (status !== 0) throw new Error(`exit ${status}, want 0`);
+	if (!stdout.includes("Not signed in")) throw new Error("does not say it was not signed in");
+});
+
+check("login refuses a platform that is not api.<domain> before any request", () => {
+	const { status } = axSignedOut(["login", "--no-browser"], {
+		ORA_PLATFORM_URL: "https://platform.example.test",
+	});
+	if (status !== 2) throw new Error(`exit ${status}, want 2`);
+});
 
 check("deep-journey still runs, notes its new name, and keeps its exit codes", () => {
 	const args = [

@@ -1,8 +1,13 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCommand } from "citty";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { platformCredentials } from "../auth/resolve-credential";
+import { SessionStore } from "../auth/session-store";
 import { deepJourneyCommand } from "./deep-journey";
 import { journeyCommand } from "./journey";
-import { journey, journeyRoute, journeyUsage } from "./journey-cli";
+import { journeyCommandDefinition, journeyRoute, journeyUsage } from "./journey-cli";
 
 // Both command functions are mocked: these tests pin which one a typed `ax journey` reaches, how
 // its arguments map onto that input, and that each exit code reaches process.exitCode. Arguments
@@ -33,7 +38,17 @@ afterEach(() => {
 	process.exitCode = savedExitCode;
 });
 
-const argv = (...rawArgs: string[]) => runCommand(journey, { rawArgs });
+// Every run gets a store of its own, empty unless a test writes a sign-in into it: whatever this
+// machine has stored never reaches these tests.
+let store: SessionStore;
+beforeEach(() => {
+	store = new SessionStore(mkdtempSync(join(tmpdir(), "ax-journey-")));
+});
+const argv = (...rawArgs: string[]) =>
+	runCommand(
+		journeyCommandDefinition(() => platformCredentials({ store })),
+		{ rawArgs },
+	);
 const oneInput = () => oneMock.mock.calls[0][0];
 const freeInput = () => freeMock.mock.calls[0][0];
 // biome-ignore lint/suspicious/noControlCharactersInRegex: strips the color codes picocolors may add
@@ -146,6 +161,44 @@ describe("a free journey, with no goal of its own", () => {
 		expectOnly(oneMock);
 	});
 
+	it("keeps a goal on ora's platform when signed in with ax login, with no platform key", async () => {
+		vi.stubEnv("ORA_API_KEY", "");
+		vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
+		vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.test");
+		store.write({
+			version: 1,
+			issuer: "https://account.ora.test",
+			clientId: "ax-cli",
+			resource: "https://api.ora.test",
+			tokenEndpoint: "https://account.ora.test/oauth2/token",
+			accessToken: "access-1",
+			refreshToken: "refresh-1",
+			expiresAt: Date.now() + 900_000,
+			scope: "runs:write",
+		});
+		await argv(GOAL, "--domain", "stripe.com");
+		expectOnly(oneMock);
+	});
+
+	it("a sign-in for another platform does not count: the lone goal takes the partner tier", async () => {
+		vi.stubEnv("ORA_API_KEY", "");
+		vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
+		vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.test");
+		store.write({
+			version: 1,
+			issuer: "https://account.other.test",
+			clientId: "ax-cli",
+			resource: "https://api.other.test",
+			tokenEndpoint: "https://account.other.test/oauth2/token",
+			accessToken: "access-1",
+			refreshToken: "refresh-1",
+			expiresAt: Date.now() + 900_000,
+			scope: "runs:write",
+		});
+		await argv(GOAL, "--domain", "stripe.com");
+		expectOnly(freeMock);
+	});
+
 	it("refuses public and platform flags together, exit 2, with the call for the platform", async () => {
 		process.exitCode = undefined;
 		await argv(
@@ -184,7 +237,7 @@ describe("journeyRoute", () => {
 		goal: undefined,
 		publicFlags: [],
 		platformFlags: [],
-		platformKey: false,
+		platformCredential: false,
 		partnerKey: false,
 	};
 
@@ -192,7 +245,9 @@ describe("journeyRoute", () => {
 		expect(journeyRoute(base)).toEqual({ route: "public" });
 		expect(journeyRoute({ ...base, goal: "g" })).toEqual({ route: "platform" });
 		expect(journeyRoute({ ...base, goal: "g", partnerKey: true })).toEqual({ route: "public" });
-		expect(journeyRoute({ ...base, goal: "g", platformKey: true, partnerKey: true })).toEqual({
+		expect(
+			journeyRoute({ ...base, goal: "g", platformCredential: true, partnerKey: true }),
+		).toEqual({
 			route: "platform",
 		});
 		expect(journeyRoute({ ...base, goal: "g", publicFlags: ["agent"] })).toEqual({

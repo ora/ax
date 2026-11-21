@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 import { skillCommand } from "./skill";
 
 const unreachable = () =>

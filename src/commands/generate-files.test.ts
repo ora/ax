@@ -6,7 +6,7 @@ import invalidDomain from "../api/__fixtures__/agent-files-invalid.json";
 import realBundle from "../api/__fixtures__/agent-files-unscanned.json";
 import realBundleAll from "../api/__fixtures__/agent-files-unscanned-all.json";
 import * as api from "../api/agent-files";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 import { displayPath, generateFilesCommand, serializeAgentFile } from "./generate-files";
 
 vi.mock("../api/agent-files", async (importOriginal) => {

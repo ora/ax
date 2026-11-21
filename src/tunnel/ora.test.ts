@@ -1,5 +1,8 @@
+import { mkdtempSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	createMemorySocketPair,
 	type ISocket,
@@ -8,8 +11,13 @@ import {
 	V1Codec,
 } from "@ora-ai/tunnel-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiKeyCredential } from "../auth/api-key-credential";
+import { KeyRejectedError, SignInEndedError } from "../auth/errors";
+import { fakeSignInServer, ISSUER } from "../auth/fake-sign-in-server.test-support";
+import { SessionStore } from "../auth/session-store";
+import { SignInCredential } from "../auth/sign-in-credential";
 import { TunnelError } from "../tunnel";
-import { adaptSocket, openOraTunnel, parseLocalTarget } from "./ora";
+import { adaptSocket, CREDENTIAL_ENDED_CLOSE_CODE, openOraTunnel, parseLocalTarget } from "./ora";
 
 const BASE = "https://platform.test";
 const TUNNEL_ID = "0f3c1c1e-6a1b-4c1f-9a2e-000000000001";
@@ -26,7 +34,9 @@ let dialOutcome: DialOutcome = "accept";
 class FakeWebSocket extends EventTarget {
 	static instances: FakeWebSocket[] = [];
 	readonly url: string;
-	readonly protocols: string[];
+	readonly protocols: string | string[] | undefined;
+	/** The upgrade request's headers, as Node's WebSocket sends them from its init object. */
+	readonly headers: Headers;
 	readyState = 0;
 	binaryType = "blob";
 	bufferedAmount = 0;
@@ -35,10 +45,11 @@ class FakeWebSocket extends EventTarget {
 	readonly accepted: Promise<unknown>;
 	private readonly client: MemorySocket;
 
-	constructor(url: string | URL, protocols: string[]) {
+	constructor(url: string | URL, init: WebSocketInit) {
 		super();
 		this.url = String(url);
-		this.protocols = protocols;
+		this.protocols = init.protocols;
+		this.headers = new Headers(init.headers);
 		FakeWebSocket.instances.push(this);
 		const [server, client] = createMemorySocketPair();
 		this.client = client;
@@ -137,8 +148,29 @@ function stubPlatform() {
 }
 
 const deletes = () => calls.filter((c) => c.method === "DELETE");
+/** A platform key, traded at the stubbed /auth/token: a credential of its own per tunnel. */
+const aKey = () => new ApiKeyCredential(BASE, "ora_sk_test");
 const open = (target: string) =>
-	openOraTunnel(target, { apiKey: "ora_sk_test", platformUrl: BASE, probeEveryMs: 10 });
+	openOraTunnel(target, { credential: aKey(), platformUrl: BASE, probeEveryMs: 10 });
+
+/** A browser sign-in whose access token is fresh, renewed by a stand-in sign-in server. */
+function aSignIn() {
+	const server = fakeSignInServer();
+	const store = new SessionStore(mkdtempSync(join(tmpdir(), "ax-tunnel-sign-in-")));
+	const session = {
+		version: 1 as const,
+		issuer: ISSUER,
+		clientId: "ax-cli",
+		resource: BASE,
+		tokenEndpoint: `${ISSUER}/oauth2/token`,
+		accessToken: "access-0",
+		refreshToken: "refresh-0",
+		expiresAt: Date.now() + 15 * 60_000,
+		scope: "tunnels:write tunnels:connect",
+	};
+	store.write(session);
+	return { server, credential: new SignInCredential(BASE, store, session, server.fetchFn) };
+}
 
 describe("parseLocalTarget", () => {
 	it("binds localhost to 127.0.0.1 and defaults the port to 80", () => {
@@ -202,9 +234,11 @@ describe("openOraTunnel", () => {
 			access: "public",
 			name: expect.stringMatching(/^ax-[0-9a-f]{8}$/),
 		});
-		// data plane: dialed with the bearer + tunnel id and the negotiated subprotocol
+		// data plane: dialed with the tunnel id in the URL, the bearer in the Authorization
+		// header (never the URL, which lands in access logs) and the negotiated subprotocol
 		const [ws] = FakeWebSocket.instances;
-		expect(ws.url).toBe(`${CONNECT_URL}?tunnelId=${TUNNEL_ID}&token=bearer-1`);
+		expect(ws.url).toBe(`${CONNECT_URL}?tunnelId=${TUNNEL_ID}`);
+		expect(ws.headers.get("authorization")).toBe("Bearer bearer-1");
 		expect(ws.protocols).toEqual(["ora-tunnel.v1"]);
 		expect(ws.binaryType).toBe("arraybuffer");
 		await ws.accepted;
@@ -262,7 +296,7 @@ describe("openOraTunnel", () => {
 		probeStatuses = [530, 530, 530, 530, 530, 530, 530, 530];
 		await expect(
 			openOraTunnel(`localhost:${localPort}`, {
-				apiKey: "ora_sk_test",
+				credential: aKey(),
 				platformUrl: BASE,
 				routableMs: 30,
 				probeEveryMs: 10,
@@ -285,7 +319,7 @@ describe("openOraTunnel", () => {
 		probeStatuses = [530, 530, 530, 530, 530, 530, 530, 530, 530, 530];
 		const interrupt = new AbortController();
 		const opening = openOraTunnel(`localhost:${localPort}`, {
-			apiKey: "ora_sk_test",
+			credential: aKey(),
 			platformUrl: BASE,
 			routableMs: 5_000,
 			probeEveryMs: 10,
@@ -304,7 +338,7 @@ describe("openOraTunnel", () => {
 		interrupt.abort();
 		await expect(
 			openOraTunnel(`localhost:${localPort}`, {
-				apiKey: "ora_sk_test",
+				credential: aKey(),
 				platformUrl: BASE,
 				signal: interrupt.signal,
 			}),
@@ -356,24 +390,86 @@ describe("openOraTunnel", () => {
 		expect(calls.filter((c) => c.url === `${BASE}/auth/token`)).toHaveLength(2);
 	});
 
-	it("is a TunnelError naming the scopes when the key is missing, without any request", async () => {
-		const saved = process.env.ORA_API_KEY;
-		delete process.env.ORA_API_KEY;
-		try {
-			await expect(openOraTunnel("localhost:3000", { platformUrl: BASE })).rejects.toThrow(
-				/tunnels:write \+ tunnels:connect/,
-			);
-			expect(calls).toHaveLength(0);
-		} finally {
-			if (saved !== undefined) process.env.ORA_API_KEY = saved;
-		}
+	it("with a browser sign-in: never trades a key, sends the access token, and renews it to delete", async () => {
+		const { credential, server } = aSignIn();
+		const tunnel = await openOraTunnel(`localhost:${localPort}`, {
+			credential,
+			platformUrl: BASE,
+			probeEveryMs: 10,
+		});
+		const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/tunnels/v1"));
+		expect(create?.headers.authorization).toBe("Bearer access-0");
+		const [ws] = FakeWebSocket.instances;
+		expect(ws.headers.get("authorization")).toBe("Bearer access-0");
+		expect(ws.url).not.toContain("access-0");
+		const original = vi.mocked(fetch).getMockImplementation();
+		let first = true;
+		vi.mocked(fetch).mockImplementation(async (input, init) => {
+			if (init?.method === "DELETE" && first) {
+				first = false;
+				calls.push({ method: "DELETE", url: String(input), headers: {} });
+				return new Response("", { status: 401 });
+			}
+			return original?.(input, init) as Promise<Response>;
+		});
+		await tunnel.close();
+		expect(deletes()).toHaveLength(2);
+		expect(server.state.refreshes).toBe(1);
+		expect(calls.filter((c) => c.url === `${BASE}/auth/token`)).toHaveLength(0);
+	});
+
+	it("a connection ora closes because the sign-in ended is the sign-in's end: ax login", async () => {
+		const { credential } = aSignIn();
+		const tunnel = await openOraTunnel(`localhost:${localPort}`, {
+			credential,
+			platformUrl: BASE,
+			probeEveryMs: 10,
+		});
+		const [ws] = FakeWebSocket.instances;
+		await ws.accepted;
+		// The close code decides, whatever words ride along.
+		ws.session.close(CREDENTIAL_ENDED_CLOSE_CODE, "grant_inactive");
+		const error = await tunnel.dropped;
+		expect(error).toBeInstanceOf(SignInEndedError);
+		expect(error?.message).toBe(
+			"ora closed the tunnel (4401 grant_inactive): your sign-in no longer works. Run ax login.",
+		);
+		await tunnel.close();
+	});
+
+	it("a close with another code is a plain drop, even when its reason says the sign-in ended", async () => {
+		const tunnel = await open(`localhost:${localPort}`);
+		const [ws] = FakeWebSocket.instances;
+		await ws.accepted;
+		ws.session.close(4001, "sign-in ended: grant_inactive");
+		const error = await tunnel.dropped;
+		expect(error?.message).toMatch(/dropped/);
+		expect(error?.message).not.toContain("ax login");
+		await tunnel.close();
+	});
+
+	it("a sign-in ora refuses on create is the sign-in's end, never a retry", async () => {
+		const original = vi.mocked(fetch).getMockImplementation();
+		vi.mocked(fetch).mockImplementation(async (input, init) => {
+			if (init?.method === "POST" && String(input).endsWith("/tunnels/v1")) {
+				return Response.json({ error: "grant_inactive" }, { status: 401 });
+			}
+			return original?.(input, init) as Promise<Response>;
+		});
+		const error = await openOraTunnel(`localhost:${localPort}`, {
+			credential: aSignIn().credential,
+			platformUrl: BASE,
+		}).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(SignInEndedError);
+		expect(String(error)).toContain("(401: grant_inactive): your sign-in no longer works");
+		expect(FakeWebSocket.instances).toHaveLength(0);
 	});
 
 	it("maps 401/403/429 on create to actionable hints without dialing", async () => {
-		for (const [status, pattern] of [
-			[401, /rejected the platform key/],
-			[403, /tunnels:write \+ tunnels:connect/],
-			[429, /rate-limited/],
+		for (const [status, pattern, kind] of [
+			[401, /platform key was rejected\. Check ORA_API_KEY/, KeyRejectedError],
+			[403, /lacks the tunnels:write \+ tunnels:connect scopes/, TunnelError],
+			[429, /rate-limited/, TunnelError],
 		] as const) {
 			const original = vi.mocked(fetch).getMockImplementation();
 			vi.mocked(fetch).mockImplementation(async (input, init) => {
@@ -382,7 +478,9 @@ describe("openOraTunnel", () => {
 				}
 				return original?.(input, init) as Promise<Response>;
 			});
-			await expect(open(`localhost:${localPort}`)).rejects.toThrow(pattern);
+			const error = await open(`localhost:${localPort}`).catch((e: unknown) => e);
+			expect(error).toBeInstanceOf(kind);
+			expect(String(error)).toMatch(pattern);
 			expect(FakeWebSocket.instances).toHaveLength(0);
 		}
 	});
@@ -411,6 +509,24 @@ describe("adaptSocket", () => {
 		ws.dispatchEvent(Object.assign(new Event("close"), { code: 1001, reason: "bye" }));
 		expect(closeA).not.toHaveBeenCalled();
 		expect(closeB).toHaveBeenCalledWith(1001, "bye");
+	});
+
+	it("keeps the close the server sent before the handler hears of it", () => {
+		const ws = new EventTarget() as unknown as WebSocket & EventTarget;
+		Object.assign(ws, { readyState: 1, bufferedAmount: 0, send: vi.fn(), close: vi.fn() });
+		const socket = adaptSocket(ws);
+		expect(socket.closed).toBeUndefined();
+		let seenByHandler: unknown;
+		socket.onClose(() => {
+			seenByHandler = socket.closed;
+		});
+		ws.dispatchEvent(Object.assign(new Event("close"), { code: 4401, reason: "grant_inactive" }));
+		expect(seenByHandler).toEqual({ code: 4401, reason: "grant_inactive" });
+
+		const silent = new EventTarget() as unknown as WebSocket & EventTarget;
+		const dropped = adaptSocket(silent);
+		silent.dispatchEvent(new Event("close"));
+		expect(dropped.closed).toEqual({ code: 1006, reason: "" });
 	});
 
 	it("only sends while the socket is open and never throws from close()", () => {

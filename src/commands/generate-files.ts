@@ -4,7 +4,7 @@ import pc from "picocolors";
 import { AgentFilesApiError, type AgentFilesBundle, fetchAgentFiles } from "../api/agent-files";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, placeholder, printNext } from "../report/next-line";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 
 export interface GenerateFilesCommandInput {
 	domain: string;

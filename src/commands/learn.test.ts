@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 import { learnCommand } from "./learn";
 
 // ora's published skill with a Workflows section added (see skills.test.ts).

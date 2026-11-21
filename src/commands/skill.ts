@@ -4,7 +4,7 @@ import pc from "picocolors";
 import { fetchSkill, fetchSkillIndex, SkillApiError } from "../api/skills";
 import { reportError } from "../report/json-error";
 import { axCall, printNext } from "../report/next-line";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 
 export interface SkillCommandInput {
 	/** Skill name; omitted = list the registry. */

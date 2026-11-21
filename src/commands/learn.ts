@@ -1,7 +1,7 @@
 import { fetchSkill, resolveBase, SkillApiError, skillSection } from "../api/skills";
 import { reportError } from "../report/json-error";
 import { axCall, placeholder, printNext } from "../report/next-line";
-import { EXIT } from "./audit";
+import { EXIT } from "./exit-codes";
 
 // `ax learn`: print the Workflows section of ora's own skill, fetched and
 // digest-verified through the registry like `ax skill`, so the CLI teaches the

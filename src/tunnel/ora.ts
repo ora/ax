@@ -2,7 +2,10 @@ import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { type ClientRequest, request as httpRequest, type IncomingMessage } from "node:http";
 import pkg from "../../package.json";
-import { exchangeKey, PlatformApiError, platformBase } from "../api/platform";
+import { platformBase } from "../api/platform-origins";
+import type { PlatformCredential } from "../auth/credential";
+import { SignInEndedError } from "../auth/errors";
+import { scopeList, TUNNEL_FEATURE } from "../auth/platform-features";
 import { type Tunnel, TunnelError, waitRoutable } from "../tunnel";
 import {
 	type HeaderMap,
@@ -26,8 +29,8 @@ import {
 // an unguessable UUID that stops answering the moment the row is deleted.
 
 export interface OraTunnelOptions {
-	/** The ora_sk_ platform key; falls back to $ORA_API_KEY. */
-	apiKey?: string;
+	/** What signs every call: the credential the command resolved (auth/resolve-credential.ts). */
+	credential: PlatformCredential;
 	/** Platform API base; falls back to $ORA_PLATFORM_URL, then production. */
 	platformUrl?: string;
 	/** How long to wait for the public hostname to route (default 90s). */
@@ -41,14 +44,8 @@ export interface OraTunnelOptions {
 	signal?: AbortSignal;
 }
 
-/** The scopes the platform key needs, quoted in every credential error. */
-export const ORA_TUNNEL_SCOPES = "tunnels:write + tunnels:connect";
-
-export const MISSING_KEY_HINT = [
-	`--tunnel ora needs ORA_API_KEY: an ora platform key (ora_sk_...) with the ${ORA_TUNNEL_SCOPES} scopes.`,
-	"Create one at https://agentfront.sh (API keys), export it or put it in a local .env,",
-	"or bring your own tunnel instead: --tunnel-cmd 'ngrok http 3000 --log stdout'",
-].join("\n");
+/** The scopes the tunnel's credential needs, quoted in every credential error. */
+const TUNNEL_SCOPES = scopeList(TUNNEL_FEATURE);
 
 const WS_OPEN = 1;
 const MAX_STREAMS = 32;
@@ -94,37 +91,34 @@ export function parseLocalTarget(target: string): { host: string; port: number }
  * an unroutable edge never leaves an `ax-*` tunnel counting against the
  * account's active-tunnel limit.
  */
-export async function openOraTunnel(
-	localTarget: string,
-	opts: OraTunnelOptions = {},
-): Promise<Tunnel> {
+export async function openOraTunnel(localTarget: string, opts: OraTunnelOptions): Promise<Tunnel> {
 	const target = parseLocalTarget(localTarget);
-	const apiKey = opts.apiKey ?? process.env.ORA_API_KEY;
-	if (!apiKey) throw new TunnelError(MISSING_KEY_HINT);
 	const base = platformBase(opts.platformUrl);
+	const { credential } = opts;
 
 	let bearer: string;
 	try {
-		bearer = await exchangeKey(base, apiKey);
+		bearer = await credential.bearer();
 	} catch (cause) {
 		throw new TunnelError(
-			`${cause instanceof Error ? cause.message : String(cause)}\n(--tunnel ora needs a platform key with the ${ORA_TUNNEL_SCOPES} scopes)`,
-			{ payload: cause instanceof PlatformApiError ? cause.payload : undefined },
+			`${cause instanceof Error ? cause.message : String(cause)}\n(--tunnel ora needs ax login, or a platform key with the ${TUNNEL_SCOPES} scopes)`,
+			{ cause },
 		);
 	}
 	if (opts.signal?.aborted) throw interrupted();
-	const row = await createTunnel(base, bearer);
+	const row = await createTunnel(base, bearer, credential);
 	// From here on the row exists and every exit path must delete it. The
 	// bearer lives ~15 minutes and a deep audit can outlast it, so the delete
-	// re-exchanges the key once on 401: a tunnel that survives the audit is
-	// the one outcome this module exists to prevent.
-	const remove = () => deleteTunnel(base, bearer, row.id, () => exchangeKey(base, apiKey));
+	// renews it once on 401 (a key traded again, a sign-in refreshed): a
+	// tunnel that survives the audit is the one outcome this module exists to
+	// prevent.
+	const remove = () => deleteTunnel(base, bearer, row.id, () => credential.renew());
 
 	let ws: WebSocket | undefined;
 	let connector: TunnelConnector | undefined;
 	let closing = false;
-	let reportDrop: (error: TunnelError) => void = () => {};
-	const dropped = new Promise<TunnelError>((resolve) => {
+	let reportDrop: (error: Error) => void = () => {};
+	const dropped = new Promise<Error>((resolve) => {
 		reportDrop = resolve;
 	});
 	const abortRace = new Promise<never>((_, reject) => {
@@ -134,9 +128,10 @@ export async function openOraTunnel(
 	let created: CreatedTunnel;
 	try {
 		created = validateCreated(row);
-		ws = await Promise.race([dial(created, bearer), abortRace]);
+		ws = await Promise.race([dial(created, bearer, credential), abortRace]);
+		const socket = adaptSocket(ws);
 		connector = new TunnelConnector({
-			socket: adaptSocket(ws),
+			socket,
 			codec: new V1Codec(),
 			hello: {
 				agentVersion: `ax/${pkg.version}`,
@@ -145,8 +140,7 @@ export async function openOraTunnel(
 			},
 			forwarder: localForwarder(target.host, target.port),
 			onConnectionClosed: (reason) => {
-				if (!closing)
-					reportDrop(new TunnelError(`ora tunnel connection dropped: ${reason.message}`));
+				if (!closing) reportDrop(droppedError(socket.closed, reason.message, credential));
 			},
 		});
 		await Promise.race([connector.start(), abortRace]);
@@ -182,6 +176,25 @@ export async function openOraTunnel(
 	return { url: created.publicUrl, close, dropped };
 }
 
+/**
+ * ora closes the connection of a tunnel whose credential no longer stands (a browser sign-in that
+ * was disconnected, signed out everywhere, removed from the organization) with
+ * {@link CREDENTIAL_ENDED_CLOSE_CODE}: that is the credential's own rejection (for a sign-in, a
+ * SignInEndedError that says ax login). Any other close is a plain drop. The code decides, never
+ * the reason's words.
+ */
+function droppedError(
+	close: TunnelSocket["closed"],
+	message: string,
+	credential: PlatformCredential,
+): Error {
+	if (close?.code === CREDENTIAL_ENDED_CLOSE_CODE) {
+		const reason = close.reason ? ` ${close.reason}` : "";
+		return credential.rejected(`ora closed the tunnel (${close.code}${reason})`);
+	}
+	return new TunnelError(`ora tunnel connection dropped: ${message}`);
+}
+
 /** The create response must describe a tunnel this ax can connect to. */
 function validateCreated(row: CreateResponse): CreatedTunnel {
 	if (!row.publicUrl || !row.connection?.url || !row.connection.subprotocol) {
@@ -197,7 +210,11 @@ function validateCreated(row: CreateResponse): CreatedTunnel {
 
 // --- Control plane ---
 
-async function createTunnel(base: string, bearer: string): Promise<CreateResponse> {
+async function createTunnel(
+	base: string,
+	bearer: string,
+	credential: PlatformCredential,
+): Promise<CreateResponse> {
 	const res = await fetch(`${base}/tunnels/v1`, {
 		method: "POST",
 		headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
@@ -214,9 +231,7 @@ async function createTunnel(base: string, bearer: string): Promise<CreateRespons
 	}
 	if (!res.ok) {
 		const detail = payload.error ?? payload.message ?? text.trim().slice(0, 200);
-		throw new TunnelError(`${createHint(res.status)}${detail ? `: ${detail}` : ""}`, {
-			payload: served,
-		});
+		throw createRefusal(res.status, detail, served, credential);
 	}
 	// Without an id there is nothing to delete and nothing to connect; every
 	// other shape problem is checked after the caller can delete the row.
@@ -224,17 +239,28 @@ async function createTunnel(base: string, bearer: string): Promise<CreateRespons
 	return payload as CreateResponse;
 }
 
-function createHint(status: number): string {
-	switch (status) {
-		case 401:
-			return "ora rejected the platform key (401). Check ORA_API_KEY";
-		case 403:
-			return `the platform key lacks the ${ORA_TUNNEL_SCOPES} scopes (403). Issue one with both and retry`;
-		case 429:
-			return "ora rate-limited the tunnel request (429). Wait a moment and retry";
-		default:
-			return `ora could not create a tunnel (${status})`;
+/** What to do about a refused create, by its status: a refused credential is worded by it. */
+const CREATE_HINTS: Readonly<Record<number, (credential: PlatformCredential) => string>> = {
+	403: (credential) => credential.refusal.forbidden(TUNNEL_SCOPES),
+	429: () => "ora rate-limited the tunnel request. Wait a moment and retry",
+};
+
+/**
+ * Why ora would not create the tunnel, in words that say what to do. A 401 is the credential's
+ * own rejection (a sign-in's says ax login), with the served body on the error it wraps.
+ */
+function createRefusal(
+	status: number,
+	detail: string,
+	served: unknown,
+	credential: PlatformCredential,
+): Error {
+	const what = `ora refused to create a tunnel (${status}${detail ? `: ${detail}` : ""})`;
+	if (status === 401) {
+		return credential.rejected(what, new TunnelError(what, { payload: served }));
 	}
+	const hint = CREATE_HINTS[status]?.(credential);
+	return new TunnelError(hint ? `${what}: ${hint}` : what, { payload: served });
 }
 
 async function deleteTunnel(
@@ -258,8 +284,14 @@ async function deleteTunnel(
 			);
 		}
 	} catch (cause) {
+		const why =
+			cause instanceof SignInEndedError
+				? "deleting it needs your sign-in, which ended; it carries no traffic"
+				: cause instanceof Error
+					? cause.message
+					: String(cause);
 		console.error(
-			`could not delete ora tunnel ${id} (${cause instanceof Error ? cause.message : String(cause)}); remove it with: ora tunnels delete ${id}`,
+			`could not delete ora tunnel ${id} (${why}); remove it with: ora tunnels delete ${id}`,
 		);
 	}
 }
@@ -267,17 +299,25 @@ async function deleteTunnel(
 // --- Data plane ---
 
 /**
- * Dial the tunnel's WebSocket. The bearer rides the query string because
- * the browser-style WebSocket cannot set headers; the service accepts either.
- * A pre-upgrade rejection (401/403/429) reaches us only as a bare `error`
- * event - the status never surfaces - so the message names all three causes.
+ * Dial the tunnel's WebSocket. The bearer rides the upgrade's Authorization
+ * header and never the URL, which lands in access logs: Node's WebSocket
+ * takes headers (from 22.4, ax's floor), and the tunnel id is the only thing
+ * in the query string. A pre-upgrade rejection (401/403/429) reaches us only
+ * as a bare `error` event - the status never surfaces - so the message names
+ * all three causes.
  */
-function dial(created: CreatedTunnel, bearer: string): Promise<WebSocket> {
+function dial(
+	created: CreatedTunnel,
+	bearer: string,
+	credential: PlatformCredential,
+): Promise<WebSocket> {
 	const url = new URL(created.connection.url);
 	url.searchParams.set("tunnelId", created.id);
-	url.searchParams.set("token", bearer);
 	return new Promise<WebSocket>((resolve, reject) => {
-		const ws = new WebSocket(url, [created.connection.subprotocol]);
+		const ws = new WebSocket(url, {
+			protocols: [created.connection.subprotocol],
+			headers: { authorization: `Bearer ${bearer}` },
+		});
 		ws.binaryType = "arraybuffer";
 		const settle = (outcome: () => void) => {
 			ws.removeEventListener("open", onOpen);
@@ -292,7 +332,7 @@ function dial(created: CreatedTunnel, bearer: string): Promise<WebSocket> {
 					new TunnelError(
 						[
 							"ora refused the tunnel connection.",
-							`Either the platform key lacks the tunnels:connect scope, the bearer expired (401/403),`,
+							`Either ${credential.label} lacks the ${TUNNEL_SCOPES} scopes or no longer works (401/403),`,
 							"or the account's active-tunnel limit is reached (429): check `ora tunnels list`.",
 						].join("\n"),
 					),
@@ -313,16 +353,37 @@ function dial(created: CreatedTunnel, bearer: string): Promise<WebSocket> {
 }
 
 /**
+ * The close code ora's tunnel service ends a held connection with once the credential it was
+ * admitted for no longer stands (a sign-in that ended): 4401, the code it refuses a connection
+ * with for the same reason, so one code means "this credential no longer works here". It is the
+ * server's value, copied: @ora-ai/tunnel-protocol does not export it yet, and a lockstep test
+ * against the package can only come once it does.
+ */
+export const CREDENTIAL_ENDED_CLOSE_CODE = 4401;
+
+/** RFC 6455 §7.1.5: the code for a connection that closed without a close frame. */
+const ABNORMAL_CLOSURE = 1006;
+
+/** The protocol's socket over Node's WebSocket, which also keeps the close the server sent. */
+export interface TunnelSocket extends ISocket {
+	/** How the connection closed, once it has: its code says what a drop means. */
+	readonly closed: { code: number; reason: string } | undefined;
+}
+
+/**
  * Node's WebSocket as the protocol's transport. The ISocket contract is that
  * every `on*` call REPLACES the previous handler (the handshake hands the
  * socket over to the multiplexer): one listener per event is registered
  * here, once, and dispatches to a mutable slot - registering a new listener
- * per call would deliver every frame to every handler ever installed.
+ * per call would deliver every frame to every handler ever installed. The
+ * close is kept before it is handed on: the vendored multiplexer folds the
+ * code into a message, and the code is what a caller has to read.
  */
-export function adaptSocket(ws: WebSocket): ISocket {
+export function adaptSocket(ws: WebSocket): TunnelSocket {
 	let onMessage: ((data: Uint8Array) => void) | undefined;
 	let onClose: ((code: number, reason: string) => void) | undefined;
 	let onError: ((error: Error) => void) | undefined;
+	let closed: TunnelSocket["closed"];
 	ws.addEventListener("message", (event) => {
 		const data = (event as MessageEvent).data;
 		if (data instanceof ArrayBuffer) onMessage?.(new Uint8Array(data));
@@ -331,10 +392,14 @@ export function adaptSocket(ws: WebSocket): ISocket {
 	});
 	ws.addEventListener("close", (event) => {
 		const { code, reason } = event as Partial<{ code: number; reason: string }>;
-		onClose?.(code ?? 1006, reason ?? "");
+		closed = { code: code ?? ABNORMAL_CLOSURE, reason: reason ?? "" };
+		onClose?.(closed.code, closed.reason);
 	});
 	ws.addEventListener("error", () => onError?.(new Error("tunnel socket error")));
 	return {
+		get closed() {
+			return closed;
+		},
 		get bufferedAmount() {
 			return ws.bufferedAmount;
 		},

@@ -6,13 +6,20 @@ import {
 	isMcpAuthRequired,
 	performAudit,
 } from "../api/audit";
+import { platformBase } from "../api/platform-origins";
+import type { PlatformCredential } from "../auth/credential";
+import { TUNNEL_FEATURE } from "../auth/platform-features";
+import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { toReport } from "../report/model";
 import { axCall, type NextStep, placeholder, printNext, type Word } from "../report/next-line";
 import { MCP_AUTH_REQUIRED_NOTICE, renderReport } from "../report/terminal";
-import { isLocalTarget, openTunnel, type Tunnel, TunnelError } from "../tunnel";
-import { MISSING_KEY_HINT, openOraTunnel } from "../tunnel/ora";
+import { isLocalTarget, openTunnel, type Tunnel } from "../tunnel";
+import { openOraTunnel } from "../tunnel/ora";
 import { spinner } from "../ui/spinner";
+import { credentialFailure } from "./credential-failure";
+import { EXIT } from "./exit-codes";
 
 export interface AuditCommandInput {
 	url: string;
@@ -26,20 +33,19 @@ export interface AuditCommandInput {
 	force: boolean;
 	/** User-supplied command that exposes the target and prints a public https URL. */
 	tunnelCmd?: string;
-	/** Raw --tunnel value; "ora" opens ora's own tunnel (needs ORA_API_KEY). */
+	/** Raw --tunnel value; "ora" opens ora's own tunnel (needs ax login or ORA_API_KEY). */
 	tunnel?: string;
 	/** ora-issued scan API key (--api-key); the client falls back to ORA_SCAN_API_KEY. */
 	apiKey?: string;
 }
 
-/**
- * The documented exit-code contract (README + --help):
- *   0 success (and score >= --min-score when given)
- *   1 score below --min-score
- *   2 usage error (bad flags, malformed URL, local target without a tunnel)
- *   3 API unreachable / timeout / rate limit exhausted
- */
-export const EXIT = { OK: 0, BELOW_MIN_SCORE: 1, USAGE: 2, API: 3 } as const;
+export interface AuditDeps {
+	/** Which credential `--tunnel ora` signs its calls with. */
+	credentials: PlatformCredentials;
+}
+
+/** What `--tunnel ora` points at when no platform credential is there. */
+const WITHOUT_A_CREDENTIAL = "or bring your own tunnel with --tunnel-cmd";
 
 // Documented contract guidance: an auth-gated MCP target is unscored, so a
 // gate has nothing to compare against and must not fail on it. Both routes to
@@ -190,7 +196,10 @@ function resultNext(
 	};
 }
 
-export async function auditCommand(input: AuditCommandInput): Promise<number> {
+export async function auditCommand(
+	input: AuditCommandInput,
+	deps: AuditDeps = { credentials: platformCredentials() },
+): Promise<number> {
 	const fail = (
 		error: CommandError,
 		exit: number,
@@ -233,8 +242,8 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 	}
 
 	// A local target only exists on this machine, so ora can never reach it
-	// directly. Two ways through: ora's own tunnel (--tunnel ora, needs the
-	// platform key) or a user-supplied command (--tunnel-cmd / ORA_TUNNEL_CMD)
+	// directly. Two ways through: ora's own tunnel (--tunnel ora, needs a sign-in
+	// or a platform key) or a user-supplied command (--tunnel-cmd / ORA_TUNNEL_CMD)
 	// that prints a public https URL. Either way the result is stored as
 	// ephemeral so the throwaway hostname never pollutes rankings.
 	const tunnelMode = resolveTunnelMode(input);
@@ -254,26 +263,13 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 					`${target} only exists on this machine, and ora audits public URLs.`,
 					"Either audit a publicly reachable deployment of this site (e.g. a preview URL),",
 					"or run it through a tunnel:",
-					"  ax audit localhost:3000 --tunnel ora   # ora's own tunnel; needs ORA_API_KEY",
+					"  ax audit localhost:3000 --tunnel ora   # ora's own tunnel; needs ax login or ORA_API_KEY",
 					"  ax audit localhost:3000 --tunnel-cmd 'ora tunnel 3000 --access public'",
 					"  ax audit localhost:3000 --tunnel-cmd 'ngrok http 3000 --log stdout'",
 					"Any command that prints a public https URL works; the result is stored as",
 					"ephemeral (excluded from rankings, deleted after 7 days).",
 				].join("\n"),
-				next: { call: viaOraTunnel, why: "ora's own tunnel; needs ORA_API_KEY" },
-			},
-			EXIT.USAGE,
-		);
-	}
-	if (tunnelMode.kind === "ora" && !process.env.ORA_API_KEY) {
-		return fail(
-			{
-				code: "MISSING_API_KEY",
-				message: MISSING_KEY_HINT,
-				next: {
-					call: `ORA_API_KEY=<platform key> ${viaOraTunnel}`,
-					why: "a key with the tunnels:write + tunnels:connect scopes",
-				},
+				next: { call: viaOraTunnel, why: "ora's own tunnel; needs ax login or ORA_API_KEY" },
 			},
 			EXIT.USAGE,
 		);
@@ -292,6 +288,28 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		]),
 		why: "retry; if ora rate limited you, wait as long as the message says first",
 	};
+	// A credential's failure reads the same wherever it surfaces: before anything is sent, while
+	// the tunnel opens, or when ora closes it mid-audit.
+	const failedCredential = (cause: unknown) =>
+		credentialFailure(cause, { retry: sameCall.call, otherwise: WITHOUT_A_CREDENTIAL });
+
+	// How the chosen tunnel opens. ora's signs its calls with a platform key or the sign-in
+	// `ax login` stored, settled here so that with neither the run stops before anything is sent.
+	let openChosenTunnel: ((signal: AbortSignal) => Promise<Tunnel>) | undefined;
+	if (tunnelMode.kind === "ora") {
+		let credential: PlatformCredential;
+		try {
+			credential = deps.credentials.chain.resolve(platformBase(), TUNNEL_FEATURE);
+		} catch (cause) {
+			const failure = failedCredential(cause);
+			if (!failure) throw cause;
+			return fail(failure, EXIT.USAGE);
+		}
+		openChosenTunnel = (signal) => openOraTunnel(target, { signal, credential });
+	} else if (tunnelMode.kind === "cmd") {
+		const { command } = tunnelMode;
+		openChosenTunnel = () => openTunnel(command);
+	}
 
 	const interactive = !input.json;
 	if (interactive) spinner.start(`Auditing ${target} with ora`);
@@ -318,35 +336,34 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		})().finally(() => process.exit(signal === "SIGINT" ? 130 : 143));
 	};
 	let auditTarget = target;
-	if (tunnelMode.kind !== "none") {
+	if (openChosenTunnel) {
 		if (interactive) spinner.update(`Opening a tunnel to ${target}`);
 		process.on("SIGINT", onSignal);
 		process.on("SIGTERM", onSignal);
 		try {
-			opening =
-				tunnelMode.kind === "ora"
-					? openOraTunnel(target, { signal: interrupt.signal })
-					: openTunnel(tunnelMode.command);
+			opening = openChosenTunnel(interrupt.signal);
 			tunnel = await opening;
 		} catch (cause) {
 			spinner.stop();
 			process.removeListener("SIGINT", onSignal);
 			process.removeListener("SIGTERM", onSignal);
+			const message = cause instanceof Error ? cause.message : String(cause);
 			return fail(
-				{
+				failedCredential(cause) ?? {
 					code: "TUNNEL_FAILED",
-					message: cause instanceof Error ? cause.message : String(cause),
+					message,
 					next: { call: sameCall.call, why: "retry, or bring your own tunnel with --tunnel-cmd" },
 				},
 				EXIT.USAGE,
 				undefined,
-				cause instanceof TunnelError ? cause.payload : undefined,
+				servedBody(cause),
 			);
 		}
 		auditTarget = tunnel.url;
 	}
 
 	let outcome: AuditOutcome;
+	const stopAudit = new AbortController();
 	try {
 		const audit = performAudit(auditTarget, {
 			progress: interactive ? (line) => spinner.update(line) : undefined,
@@ -354,11 +371,19 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			force: input.force,
 			ephemeral: useTunnel || undefined,
 			apiKey: input.apiKey?.trim() || undefined,
+			signal: stopAudit.signal,
 		});
 		// A tunnel that dies mid-audit leaves ora scoring a hostname that no
-		// longer answers: fail the run rather than render that as a result.
+		// longer answers: fail the run rather than render that as a result. The
+		// drop rejects before the audit is stopped (in `finally`), so the run
+		// reports the drop and not the stop it causes.
 		outcome = tunnel?.dropped
-			? await Promise.race([audit, tunnel.dropped.then((error) => Promise.reject(error))])
+			? await Promise.race([
+					audit,
+					tunnel.dropped.then((error) => {
+						throw error;
+					}),
+				])
 			: await audit;
 	} catch (cause) {
 		spinner.stop();
@@ -390,7 +415,7 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 		const message = cause instanceof Error ? cause.message : String(cause);
 		const apiError = cause instanceof AuditApiError;
 		return fail(
-			{
+			failedCredential(cause) ?? {
 				code: apiError ? cause.code || "API_ERROR" : "AUDIT_FAILED",
 				message,
 				next: sameCall,
@@ -400,6 +425,9 @@ export async function auditCommand(input: AuditCommandInput): Promise<number> {
 			apiError ? cause.payload : undefined,
 		);
 	} finally {
+		// Nothing left to wait for: an audit still streaming (its tunnel dropped)
+		// would otherwise hold ax open until ora finished scanning a dead hostname.
+		stopAudit.abort();
 		await closeTunnel();
 		process.removeListener("SIGINT", onSignal);
 		process.removeListener("SIGTERM", onSignal);
