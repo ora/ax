@@ -133,6 +133,32 @@ describe("createSetsClient", () => {
 		expect(error).toMatchObject({ status: 422, message: body.message, payload: body });
 	});
 
+	it("a validation refusal says what is wrong: the platform's own lines follow its message", async () => {
+		// The body ora's set API gave for six goals on staging, 2026-11-22: its message alone says nothing.
+		const body = {
+			error: "Validation failed",
+			code: "VALIDATION_ERROR",
+			details: {
+				errors: {
+					body: [
+						"goals: A set takes 1 to 5 goals.",
+						"repeat: A set repeats each run 1 to 10 times.",
+					],
+				},
+			},
+		};
+		const { client } = clientOver([{ status: 400, body }]);
+		const error = await client
+			.preview({ site: "linear.app", goals: ["x"] })
+			.catch((e: unknown) => e);
+		expect(error).toMatchObject({
+			status: 400,
+			message:
+				"Validation failed: goals: A set takes 1 to 5 goals.; repeat: A set repeats each run 1 to 10 times.",
+			payload: body,
+		});
+	});
+
 	it("a refusal for a missing scope is worded by the credential, naming the scope the platform listed", async () => {
 		// The body a read-only key got for a preview on a local ora, 2026-11-22: it has no sentence.
 		const body = {
