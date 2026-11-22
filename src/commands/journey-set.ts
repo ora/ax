@@ -471,6 +471,19 @@ export async function journeySetCancel(
 		printNext({ ...viewStep(input.id, json), why: "what finished" }, { stderr: json });
 		return EXIT.OK;
 	} catch (error) {
+		// The set has no run still going: ora says how it ended. Nothing failed, so this is the answer.
+		if (alreadyOver(error)) {
+			if (json) process.stdout.write(`${JSON.stringify(error.payload, null, 2)}\n`);
+			else console.log(error.message);
+			printNext({ ...viewStep(input.id, json), why: "its report" }, { stderr: json });
+			return EXIT.OK;
+		}
 		return failedCall(error, json, listStep);
 	}
+}
+
+/** ora refused to stop a set because none of its runs is still going (HTTP 409, `SET_ALREADY_OVER`). */
+function alreadyOver(error: unknown): error is PlatformApiError {
+	if (!(error instanceof PlatformApiError) || error.status !== 409) return false;
+	return (error.payload as { code?: unknown } | null | undefined)?.code === "SET_ALREADY_OVER";
 }

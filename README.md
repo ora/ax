@@ -520,7 +520,7 @@ Next: ax audit linear.app
 | `--json` | The set exactly as the platform served it, on stdout; the preview and progress stay on stderr |
 | `ax journey view <id>` | Print a set as it stands now; with `--wait`, watch it until it finishes |
 | `ax journey list` | Your organization's sets, newest first |
-| `ax journey cancel <id>` | Stop the runs still going. Runs that already finished keep their results; the set then reads `stopped`, and a cell whose runs were stopped reads `no grade` |
+| `ax journey cancel <id>` | Stop the runs still going. Runs that already finished keep their results; the set then reads `stopped`, and a cell whose runs were stopped reads `no grade`. A set with no run still going is left as it is: ax prints what ora says about it and exits `0` |
 
 The runs go on at the platform whether or not ax is watching. Ctrl-C stops watching, prints the set as it stands and exits `130`; `ax journey view <id>` picks it up again.
 
