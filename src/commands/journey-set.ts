@@ -6,6 +6,7 @@ import { KeyRejectedError } from "../auth/errors";
 import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
 import { type SetFlags, setRequestOf, wholeNumber } from "../journey-set/args";
+import { type EndViewOptions, endNextWhy, endViewLines } from "../journey-set/end-view";
 import { type FollowEnd, followSet } from "../journey-set/follow-set";
 import { progressFor } from "../journey-set/live-watch";
 import { previewProblem, renderList, renderPreview, renderReport } from "../journey-set/render";
@@ -40,7 +41,16 @@ interface Seams {
 	progress?: () => SetProgress;
 	/** stdout is the person's terminal (not a pipe or a file). Tests say which. */
 	stdoutIsTerminal?: boolean;
+	/** How the end of a watched set is drawn: the terminal's width, and whether in color. Tests say which. */
+	endView?: EndViewOptions;
 }
+
+/** The end view's options: the ones handed in, else stdout's width and the person's color settings. */
+const endViewOf = (input: Pick<Seams, "endView">): EndViewOptions =>
+	input.endView ?? {
+		width: Math.max(40, (process.stdout.columns ?? 100) - 1),
+		color: !("NO_COLOR" in process.env) && process.env.TERM !== "dumb",
+	};
 
 /** The progress --watch uses: the one handed in, else the live view on a terminal and the lines everywhere else. */
 const progressOf = (input: Pick<Seams, "progress">): SetProgress =>
@@ -175,14 +185,25 @@ const END_LINE: Readonly<Record<FollowEnd, string | null>> = {
  * Print the set as it stands, and the Next line: the platform's own, or `view` when ax stopped watching.
  * `cellsShown`: the live view left the set's rows on the screen this prints to, so they are not printed again.
  */
-function report(set: SetDocument, end: FollowEnd, json: boolean, cellsShown = false): number {
+function report(
+	set: SetDocument,
+	end: FollowEnd,
+	json: boolean,
+	cellsShown = false,
+	endView?: EndViewOptions,
+): number {
 	const why = END_LINE[end];
 	if (why) console.error(why);
+	// Under the panel the live view left on screen, a set the platform read closely ends with the end view: it says
+	// what the closing lines said, with more, so they are not printed again.
+	const closing = !json && cellsShown && endView ? endViewLines(set, endView) : [];
 	if (json) process.stdout.write(`${JSON.stringify(set, null, 2)}\n`);
+	else if (closing.length > 0) console.log(closing.join("\n"));
 	else console.log(renderReport(set, { cells: !cellsShown }));
+	const aim = closing.length > 0 ? endNextWhy(set) : undefined;
 	const next: NextStep =
 		set.complete || end === "stopped" || end === "failed"
-			? { call: set.next.line }
+			? { call: set.next.line, ...(aim ? { why: aim } : {}) }
 			: viewStep(set.setId, json);
 	printNext(next, { stderr: json });
 	return end === "detached" ? INTERRUPTED : EXIT.OK;
@@ -255,7 +276,7 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 			waitMinutes,
 			interrupt: interrupt.signal,
 		});
-		return report(set, end, json, cellsShown);
+		return report(set, end, json, cellsShown, endViewOf(input));
 	} catch (error) {
 		// The set exists: whatever failed while watching it, the way back is to look again.
 		return failedCall(error, json, viewStep(created.setId, json));
@@ -308,7 +329,7 @@ export async function journeySetView(input: SetViewInput): Promise<number> {
 			waitMinutes,
 			interrupt: interrupt.signal,
 		});
-		return report(set, end, json, cellsShown);
+		return report(set, end, json, cellsShown, endViewOf(input));
 	} catch (error) {
 		return failedCall(error, json, listStep);
 	} finally {

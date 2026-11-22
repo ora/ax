@@ -5,15 +5,9 @@ const pc = picocolors.createColors(true);
 
 import type { SetDocument } from "../api/sets";
 import { plain, SPINNER_FRAMES } from "../ui/ansi";
-import {
-	boxSegments,
-	boxStatesOf,
-	legendSegments,
-	rowDone,
-	rowSummary,
-	type Segment,
-	type Tint,
-} from "./set-boxes";
+import { rowLabelsOf } from "./agent-labels";
+import { lineOf, pad, type Segment, type Tint } from "./segments";
+import { boxSegments, boxStatesOf, legendSegments, rowDone, rowSummary } from "./set-boxes";
 
 // THE LIVE VIEW OF A SET, as lines for a terminal: a header that says what was asked, a status line, then one row
 // per agent under each level of each goal, with one box per repeat that fills left to right as its runs end. Every
@@ -39,22 +33,6 @@ export interface LiveViewOptions {
 	final?: boolean;
 }
 
-/** One line from segments, cut to `width` on its plain text, then painted. */
-function lineOf(segments: Segment[], width: number, color: boolean): string {
-	let budget = width;
-	const out: string[] = [];
-	for (const segment of segments) {
-		if (budget <= 0) break;
-		let text = segment.text;
-		if (text.length > budget) text = budget > 1 ? `${text.slice(0, budget - 1)}…` : "…";
-		budget -= text.length;
-		out.push(color && segment.tint ? segment.tint(text) : text);
-	}
-	return out.join("");
-}
-
-const pad = (text: string, width: number): string =>
-	text + " ".repeat(Math.max(0, width - text.length));
 const OVER = new Set<SetDocument["state"]>(["complete", "stopped", "failed"]);
 
 function elapsedOf(createdAt: string, now: number): string {
@@ -65,22 +43,6 @@ function elapsedOf(createdAt: string, now: number): string {
 	const m = Math.floor((seconds % 3600) / 60);
 	const s = seconds % 60;
 	return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-/**
- * What each agent's rows are called: its harness alone where the set names that harness once (the header names
- * every agent in full, model included), else the whole id, so two models of one harness stay apart.
- */
-function rowLabelsOf(agents: readonly string[]): Map<string, string> {
-	const harnessOf = (agent: string) => plain(agent).split("/")[0];
-	const named = new Map<string, number>();
-	for (const agent of agents) named.set(harnessOf(agent), (named.get(harnessOf(agent)) ?? 0) + 1);
-	return new Map(
-		agents.map((agent) => [
-			agent,
-			named.get(harnessOf(agent)) === 1 ? harnessOf(agent) : plain(agent),
-		]),
-	);
 }
 
 /**

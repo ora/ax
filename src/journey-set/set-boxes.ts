@@ -1,5 +1,6 @@
 import picocolors from "picocolors";
 import type { SetCell } from "../api/sets";
+import type { Segment, Tint } from "./segments";
 
 /** Colors applied when the caller asks for them (picocolors' own switch follows stdout, not the caller). */
 const pc = picocolors.createColors(true);
@@ -7,13 +8,6 @@ const pc = picocolors.createColors(true);
 // THE BOXES OF A ROW in a set's live view: one per repeat, filled left to right as its runs end, and the words beside
 // them. Every count is the platform's (ax invariant 1). Drawn as segments, text and a tint, so the live view
 // (live-view.ts) can cut them to the terminal's width on their plain text before painting them.
-
-export type Tint = (text: string) => string;
-
-export interface Segment {
-	text: string;
-	tint?: Tint;
-}
 
 export type BoxState = "passed" | "failed" | "excluded" | "grading" | "running" | "waiting";
 

@@ -61,6 +61,41 @@ export interface SetGap {
 	line: string;
 }
 
+/** A count over graded runs, as the platform made it: how many met the goal, of how many graded. */
+export interface SetTally {
+	graded: number;
+	passed: number | null;
+}
+
+/** A complete set read closely, as the platform served it (every number is the platform's). */
+export interface SetBreakdown {
+	/** Each level over every goal and agent, in the set's order. */
+	levels: ({ key: string } & SetTally)[];
+	/** Each agent over the whole set. */
+	agents: ({ agent: string } & SetTally)[];
+	/** The graded runs that did not pass, and why. `blocked` is null where the platform does not read it. */
+	notPassed: {
+		runs: number;
+		neverVisited: number;
+		visited: number;
+		blocked: number | null;
+		unclear: number;
+	};
+	passedWithoutVisiting: number;
+	/**
+	 * The last run of the same set: per level, that run's own count, and this set's change from it in percentage
+	 * points where the platform states one (it pairs runs goal by goal, on two goals or more). null when there is none.
+	 */
+	previous: {
+		setId: string;
+		createdAt: string;
+		levels: ({
+			key: string;
+			change: { points: number; interval: [number, number]; goals: number } | null;
+		} & SetTally)[];
+	} | null;
+}
+
 /** `GET /ax/v1/sets/{id}` and the answer of create: the set and its report as it stands. */
 export interface SetDocument {
 	setId: string;
@@ -80,6 +115,10 @@ export interface SetDocument {
 	gaps: SetGap[];
 	notes: string[];
 	next: { command: "view" | "audit"; line: string };
+	/** A complete set read closely; null until the set is complete, absent on a platform that predates it. */
+	breakdown?: SetBreakdown | null;
+	/** Where a person opens the set on ora; absent on a platform that predates it. */
+	links?: { set: string | null };
 }
 
 export interface SetList {
