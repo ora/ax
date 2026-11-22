@@ -123,6 +123,18 @@ describe("renderReport", () => {
 		);
 	});
 
+	it("without its cells (the live view left them on screen): the set's id and state, then what the set found", () => {
+		const short = renderReport(COMPLETE, { cells: false });
+		expect(short.startsWith(`linear.app  set ${COMPLETE.setId}`)).toBe(true);
+		expect(short).not.toMatch(/\nGoal \d: /);
+		expect(short).not.toContain("never visited your site");
+		for (const gap of COMPLETE.gaps) expect(short).toContain(gap.line);
+		for (const note of COMPLETE.notes) expect(short).toContain(note);
+		expect(renderReport(RUNNING, { cells: false })).toMatch(
+			/Runs are still going\.|being prepared|grades are still being written/,
+		);
+	});
+
 	it("drops terminal control bytes from text the platform sent", () => {
 		const hostile = {
 			...COMPLETE,

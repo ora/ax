@@ -12,6 +12,7 @@ import preview from "../journey-set/__fixtures__/preview.json";
 import complete from "../journey-set/__fixtures__/set-complete.json";
 import created from "../journey-set/__fixtures__/set-created.json";
 import running from "../journey-set/__fixtures__/set-running.json";
+import type { SetProgress } from "../journey-set/set-progress";
 import { EXIT } from "./exit-codes";
 import {
 	INTERRUPTED,
@@ -122,6 +123,24 @@ describe("ax journey: a set", () => {
 		expect(stderr).toContain("Nothing was launched.");
 		const agreed = await run({ yes: false, ask: async () => "y" });
 		expect(agreed.calls.map((c) => c.op)).toContain("create");
+	});
+
+	it("a set of one run asks about one run", async () => {
+		const asked: string[] = [];
+		const one = fakeClient({
+			preview: async () => ({ ...PREVIEW, runs: { ...PREVIEW.runs, total: 1 } }),
+		});
+		await run(
+			{
+				yes: false,
+				ask: async (question: string) => {
+					asked.push(question);
+					return "n";
+				},
+			},
+			one,
+		);
+		expect(asked).toEqual(["Launch 1 run? [y/N] "]);
 	});
 
 	it("with no terminal to ask on and no --yes, launches nothing and exits 2", async () => {
@@ -379,6 +398,126 @@ describe("--watch: a set followed over the platform's live stream", () => {
 		expect(calls.map((call) => call.op)).toContain("get");
 		expect(stderr).not.toContain("Live updates are not available");
 		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+});
+
+describe("--watch: where the set is shown", () => {
+	/** A progress that records what it was handed. `onScreen`: closing it leaves the set's rows on the screen. */
+	function recording(onScreen = false) {
+		const seen: string[] = [];
+		const progress: SetProgress = {
+			show: (set: SetDocument) => seen.push(`show ${set.state}`),
+			note: (text: string) => seen.push(`note ${text}`),
+			close: () => seen.push("close"),
+			leftOnScreen: () => onScreen,
+		};
+		return { seen, progress: () => progress };
+	}
+	const run = (
+		client: SetsClient,
+		progress: () => SetProgress,
+		interrupt?: AbortSignal,
+		seams: { stdoutIsTerminal?: boolean } = {},
+	) =>
+		journeySetRun({
+			goals: ["Find the API docs", "Find the pricing"],
+			flags: { domain: "linear.app", levels: false },
+			yes: true,
+			watch: true,
+			json: false,
+			client,
+			progress,
+			interrupt,
+			sleep: async () => {},
+			...seams,
+		});
+	/** A stream that sends the set complete. */
+	const completing = () =>
+		fakeClient({
+			follow: async (_id, onSet) => {
+				onSet(COMPLETE);
+			},
+		}).client;
+
+	it("when the live view left the set's rows on the terminal the report prints to, the report does not print them again", async () => {
+		expect(
+			await run(completing(), recording(true).progress, undefined, { stdoutIsTerminal: true }),
+		).toBe(EXIT.OK);
+		expect(stdout).toContain(`linear.app  set ${COMPLETE.setId}`);
+		expect(stdout).not.toMatch(/\nGoal \d: /);
+		for (const gap of COMPLETE.gaps) expect(stdout).toContain(gap.line);
+		expect(stdout).toContain(`Next: ${COMPLETE.next.line}`);
+	});
+
+	it("a report going anywhere else (a pipe, a file) keeps every cell, whatever the terminal shows", async () => {
+		await run(completing(), recording(true).progress, undefined, { stdoutIsTerminal: false });
+		expect(stdout).toMatch(/\nGoal \d: /);
+	});
+
+	it("a progress that left no rows on screen (the lines) gets the whole report on a terminal too", async () => {
+		await run(completing(), recording(false).progress, undefined, { stdoutIsTerminal: true });
+		expect(stdout).toMatch(/\nGoal \d: /);
+	});
+
+	it("ax journey view --watch: the same, the rows the live view left are not printed again", async () => {
+		const exit = await journeySetView({
+			id: RUNNING.setId,
+			watch: true,
+			json: false,
+			client: completing(),
+			progress: recording(true).progress,
+			sleep: async () => {},
+			interrupt: new AbortController().signal,
+			stdoutIsTerminal: true,
+		});
+		expect(exit).toBe(EXIT.OK);
+		expect(stdout).not.toMatch(/\nGoal \d: /);
+		for (const gap of COMPLETE.gaps) expect(stdout).toContain(gap.line);
+	});
+
+	it("each document goes to the progress (the set as created first, then each one the stream sends), and it is closed before the report", async () => {
+		const { seen, progress } = recording();
+		const { client } = fakeClient({
+			follow: async (_id, onSet) => {
+				onSet(RUNNING);
+				onSet(COMPLETE);
+			},
+		});
+		expect(await run(client, progress)).toBe(EXIT.OK);
+		expect(seen).toEqual([
+			`show ${CREATED.state}`,
+			`show ${RUNNING.state}`,
+			`show ${COMPLETE.state}`,
+			"close",
+		]);
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+
+	it("when the stream cannot be opened, the progress is told so, and gets each document read instead", async () => {
+		const { seen, progress } = recording();
+		const { client } = fakeClient();
+		expect(await run(client, progress)).toBe(EXIT.OK);
+		expect(seen[1]).toMatch(/^note Live updates are not available/);
+		expect(seen).toContain(`show ${COMPLETE.state}`);
+		expect(seen.at(-1)).toBe("close");
+	});
+
+	it("Ctrl-C while watching still closes the progress, so the screen is handed back", async () => {
+		const { seen, progress } = recording();
+		const interrupt = new AbortController();
+		const { client } = fakeClient({
+			follow: async (_id, onSet, signal) => {
+				onSet(RUNNING);
+				interrupt.abort();
+				await new Promise<void>((resolve) =>
+					signal.aborted
+						? resolve()
+						: signal.addEventListener("abort", () => resolve(), { once: true }),
+				);
+			},
+		});
+		expect(await run(client, progress, interrupt.signal)).toBe(INTERRUPTED);
+		expect(seen.at(-1)).toBe("close");
 	});
 });
 
