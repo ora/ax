@@ -2,11 +2,13 @@ import { defineCommand } from "citty";
 import pc from "picocolors";
 import { platformBase } from "../api/platform-origins";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import { positionals, SET_FLAGS, subcommandOf } from "../journey-set/args";
 import { reportError } from "../report/json-error";
 import { axCall, placeholder } from "../report/next-line";
 import { deepJourneyCommand } from "./deep-journey";
 import { EXIT } from "./exit-codes";
 import { journeyCommand } from "./journey";
+import { journeySetCancel, journeySetList, journeySetRun, journeySetView } from "./journey-set";
 
 // The citty definition of `ax journey`. With no goal of its own it runs one of ora's curated
 // tasks on ora.ai's public journeys, free (journeyRoute); with a goal, one journey drawn live on
@@ -49,6 +51,40 @@ const JOURNEY_ARGS = {
 		type: "string",
 		description:
 			"ora partner API key: lets a free run take a goal of your own; also read from ORA_PARTNER_API_KEY, then ORA_SCAN_API_KEY",
+	},
+	agents: {
+		type: "string",
+		description: "A set: 1 to 4 agents as harness or harness/model, comma separated",
+	},
+	levels: {
+		type: "boolean",
+		description: "A set: run each goal at the levels of help",
+		default: false,
+	},
+	brand: {
+		type: "string",
+		description: "A set: the brand named at the brand and docs levels (turns levels on)",
+	},
+	docs: {
+		type: "string",
+		description: "A set: the documentation URL (turns levels on, adds the docs level)",
+	},
+	exact: {
+		type: "string",
+		description: "A set: the page the agent starts at (turns levels on, adds the exact level)",
+	},
+	repeat: {
+		type: "string",
+		description: "A set: runs per goal, level and agent, 1 to 10",
+	},
+	yes: {
+		type: "boolean",
+		description: "A set: launch without asking",
+		default: false,
+	},
+	wait: {
+		type: "string",
+		description: "A set: minutes to watch the runs before stopping (default 60)",
 	},
 	"no-stream": {
 		type: "boolean",
@@ -151,6 +187,14 @@ function withoutFlags(rawArgs: readonly string[], names: readonly string[]): str
 }
 
 interface JourneyArgs {
+	agents?: string;
+	levels: boolean;
+	brand?: string;
+	docs?: string;
+	exact?: string;
+	repeat?: string;
+	yes: boolean;
+	wait?: string;
 	goal?: string;
 	intent?: string;
 	agent?: string;
@@ -186,11 +230,50 @@ function runFree(input: JourneyArgs): Promise<number> | number {
 	});
 }
 
+/**
+ * A set of journeys, when the arguments ask for one: `view`, `list` or `cancel` in the first goal's
+ * place, more than one goal, or any flag only a set reads. Undefined: one journey, as before.
+ */
+function runSet(
+	input: JourneyArgs,
+	rawArgs: readonly string[],
+	credentials: PlatformCredentials,
+): Promise<number> | undefined {
+	const { json } = input;
+	const words = positionals(rawArgs, VALUE_FLAGS);
+	const subcommand = subcommandOf(words[0]);
+	if (subcommand === "view")
+		return journeySetView({ id: words[1], wait: input.wait, json, credentials });
+	if (subcommand === "list") return journeySetList({ json, credentials });
+	if (subcommand === "cancel") return journeySetCancel({ id: words[1], json, credentials });
+	if (words.length < 2 && present(rawArgs, SET_FLAGS).length === 0) return undefined;
+	return journeySetRun({
+		goals: words,
+		flags: {
+			domain: input.domain,
+			agents: input.agents,
+			harness: input.harness,
+			model: input.model,
+			levels: input.levels,
+			brand: input.brand,
+			docs: input.docs,
+			exact: input.exact,
+			repeat: input.repeat,
+		},
+		yes: input.yes,
+		wait: input.wait,
+		json,
+		credentials,
+	});
+}
+
 async function runJourney(
 	input: JourneyArgs,
 	rawArgs: readonly string[],
 	credentials: PlatformCredentials,
 ): Promise<number> {
+	const set = runSet(input, rawArgs, credentials);
+	if (set !== undefined) return set;
 	const { goal, json } = input;
 	const route = journeyRoute({
 		goal,
@@ -250,6 +333,14 @@ export function journeyCommandDefinition(
 			// Same exitCode-over-exit rule as audit: let stdout drain before exiting.
 			process.exitCode = await runJourney(
 				{
+					agents: args.agents as string | undefined,
+					levels: Boolean(args.levels),
+					brand: args.brand as string | undefined,
+					docs: args.docs as string | undefined,
+					exact: args.exact as string | undefined,
+					repeat: args.repeat as string | undefined,
+					yes: Boolean(args.yes),
+					wait: args.wait as string | undefined,
 					goal: args.goal as string | undefined,
 					intent: args.intent as string | undefined,
 					agent: args.agent as string | undefined,
@@ -280,6 +371,10 @@ export function journeyUsage(): string {
 		"",
 		"  ax journey --domain <site> [--intent <id>] [--agent <id>] [--no-stream] [--json]",
 		`  ax journey "<goal>" [--domain <site>] [--harness <h>] [--model <m>] [--json]`,
+		`  ax journey "<goal>" ["<goal>" ...] --domain <site> [--agents <a>,...] [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]`,
+		"  ax journey view <id> [--wait <minutes>] [--json]",
+		"  ax journey list [--json]",
+		"  ax journey cancel <id> [--json]",
 		"",
 		"  With no goal, ax runs one of ora's curated tasks on ora.ai's public journeys: free, no key.",
 		"  With a goal, the journey runs on ora's platform: signed in with ax login, or with your platform key.",
@@ -295,6 +390,21 @@ export function journeyUsage(): string {
 		`  ${d("these flags cannot be combined with --harness or --model")}`,
 		`  ${d("exit codes: 0 the run finished (any verdict) · 1 the run failed · 2 usage · 3 API error")}`,
 		`  ${d("ax deep-journey <url> is the older name for this; it still works and will be removed in a future major release")}`,
+		"",
+		h("A SET OF JOURNEYS"),
+		"",
+		`  ${d("Several goals, agents, repeats or levels of help against one site. The platform runs, grades and counts; ax prints.")}`,
+		`  --domain <site>   ${d("The site (required): a domain or an http(s) URL")}`,
+		`  --agents <list>   ${d("1 to 4 agents as harness or harness/model, comma separated")}`,
+		`  --levels          ${d("Run each goal at the levels of help: need only, brand named, and docs or exact when given")}`,
+		`  --brand <name>    ${d("The brand the brand and docs levels name (default: the domain's name)")}`,
+		`  --docs <url>      ${d("The documentation URL: adds the docs level")}`,
+		`  --exact <url>     ${d("The page the agent starts at: adds the exact level")}`,
+		`  --repeat <n>      ${d("Runs per goal, level and agent, 1 to 10 (default 1)")}`,
+		`  --yes             ${d("Launch without asking")}`,
+		`  --wait <minutes>  ${d("Minutes to watch before stopping (default 60); the runs go on either way")}`,
+		`  ${d("needs ax login, or ORA_API_KEY with the ax.sets:read and ax.sets:write scopes")}`,
+		`  ${d("exit codes: 0 a report printed, or the question was declined · 2 usage or a refusal before launch · 3 the platform failed · 130 Ctrl-C")}`,
 		"",
 		h("A GOAL OF YOUR OWN"),
 		"",

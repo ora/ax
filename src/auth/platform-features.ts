@@ -13,8 +13,15 @@ export const JOURNEY_FEATURE: PlatformFeature = { scopes: ["runs:read", "runs:wr
 /** `--tunnel ora`: create and delete the tunnel (tunnels:write), and hold its connection (tunnels:connect). */
 export const TUNNEL_FEATURE: PlatformFeature = { scopes: ["tunnels:write", "tunnels:connect"] };
 
+/** A set of journeys: preview, start and stop one (ax.sets:write), read and list them (ax.sets:read). */
+export const SETS_FEATURE: PlatformFeature = { scopes: ["ax.sets:read", "ax.sets:write"] };
+
 /** Every feature ax has on ora's platform. */
-export const PLATFORM_FEATURES: readonly PlatformFeature[] = [JOURNEY_FEATURE, TUNNEL_FEATURE];
+export const PLATFORM_FEATURES: readonly PlatformFeature[] = [
+	JOURNEY_FEATURE,
+	TUNNEL_FEATURE,
+	SETS_FEATURE,
+];
 
 /** How a hint names a feature's scopes: `tunnels:write + tunnels:connect`. */
 export function scopeList(feature: PlatformFeature): string {

@@ -29,7 +29,7 @@ Six commands:
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
 - **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is the older name and still works.
-- **`journey "<goal>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs `ax login` or an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)).
+- **`journey "<goal>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs `ax login` or an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)). Several goals, agents, repeats or levels of help against one site are [a set of journeys](#a-set-of-journeys), run and graded on ora's platform.
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
@@ -410,6 +410,125 @@ ax journey "Find the pricing page" --domain example.com
 
 For local development, copy `.env.example` to `.env` — the CLI reads a `.env` in the working directory on startup (exported variables win over the file).
 
+### A set of journeys
+
+One journey is one agent, one goal, one run. A set asks a wider question: across several goals, several agents and several amounts of help, where does your site lose the agent?
+
+```
+ax journey "<goal>" ["<goal>" ...] --domain <site> [--agents <a>,...] [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]
+ax journey view <id> [--wait <minutes>] [--json]
+ax journey list [--json]
+ax journey cancel <id> [--json]
+```
+
+```
+ax journey "Find how to create an issue from the API" \
+           "Find how to receive a webhook from Linear when an issue is updated." \
+  --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
+```
+
+`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`). One goal with none of them is the single journey above, unchanged.
+
+A set runs on ora's platform, in your organization. The platform starts the runs, has each one graded and counts them; ax asks, waits and prints. The report here, `--json` and the platform's own pages therefore show the same numbers, and nothing is kept on your machine: a set is found again by its id (`ax journey list`).
+
+#### Levels of help
+
+With `--levels`, each goal is run several times, each time telling the agent a little more about your site. Every level is one fixed sentence added after your goal; no model rewrites a prompt.
+
+| Level | What the agent is told | Runs when |
+|---|---|---|
+| Need only | The goal as written | `--levels`. A goal that already names your brand or domain skips this level |
+| Brand named | The goal, then `Use <brand>.` | `--levels` |
+| Docs linked | The goal, then `Use <brand>. Its documentation is at <url>.` | `--docs <url>` |
+| Exact target | The goal, then `Start at <url>.` | `--exact <url>` |
+
+`--brand`, `--docs` and `--exact` each turn levels on. The brand defaults to the domain's name (`linear.app` gives `Linear`); the preview shows the one used.
+
+Where the agents start succeeding tells you which layer to fix. Agents that fail at *Need only* and succeed once the brand is named or the docs are linked did not find you: a **Discovery** gap. Agents that still fail until they are handed the exact page found you and could not get the answer out of your site: an **Access and Usability** gap.
+
+A run counts as satisfied when a panel of judge models finds all three of: the answer is specific and usable, it is about your product, and it is supported by a page on your site that the agent opened during the run.
+
+#### Preview, then launch
+
+Before anything starts, ax prints what the set is and what it will use (on stderr), then asks:
+
+```
+linear.app: a set of journeys
+  Goal 1: Find how to create an issue from the API
+  Goal 2: Find how to receive a webhook from Linear when an issue is updated.
+  Brand: Linear
+  Levels:
+    Need only     the goal as written
+    Brand named   the goal, then "Use Linear."
+    Exact target  the goal, then "Start at https://linear.app/developers."
+  Goal 2: The goal names Linear, so the need level is skipped. Write the goal without it to include that level.
+  No --docs URL, so the docs level is skipped. Add --docs <url> to include it.
+  Agents: claude-code/claude-haiku-4-5-20251001, codex/gpt-5.4-mini
+  Repeats: 1
+  Runs: 10 (a set may start at most 200)
+  Your plan has 190 runs left.
+Launch 10 runs? [y/N]
+```
+
+Answer `y` to launch. `--yes` launches without asking, and is required where there is no terminal to ask on (CI, a pipe): without it ax prints the preview and exits `2` having started nothing. A set takes up to 5 goals, 4 agents and 10 repeats, and may start at most 200 runs. Runs count against your plan like any other; a set that does not fit is refused before it starts.
+
+#### The report
+
+ax then watches the set and prints its report when every run has ended and been graded:
+
+```
+linear.app  set 593eea5e-c76d-4394-8dd7-dc52c6fbb61d
+
+Goal 1: Find how to create an issue from the API
+  Level         claude-code/claude-haiku-4-5-20251001  codex/gpt-5.4-mini
+  Need only     0 of 1                                 0 of 1
+    claude-code/claude-haiku-4-5-20251001: 1 never visited your site
+    codex/gpt-5.4-mini: 1 never visited your site
+  Brand named   0 of 1                                 1 of 1
+    codex/gpt-5.4-mini: 1 never visited your site
+  Exact target  0 of 1                                 1 of 1
+
+Goal 2: Find how to receive a webhook from Linear when an issue is updated.
+  Level         claude-code/claude-haiku-4-5-20251001  codex/gpt-5.4-mini
+  Brand named   1 of 1                                 1 of 1
+  Exact target  1 of 1                                 1 of 1
+
+  linear.app loses agents at the Discovery layer: 0 of 2 runs satisfied at Need only, 3 of 4 at Brand named. An early signal: not enough runs to decide.
+  Goal 2: The goal names Linear, so the need level is skipped. Write the goal without it to include that level.
+  No --docs URL, so the docs level is skipped. Add --docs <url> to include it.
+  At the need level the prompt does not name your site, so an agent can reach the goal without using it.
+Next: ax audit linear.app
+```
+
+- A cell is `satisfied of graded` runs for one goal, level and agent. From 5 graded runs it also shows the rate, as `60% (3 of 5)`. Use `--repeat` to get there: one run per cell is a first look, not a measurement.
+- Under a cell, ax lists the runs that need a second look: `never visited your site` (the agent answered without opening a page of yours), `blocked by your site` (your site refused the agent's request), `excluded` (the run was lost to the platform's own infrastructure, never to your site, and is never counted against you) and `still running`.
+- A closing line names a gap between two neighbouring levels when the platform's comparison finds one. `An early signal: not enough runs to decide.` means exactly that: the direction is visible, the evidence is thin.
+
+#### Watching, leaving and stopping
+
+| Flag or command | Effect |
+|---|---|
+| `--agents <list>` | 1 to 4 agents, comma separated, each `harness` or `harness/model` (default: the one the preview names). `--harness` and `--model` name a single agent instead |
+| `--levels` | Run each goal at the levels of help |
+| `--brand <name>` | The brand the brand and docs levels name |
+| `--docs <url>` | Adds the *Docs linked* level |
+| `--exact <url>` | Adds the *Exact target* level |
+| `--repeat <n>` | Runs per goal, level and agent, 1 to 10 (default 1) |
+| `--yes` | Launch without asking |
+| `--wait <minutes>` | How long to watch (default 60). When it runs out ax prints the set as it stands and exits `0` |
+| `--json` | The set exactly as the platform served it, on stdout; the preview and progress stay on stderr |
+| `ax journey view <id>` | Print a set as it stands now; with `--wait`, watch it until it finishes |
+| `ax journey list` | Your organization's sets, newest first |
+| `ax journey cancel <id>` | Stop the runs still going. Runs that already finished keep their results; the set then reads `stopped`, and a cell whose runs were stopped reads `no grade` |
+
+The runs go on at the platform whether or not ax is watching. Ctrl-C stops watching, prints the set as it stands and exits `130`; `ax journey view <id>` picks it up again.
+
+Set exit codes: `0` a report was printed, or you answered no · `2` usage, or the platform refused the set before launch (not enough runs left, an unknown agent, a missing scope, no terminal and no `--yes`) · `3` the platform failed · `130` Ctrl-C.
+
+#### Setup for sets
+
+A set signs in the way a journey does: `ax login` once (a browser sign-in, which asks for the scopes a set needs), or an ora platform API key in `ORA_API_KEY` with the `ax.sets:write` and `ax.sets:read` scopes. A key with `ax.sets:read` alone can `list` and `view`. Your organization also needs ora Study, the product a set runs on and is billed to. A new account made on the way through `ax login` starts on it; for an existing organization, an owner or admin adds it on the approval page of the sign-in.
+
 ## Environment variables
 
 All configuration is environment-first: the consumer defines the variables, the CLI only reads them.
@@ -422,7 +541,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | `ORA_PLATFORM_URL` | journey, audit `--tunnel ora`, login, whoami, logout | `https://api.ora.ai` | Authenticated platform API base. `ax login` signs in at its `account.` host. `https://api.agentfront.sh`, the default before 0.12, serves the same API and still works with a key |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_KEY` | journey, audit `--tunnel ora`, whoami | — (or `ax login`) | ora platform key (`ora_sk_…`); exchanged for a bearer token for a journey and the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
+| `ORA_API_KEY` | journey, audit `--tunnel ora`, whoami | — (or `ax login`) | ora platform key (`ora_sk_…`); exchanged for a bearer token for a journey, the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes) and a set of journeys (`ax.sets:write` + `ax.sets:read`), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
 | `ORA_SCAN_API_KEY` | audit, journey (free), webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). the free journey and webmcp-audit accept it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | journey (free), webmcp-audit | — (optional) | ora-issued partner API key; unlocks a goal of your own and the 1000/24h keyed allowance on the free journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |

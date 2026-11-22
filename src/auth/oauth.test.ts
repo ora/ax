@@ -51,6 +51,9 @@ describe("where ax signs in", () => {
 			"runs:write",
 			"tunnels:write",
 			"tunnels:connect",
+			// A set of journeys: read and list (read), preview, start and stop (write).
+			"ax.sets:read",
+			"ax.sets:write",
 		]);
 	});
 
