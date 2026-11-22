@@ -504,6 +504,37 @@ Next: ax audit linear.app
 - Under a cell, ax lists the runs that need a second look: `never visited your site` (the agent answered without opening a page of yours), `blocked by your site` (your site refused the agent's request), `excluded` (the run was lost to the platform's own infrastructure, never to your site, and is never counted against you) and `still running`.
 - A closing line names a gap between two neighbouring levels when the platform's comparison finds one. `An early signal: not enough runs to decide.` means exactly that: the direction is visible, the evidence is thin.
 
+#### Watching live
+
+With `--watch` on a terminal, ax follows the set over ora's live stream and repaints one panel in place: what you asked for, the state with a progress bar, and one row per agent under each level, with one box per repeat that fills as its run ends. In color the boxes are green, red, grey, cyan, yellow and empty; without color (`NO_COLOR`) their shapes tell them apart:
+
+```
+  ◆ linear.app · a set of journeys                                              set ebafe3d5
+    Goal     Find how to create an issue from the API
+    Levels   Need only › Brand named › Exact target
+    Brand    Linear
+    Agents   claude-code/claude-haiku-4-5-20251001 · codex/gpt-5.4-mini
+    Runs     12 · 2 repeats of each goal, level and agent
+
+  ◇ grading   ████████████▒▒▒▒▒▒▒▒▒▒▒▒  6 of 12 graded · 12 started   1m 19s
+
+    Need only
+      ✓ claude-code   × ×   0 of 2 passed · 2 never visited
+      ✓ codex         × ×   0 of 2 passed · 2 never visited
+    Brand named
+      ◈ claude-code   ▣ ▣   grading
+      ◇ codex         ▣ ▣   grading
+    Exact target
+      ✓ claude-code   ■ ×   1 of 2 passed
+      ◆ codex         ▣ ▣   grading
+
+    ■ passed  × not passed  · excluded  ▣ grading  ▸ running  □ waiting
+    Ctrl-C stops watching; the runs go on.
+    Pick it up again: ax journey view ebafe3d5-8a74-4eb4-b532-2732055d31c0 --watch
+```
+
+When watching ends, the panel's last frame stays on screen, and the report under it leaves out the cells the panel already shows: its closing lines and the Next line follow. Off a terminal (CI, a pipe, a file) `--watch` prints a line each time something moves instead, and the report is printed whole.
+
 #### Watching, leaving and stopping
 
 | Flag or command | Effect |
@@ -516,7 +547,7 @@ Next: ax audit linear.app
 | `--repeat <n>` | Runs per goal, level and agent, 1 to 10 (default 1) |
 | `--yes` | Launch without asking |
 | `--wait <minutes>` | How long to watch (default 60). When it runs out ax prints the set as it stands and exits `0` |
-| `--watch` | Follow the set over ora's live stream and print what moves as it moves: the state, then each level and agent as its runs are graded. Without it ax reads the set every few seconds and prints the state. If the stream is not available ax says so and reads instead |
+| `--watch` | Follow the set over ora's live stream: on a terminal a live panel (see *Watching live*), elsewhere a line each time the state or a level and agent's runs move. Without it ax reads the set every few seconds and prints the state. If the stream is not available ax says so and reads instead |
 | `--json` | The set exactly as the platform served it, on stdout; the preview and progress stay on stderr |
 | `ax journey view <id>` | Print a set as it stands now; with `--wait`, watch it until it finishes |
 | `ax journey list` | Your organization's sets, newest first |

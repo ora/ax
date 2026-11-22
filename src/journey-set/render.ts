@@ -80,8 +80,11 @@ const STATE_LINE: Readonly<Record<SetDocument["state"], string | null>> = {
 	failed: "The set failed.",
 };
 
-/** The report: one block per goal, levels down, agents across. */
-export function renderReport(set: SetDocument): string {
+/**
+ * The report: one block per goal, levels down, agents across. `cells: false` leaves those blocks out, for a screen
+ * the live view already left them on: the set's id and state, then what it found (gaps, skipped levels, notes).
+ */
+export function renderReport(set: SetDocument, options: { cells?: boolean } = {}): string {
 	const lines: string[] = [`${set.site}  set ${set.setId}`];
 	const state = STATE_LINE[set.state];
 	if (state) lines.push(`${state}${set.error ? ` ${plain(set.error)}` : ""}`);
@@ -92,7 +95,7 @@ export function renderReport(set: SetDocument): string {
 		plain(set.levels.find((level) => level.key === key)?.label ?? key);
 	const labelWidth = Math.max(5, ...set.levels.map((level) => plain(level.label).length)) + 2;
 	const agentWidth = Math.max(14, ...set.agents.map((agent) => plain(agent).length)) + 2;
-	for (const goal of set.goals) {
+	for (const goal of options.cells === false ? [] : set.goals) {
 		lines.push(
 			"",
 			`Goal ${goal.index}: ${plain(goal.text)}`,
