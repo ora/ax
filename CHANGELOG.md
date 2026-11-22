@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/ora/ax/compare/v0.12.1...v0.13.0) (2026-11-22)
+
+
+### Features
+
+* **journey:** --watch shows a live panel of the set ([#113](https://github.com/ora/ax/issues/113)) ([2ff6848](https://github.com/ora/ax/commit/2ff6848984044241e167683ed0ef485fc9002783))
+
 ## [0.12.1](https://github.com/ora/ax/compare/v0.12.0...v0.12.1) (2026-11-22)
 
 
