@@ -203,6 +203,18 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 export interface JourneyDeps {
 	/** Which credential the run signs its calls with. */
 	credentials: PlatformCredentials;
+	/**
+	 * What to do when ora refuses the run because the organization does not hold the product a single
+	 * run belongs to. The caller's other way to run the goal; without one the refusal is reported.
+	 */
+	onProductRefused?: () => Promise<number>;
+}
+
+/** ora refused the call because the organization does not hold the product this API belongs to. */
+function productRefused(cause: unknown): boolean {
+	const failure = (cause ?? {}) as { status?: unknown; payload?: unknown };
+	const code = (failure.payload as { code?: unknown } | null | undefined)?.code;
+	return failure.status === 403 && typeof code === "string" && code.includes("PRODUCT");
 }
 
 // Exit codes: 0 run outcome "success" · 1 finished otherwise · 2 error.
@@ -210,7 +222,8 @@ export async function journeyCommand(
 	input: JourneyCommandInput,
 	deps: JourneyDeps = { credentials: platformCredentials() },
 ): Promise<number> {
-	const fail = (cause: unknown): number => {
+	const fail = async (cause: unknown): Promise<number> => {
+		if (deps.onProductRefused && productRefused(cause)) return deps.onProductRefused();
 		const error = launchFailure(input, cause);
 		reportError(error, {
 			json: input.json,

@@ -86,6 +86,11 @@ const JOURNEY_ARGS = {
 		type: "string",
 		description: "A set: minutes to watch the runs before stopping (default 60)",
 	},
+	watch: {
+		type: "boolean",
+		description: "A set: show each run's progress live, as the platform reports it",
+		default: false,
+	},
 	"no-stream": {
 		type: "boolean",
 		description: "A free run prints only its result, not the live view",
@@ -195,6 +200,7 @@ interface JourneyArgs {
 	repeat?: string;
 	yes: boolean;
 	wait?: string;
+	watch: boolean;
 	goal?: string;
 	intent?: string;
 	agent?: string;
@@ -243,7 +249,13 @@ function runSet(
 	const words = positionals(rawArgs, VALUE_FLAGS);
 	const subcommand = subcommandOf(words[0]);
 	if (subcommand === "view")
-		return journeySetView({ id: words[1], wait: input.wait, json, credentials });
+		return journeySetView({
+			id: words[1],
+			wait: input.wait,
+			watch: input.watch,
+			json,
+			credentials,
+		});
 	if (subcommand === "list") return journeySetList({ json, credentials });
 	if (subcommand === "cancel") return journeySetCancel({ id: words[1], json, credentials });
 	if (words.length < 2 && present(rawArgs, SET_FLAGS).length === 0) return undefined;
@@ -262,6 +274,7 @@ function runSet(
 		},
 		yes: input.yes,
 		wait: input.wait,
+		watch: input.watch,
 		json,
 		credentials,
 	});
@@ -312,7 +325,36 @@ async function runJourney(
 			model: input.model,
 			json,
 		},
-		{ credentials },
+		{
+			credentials,
+			// The organization does not hold the product one run at a time belongs to. Its journeys run
+			// as sets, so the goal runs as a set of one: one run, on the agent named or the plan's own,
+			// followed live. Nothing is asked: one journey is what was typed.
+			onProductRefused: () => {
+				console.error(
+					"Your organization runs journeys as sets on ora. Running this goal as a set of one.",
+				);
+				return journeySetRun({
+					goals: [goal],
+					flags: {
+						domain: input.domain,
+						agents: undefined,
+						harness: input.harness,
+						model: input.model,
+						levels: false,
+						brand: undefined,
+						docs: undefined,
+						exact: undefined,
+						repeat: undefined,
+					},
+					yes: true,
+					wait: input.wait,
+					watch: true,
+					json,
+					credentials,
+				});
+			},
+		},
 	);
 }
 
@@ -341,6 +383,7 @@ export function journeyCommandDefinition(
 					repeat: args.repeat as string | undefined,
 					yes: Boolean(args.yes),
 					wait: args.wait as string | undefined,
+					watch: Boolean(args.watch),
 					goal: args.goal as string | undefined,
 					intent: args.intent as string | undefined,
 					agent: args.agent as string | undefined,
@@ -372,7 +415,7 @@ export function journeyUsage(): string {
 		"  ax journey --domain <site> [--intent <id>] [--agent <id>] [--no-stream] [--json]",
 		`  ax journey "<goal>" [--domain <site>] [--harness <h>] [--model <m>] [--json]`,
 		`  ax journey "<goal>" ["<goal>" ...] --domain <site> [--agents <a>,...] [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]`,
-		"  ax journey view <id> [--wait <minutes>] [--json]",
+		"  ax journey view <id> [--watch] [--wait <minutes>] [--json]",
 		"  ax journey list [--json]",
 		"  ax journey cancel <id> [--json]",
 		"",
@@ -403,6 +446,7 @@ export function journeyUsage(): string {
 		`  --repeat <n>      ${d("Runs per goal, level and agent, 1 to 10 (default 1)")}`,
 		`  --yes             ${d("Launch without asking")}`,
 		`  --wait <minutes>  ${d("Minutes to watch before stopping (default 60); the runs go on either way")}`,
+		`  --watch           ${d("Show each run's progress live, as the platform reports it")}`,
 		`  ${d("needs ax login, or ORA_API_KEY with the ax.sets:read and ax.sets:write scopes")}`,
 		`  ${d("exit codes: 0 a report printed, or the question was declined · 2 usage or a refusal before launch · 3 the platform failed · 130 Ctrl-C")}`,
 		"",

@@ -19,6 +19,7 @@ import {
 	journeySetList,
 	journeySetRun,
 	journeySetView,
+	progressLines,
 } from "./journey-set";
 
 // The set commands over a client that answers the platform's real documents (the fixtures). These
@@ -42,6 +43,11 @@ function fakeClient(over: Partial<SetsClient> = {}) {
 		get: async (id: string) => noted("get", id, gets.shift() ?? COMPLETE),
 		list: async () => noted("list", undefined, list as SetList),
 		cancel: async (id: string) => noted("cancel", id, { setId: id, cancelled: true }),
+		// No live stream unless a test gives one: the platform cannot open it.
+		follow: async (id: string) => {
+			noted("follow", id, undefined);
+			throw new PlatformApiError("No such route", { status: 404 });
+		},
 		...over,
 	};
 	return { client, calls };
@@ -269,6 +275,135 @@ describe("ax journey view, list and cancel", () => {
 		expect(calls).toEqual([{ op: "cancel", arg: "set-1" }]);
 		expect(JSON.parse(stdout)).toEqual({ setId: "set-1", cancelled: true });
 		expect(await journeySetCancel({ id: undefined, json: false, client })).toBe(EXIT.USAGE);
+	});
+
+	it("cancel of a set that is already over is not a failure: ora's own sentence, a pointer at view, exit 0", async () => {
+		// The body ora's set API gives for a finished set, 2026-11-22.
+		const body = {
+			error: "Set engine",
+			code: "SET_ALREADY_OVER",
+			message: "This set is complete: nothing is left to stop.",
+		};
+		const { client } = fakeClient({
+			cancel: async () => {
+				throw new PlatformApiError(body.message, { status: 409, payload: body });
+			},
+		});
+		expect(await journeySetCancel({ id: "set-1", json: false, client })).toBe(EXIT.OK);
+		expect(stdout).toContain("This set is complete: nothing is left to stop.");
+		expect(stdout).toContain("Next: ax journey view set-1");
+		expect(stderr).toBe("");
+		stdout = "";
+		expect(await journeySetCancel({ id: "set-1", json: true, client })).toBe(EXIT.OK);
+		expect(JSON.parse(stdout)).toEqual(body);
+	});
+
+	it("any other refusal of a cancel is still a failure", async () => {
+		const body = {
+			error: "Set engine",
+			code: "SET_CONFLICT",
+			message: "The set is not in a state that allows this.",
+		};
+		const { client } = fakeClient({
+			cancel: async () => {
+				throw new PlatformApiError(body.message, { status: 409, payload: body });
+			},
+		});
+		expect(await journeySetCancel({ id: "set-1", json: false, client })).not.toBe(EXIT.OK);
+		expect(stderr).toContain("The set is not in a state that allows this.");
+	});
+});
+
+describe("--watch: a set followed over the platform's live stream", () => {
+	const run = (client: SetsClient) =>
+		journeySetRun({
+			goals: ["Find the API docs", "Find the pricing"],
+			flags: { domain: "linear.app", levels: false },
+			yes: true,
+			watch: true,
+			json: false,
+			client,
+			sleep: async () => {},
+		});
+
+	it("prints what moves as the platform sends it, reads nothing in between, and reports the set it ended on", async () => {
+		const { client, calls } = fakeClient({
+			follow: async (_id, onSet) => {
+				onSet(RUNNING);
+				onSet(COMPLETE);
+			},
+		});
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).not.toContain("get");
+		expect(stderr).toContain(
+			`${RUNNING.state}: ${RUNNING.runs.started} of ${RUNNING.runs.planned} runs started`,
+		);
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+
+	it("reads the set instead, and says so, when the live stream cannot be opened", async () => {
+		const { client, calls } = fakeClient();
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).toEqual(expect.arrayContaining(["follow", "get"]));
+		expect(stderr).toContain("Live updates are not available right now");
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+
+	it("goes on reading when the stream closes before the set is over", async () => {
+		const { client, calls } = fakeClient({ follow: async (_id, onSet) => onSet(RUNNING) });
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).toContain("get");
+	});
+
+	it("a stream that ends while the set is grading is not reported as unavailable: ax reads on and prints what moves", async () => {
+		// Its runs are over and their grades are settling. ora's live stream of a study closes a minute after its
+		// last run (staging and dev, 2026-11-22), and a set is complete only once every grade and check is final.
+		const [cell] = RUNNING.cells;
+		if (!cell) throw new Error("the running fixture has no cell");
+		const grading: SetDocument = { ...RUNNING, state: "grading", complete: false };
+		const settled: SetDocument = {
+			...COMPLETE,
+			cells: COMPLETE.cells.map((each, i) =>
+				i === 0 ? { ...each, graded: each.graded + 1 } : each,
+			),
+		};
+		const gets = [grading, settled];
+		const { client, calls } = fakeClient({
+			follow: async (_id, onSet) => onSet(grading),
+			get: async (id: string) => {
+				calls.push({ op: "get", arg: id });
+				return gets.shift() ?? settled;
+			},
+		});
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).toContain("get");
+		expect(stderr).not.toContain("Live updates are not available");
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+});
+
+describe("progressLines", () => {
+	it("says the state once, and a cell only when its counts moved", () => {
+		const first = progressLines(null, RUNNING);
+		expect(first[0]).toBe(
+			`${RUNNING.state}: ${RUNNING.runs.started} of ${RUNNING.runs.planned} runs started`,
+		);
+		// The same document again: nothing moved, nothing is said.
+		expect(progressLines(RUNNING, RUNNING)).toEqual([]);
+		// One cell gains a graded run: that cell's line alone, with its level's label and its agent.
+		const [cell] = RUNNING.cells;
+		if (!cell) throw new Error("the running fixture has no cell");
+		const moved = {
+			...RUNNING,
+			cells: [
+				{ ...cell, graded: cell.graded + 1, passed: (cell.passed ?? 0) + 1 },
+				...RUNNING.cells.slice(1),
+			],
+		};
+		const lines = progressLines(RUNNING, moved);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain(cell.agent);
+		expect(lines[0]).toContain(`${(cell.passed ?? 0) + 1} of ${cell.graded + 1} graded`);
 	});
 });
 

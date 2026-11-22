@@ -133,6 +133,32 @@ describe("createSetsClient", () => {
 		expect(error).toMatchObject({ status: 422, message: body.message, payload: body });
 	});
 
+	it("a validation refusal says what is wrong: the platform's own lines follow its message", async () => {
+		// The body ora's set API gave for six goals on staging, 2026-11-22: its message alone says nothing.
+		const body = {
+			error: "Validation failed",
+			code: "VALIDATION_ERROR",
+			details: {
+				errors: {
+					body: [
+						"goals: A set takes 1 to 5 goals.",
+						"repeat: A set repeats each run 1 to 10 times.",
+					],
+				},
+			},
+		};
+		const { client } = clientOver([{ status: 400, body }]);
+		const error = await client
+			.preview({ site: "linear.app", goals: ["x"] })
+			.catch((e: unknown) => e);
+		expect(error).toMatchObject({
+			status: 400,
+			message:
+				"Validation failed: goals: A set takes 1 to 5 goals.; repeat: A set repeats each run 1 to 10 times.",
+			payload: body,
+		});
+	});
+
 	it("a refusal for a missing scope is worded by the credential, naming the scope the platform listed", async () => {
 		// The body a read-only key got for a preview on a local ora, 2026-11-22: it has no sentence.
 		const body = {
@@ -149,6 +175,46 @@ describe("createSetsClient", () => {
 			message: "This credential lacks ax.sets:write. Give it that, then try again.",
 			payload: body,
 		});
+	});
+
+	it("follows a set's live stream: each set event's document in order, keepalives ignored, however the bytes are chunked", async () => {
+		const { credential } = fakeCredential();
+		const text =
+			'event: set\ndata: {"setId":"s1","state":"running"}\n\n: keepalive\n\nevent: set\ndata: {"setId":"s1","state":"complete"}\n\n';
+		const bytes = new TextEncoder().encode(text);
+		const seen: { url: string; accept: string }[] = [];
+		const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+			seen.push({
+				url: String(url),
+				accept: String((init?.headers as Record<string, string> | undefined)?.accept),
+			});
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					start(controller) {
+						controller.enqueue(bytes.slice(0, 17));
+						controller.enqueue(bytes.slice(17));
+						controller.close();
+					},
+				}),
+				{ status: 200, headers: { "content-type": "text/event-stream" } },
+			);
+		});
+		const client = createSetsClient({
+			base: BASE,
+			credential,
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		const states: string[] = [];
+		await client.follow("s 1", (set) => states.push(set.state), new AbortController().signal);
+		expect(states).toEqual(["running", "complete"]);
+		expect(seen).toEqual([{ url: `${BASE}/ax/v1/sets/s%201/stream`, accept: "text/event-stream" }]);
+	});
+
+	it("a stream that cannot be opened rejects with the platform's status, so the caller can read instead", async () => {
+		const { client } = clientOver([{ status: 404, body: { error: "Not Found" } }]);
+		await expect(client.follow("s1", () => {}, new AbortController().signal)).rejects.toMatchObject(
+			{ status: 404 },
+		);
 	});
 
 	it("an answer that is not JSON is a failure, never an empty set", async () => {

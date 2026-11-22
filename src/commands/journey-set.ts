@@ -41,6 +41,8 @@ export interface SetRunInput extends Seams {
 	flags: SetFlags;
 	yes: boolean;
 	wait?: string;
+	/** Show each change as the platform reports it (its live stream), not only the state line. */
+	watch?: boolean;
 	json: boolean;
 	/** Asks on the terminal; null when there is no terminal or Ctrl-C answers. Tests answer for the person. */
 	ask?: (question: string) => Promise<string | null>;
@@ -150,25 +152,134 @@ export type FollowEnd = "complete" | "stopped" | "failed" | "wait_limit" | "deta
 export async function followSet(
 	client: SetsClient,
 	first: SetDocument,
-	options: { waitMinutes: number; interrupt: AbortSignal } & Pick<Seams, "now" | "sleep">,
+	options: { waitMinutes: number; interrupt: AbortSignal; watch?: boolean } & Pick<
+		Seams,
+		"now" | "sleep"
+	>,
 ): Promise<{ set: SetDocument; end: FollowEnd }> {
 	const now = options.now ?? Date.now;
 	const sleep = options.sleep ?? abortableSleep;
 	const deadline = now() + options.waitMinutes * 60_000;
 	let set = first;
 	let said = "";
+	/** Under --watch: the last document whose moves were printed, so reading on prints only what moved since. */
+	let shown: SetDocument | null = null;
+	if (options.watch) {
+		const live = await watchSet(client, first, { deadline, now, interrupt: options.interrupt });
+		if (live.end !== null) return { set: live.set, end: live.end };
+		// ora closes a study's live stream a minute after its last run, and a set is complete only once every
+		// grade and check is final: a stream ora ended while the set was grading is that, not a failure, so ax
+		// reads on and says nothing about it. Any other end (it would not open, or broke while runs were going)
+		// is said.
+		if (!(live.closedByOra && live.set.state === "grading"))
+			console.error("  Live updates are not available right now; checking every few seconds.");
+		set = live.set;
+		shown = live.printed;
+	}
 	for (;;) {
 		if (set.state === "complete" || set.state === "stopped" || set.state === "failed")
 			return { set, end: set.state };
-		const line = `${set.state}: ${set.runs.started} of ${set.runs.planned} runs started`;
-		if (line !== said) console.error(`  ${line}`);
-		said = line;
+		if (options.watch) {
+			// Reading on after the stream: the same lines the stream printed, for what moved since.
+			for (const moved of progressLines(shown, set)) console.error(`  ${moved}`);
+			shown = set;
+		} else {
+			const line = `${set.state}: ${set.runs.started} of ${set.runs.planned} runs started`;
+			if (line !== said) console.error(`  ${line}`);
+			said = line;
+		}
 		if (options.interrupt.aborted) return { set, end: "detached" };
 		if (now() >= deadline) return { set, end: "wait_limit" };
 		await sleep(POLL_MS, options.interrupt);
 		if (options.interrupt.aborted) return { set, end: "detached" };
 		set = await client.get(set.setId);
 	}
+}
+
+/** What moved between two documents of one set, as lines: its state, then each cell whose counts changed. */
+export function progressLines(before: SetDocument | null, after: SetDocument): string[] {
+	const lines: string[] = [];
+	const stateLine = (set: SetDocument) =>
+		`${set.state}: ${set.runs.started} of ${set.runs.planned} runs started`;
+	if (before === null || stateLine(before) !== stateLine(after)) lines.push(stateLine(after));
+	const labelOf = (key: string) => after.levels.find((level) => level.key === key)?.label ?? key;
+	const keyOf = (cell: SetDocument["cells"][number]) => `${cell.goal}|${cell.level}|${cell.agent}`;
+	const earlier = new Map((before?.cells ?? []).map((cell) => [keyOf(cell), cell]));
+	for (const cell of after.cells) {
+		const was = earlier.get(keyOf(cell));
+		const moved =
+			was === undefined
+				? cell.graded > 0 || cell.inFlight > 0
+				: was.graded !== cell.graded ||
+					was.passed !== cell.passed ||
+					was.inFlight !== cell.inFlight;
+		if (!moved) continue;
+		const goal = after.goals.length > 1 ? `goal ${cell.goal} · ` : "";
+		const going = cell.inFlight > 0 ? `, ${cell.inFlight} still running` : "";
+		lines.push(
+			`${goal}${labelOf(cell.level)} · ${cell.agent}: ${cell.passed ?? 0} of ${cell.graded} graded${going}`,
+		);
+	}
+	return lines;
+}
+
+/**
+ * Follow the set over the platform's live stream, printing what moves as it moves. `end` is null
+ * when the stream could not say how the set ended (it would not open, or closed early): the caller
+ * then reads the set instead. `closedByOra` says the stream ended on ora's side, normally (not an
+ * error, not our own close); `printed` is the last document whose moves were printed, if any. The
+ * wait limit and Ctrl-C close the stream; the runs go on.
+ */
+async function watchSet(
+	client: SetsClient,
+	first: SetDocument,
+	options: { deadline: number; now: () => number; interrupt: AbortSignal },
+): Promise<{
+	set: SetDocument;
+	end: FollowEnd | null;
+	closedByOra: boolean;
+	printed: SetDocument | null;
+}> {
+	const over = (set: SetDocument): FollowEnd | null =>
+		set.state === "complete" || set.state === "stopped" || set.state === "failed"
+			? set.state
+			: null;
+	if (over(first)) return { set: first, end: over(first), closedByOra: false, printed: null };
+	const stop = new AbortController();
+	let outOfTime = false;
+	const timer = setTimeout(
+		() => {
+			outOfTime = true;
+			stop.abort();
+		},
+		Math.max(0, options.deadline - options.now()),
+	);
+	const onInterrupt = () => stop.abort();
+	options.interrupt.addEventListener("abort", onInterrupt, { once: true });
+	let latest = first;
+	let printed: SetDocument | null = null;
+	let closedByOra = false;
+	try {
+		await client.follow(
+			first.setId,
+			(set) => {
+				for (const line of progressLines(printed, set)) console.error(`  ${line}`);
+				printed = set;
+				latest = set;
+			},
+			stop.signal,
+		);
+		closedByOra = !stop.signal.aborted;
+	} catch (error) {
+		// A stream we closed ourselves is not a failure; any other one falls back to reading.
+		if (!stop.signal.aborted && !(error instanceof Error)) throw error;
+	} finally {
+		clearTimeout(timer);
+		options.interrupt.removeEventListener("abort", onInterrupt);
+	}
+	if (options.interrupt.aborted) return { set: latest, end: "detached", closedByOra, printed };
+	if (outOfTime) return { set: latest, end: "wait_limit", closedByOra, printed };
+	return { set: latest, end: over(latest), closedByOra, printed };
 }
 
 const END_LINE: Readonly<Record<FollowEnd, string | null>> = {
@@ -259,6 +370,7 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 		const { set, end } = await followSet(client, created, {
 			waitMinutes,
 			interrupt: interrupt.signal,
+			watch: input.watch,
 			now: input.now,
 			sleep: input.sleep,
 		});
@@ -274,6 +386,8 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 export interface SetViewInput extends Seams {
 	id: string | undefined;
 	wait?: string;
+	/** Follow the set live until it is over (or the wait runs out), printing what moves. */
+	watch?: boolean;
 	json: boolean;
 }
 
@@ -301,17 +415,18 @@ export async function journeySetView(input: SetViewInput): Promise<number> {
 	try {
 		const client = clientOf(input);
 		const first = await client.get(input.id);
-		// Without --wait, view prints the set as it stands: its own state line says whether it is
-		// still going, so no "the wait ran out" line belongs above it.
-		if (input.wait === undefined) {
+		// Without --wait or --watch, view prints the set as it stands: its own state line says whether
+		// it is still going, so no "the wait ran out" line belongs above it.
+		if (input.wait === undefined && !input.watch) {
 			const asItStands: FollowEnd =
 				first.state === "stopped" || first.state === "failed" ? first.state : "complete";
 			return report(first, asItStands, json);
 		}
-		// With --wait, view watches a set that is still going.
+		// With --wait or --watch, view follows a set that is still going.
 		const { set, end } = await followSet(client, first, {
 			waitMinutes,
 			interrupt: interrupt.signal,
+			watch: input.watch,
 			now: input.now,
 			sleep: input.sleep,
 		});
@@ -378,6 +493,19 @@ export async function journeySetCancel(
 		printNext({ ...viewStep(input.id, json), why: "what finished" }, { stderr: json });
 		return EXIT.OK;
 	} catch (error) {
+		// The set has no run still going: ora says how it ended. Nothing failed, so this is the answer.
+		if (alreadyOver(error)) {
+			if (json) process.stdout.write(`${JSON.stringify(error.payload, null, 2)}\n`);
+			else console.log(error.message);
+			printNext({ ...viewStep(input.id, json), why: "its report" }, { stderr: json });
+			return EXIT.OK;
+		}
 		return failedCall(error, json, listStep);
 	}
+}
+
+/** ora refused to stop a set because none of its runs is still going (HTTP 409, `SET_ALREADY_OVER`). */
+function alreadyOver(error: unknown): error is PlatformApiError {
+	if (!(error instanceof PlatformApiError) || error.status !== 409) return false;
+	return (error.payload as { code?: unknown } | null | undefined)?.code === "SET_ALREADY_OVER";
 }

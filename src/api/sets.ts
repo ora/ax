@@ -99,6 +99,12 @@ export interface SetsClient {
 	get(id: string): Promise<SetDocument>;
 	list(): Promise<SetList>;
 	cancel(id: string): Promise<unknown>;
+	/**
+	 * Follow a set live (`GET /ax/v1/sets/{id}/stream`, server-sent events): `onSet` gets each
+	 * document the platform sends, the set's whole state every time. Resolves when the platform ends
+	 * the stream (it does once the set is over), rejects when it cannot be opened.
+	 */
+	follow(id: string, onSet: (set: SetDocument) => void, signal: AbortSignal): Promise<void>;
 }
 
 export interface SetsClientOptions {
@@ -129,7 +135,21 @@ function messageOf(status: number, body: unknown, credential: PlatformCredential
 	if (lacking) return credential.refusal.forbidden(lacking);
 	const said = (body ?? {}) as { message?: unknown; error?: unknown };
 	const text = [said.message, said.error].find((v) => typeof v === "string" && v.length > 0);
-	return typeof text === "string" ? text : `ora answered HTTP ${status}`;
+	const sentence = typeof text === "string" ? text : `ora answered HTTP ${status}`;
+	const lines = validationLines(body);
+	return lines.length > 0 ? `${sentence}: ${lines.join("; ")}` : sentence;
+}
+
+/**
+ * What a validation refusal lists as wrong (`details.errors.<part>`), in ora's words. Its message
+ * alone is "Validation failed", which tells a person nothing about which limit they hit.
+ */
+function validationLines(body: unknown): string[] {
+	const errors = (body as { details?: { errors?: unknown } } | null)?.details?.errors;
+	if (errors === null || typeof errors !== "object") return [];
+	return Object.values(errors)
+		.flat()
+		.filter((line): line is string => typeof line === "string" && line.length > 0);
 }
 
 /**
@@ -179,7 +199,51 @@ export function createSetsClient(options: SetsClientOptions): SetsClient {
 		return payload as T;
 	};
 
+	const openStream = (id: string, token: string, signal: AbortSignal): Promise<Response> =>
+		doFetch(`${base}/ax/v1/sets/${encodeURIComponent(id)}/stream`, {
+			headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
+			signal,
+		});
+
+	const follow: SetsClient["follow"] = async (id, onSet, signal) => {
+		let res = await openStream(id, await credential.bearer(), signal);
+		if (res.status === 401) {
+			await res.body?.cancel().catch(() => {});
+			res = await openStream(id, await credential.renew(), signal);
+		}
+		if (!res.ok || res.body === null) {
+			const payload = jsonOrNull(await res.text().catch(() => ""));
+			throw new PlatformApiError(messageOf(res.status, payload, credential), {
+				status: res.status,
+				payload,
+			});
+		}
+		const reader = res.body.getReader();
+		const decoder = new TextDecoder();
+		let pending = "";
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) return;
+			pending += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+			let end = pending.indexOf("\n\n");
+			while (end >= 0) {
+				const block = pending.slice(0, end);
+				pending = pending.slice(end + 2);
+				// One event: its data lines joined. A keepalive comment has none.
+				const data = block
+					.split("\n")
+					.filter((line) => line.startsWith("data:"))
+					.map((line) => line.slice(5).trimStart())
+					.join("\n");
+				const set = data === "" ? null : jsonOrNull(data);
+				if (set !== null && typeof set === "object" && "setId" in set) onSet(set as SetDocument);
+				end = pending.indexOf("\n\n");
+			}
+		}
+	};
+
 	return {
+		follow,
 		preview: (request) => call("POST", "/sets/preview", request),
 		create: (request) => call("POST", "/sets", request),
 		get: (id) => call("GET", `/sets/${encodeURIComponent(id)}`),
