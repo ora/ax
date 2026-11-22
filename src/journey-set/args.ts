@@ -41,6 +41,7 @@ export const SET_FLAGS = [
 	"repeat",
 	"yes",
 	"wait",
+	"watch",
 ] as const;
 
 export interface SetFlags {

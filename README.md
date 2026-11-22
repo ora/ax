@@ -416,7 +416,7 @@ One journey is one agent, one goal, one run. A set asks a wider question: across
 
 ```
 ax journey "<goal>" ["<goal>" ...] --domain <site> [--agents <a>,...] [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]
-ax journey view <id> [--wait <minutes>] [--json]
+ax journey view <id> [--watch] [--wait <minutes>] [--json]
 ax journey list [--json]
 ax journey cancel <id> [--json]
 ```
@@ -427,7 +427,7 @@ ax journey "Find how to create an issue from the API" \
   --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
 ```
 
-`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`). One goal with none of them is the single journey above, unchanged.
+`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`, `--watch`). One goal with none of them is the single journey above. If ora refuses that run because your organization does not have the product single runs belong to, ax runs the goal as a set of one instead (one run, on the agent you named or your plan's own) and follows it live.
 
 A set runs on ora's platform, in your organization. The platform starts the runs, has each one graded and counts them; ax asks, waits and prints. The report here, `--json` and the platform's own pages therefore show the same numbers, and nothing is kept on your machine: a set is found again by its id (`ax journey list`).
 
@@ -516,6 +516,7 @@ Next: ax audit linear.app
 | `--repeat <n>` | Runs per goal, level and agent, 1 to 10 (default 1) |
 | `--yes` | Launch without asking |
 | `--wait <minutes>` | How long to watch (default 60). When it runs out ax prints the set as it stands and exits `0` |
+| `--watch` | Follow the set over ora's live stream and print what moves as it moves: the state, then each level and agent as its runs are graded. Without it ax reads the set every few seconds and prints the state. If the stream is not available ax says so and reads instead |
 | `--json` | The set exactly as the platform served it, on stdout; the preview and progress stay on stderr |
 | `ax journey view <id>` | Print a set as it stands now; with `--wait`, watch it until it finishes |
 | `ax journey list` | Your organization's sets, newest first |

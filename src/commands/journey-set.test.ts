@@ -19,6 +19,7 @@ import {
 	journeySetList,
 	journeySetRun,
 	journeySetView,
+	progressLines,
 } from "./journey-set";
 
 // The set commands over a client that answers the platform's real documents (the fixtures). These
@@ -42,6 +43,11 @@ function fakeClient(over: Partial<SetsClient> = {}) {
 		get: async (id: string) => noted("get", id, gets.shift() ?? COMPLETE),
 		list: async () => noted("list", undefined, list as SetList),
 		cancel: async (id: string) => noted("cancel", id, { setId: id, cancelled: true }),
+		// No live stream unless a test gives one: the platform cannot open it.
+		follow: async (id: string) => {
+			noted("follow", id, undefined);
+			throw new PlatformApiError("No such route", { status: 404 });
+		},
 		...over,
 	};
 	return { client, calls };
@@ -269,6 +275,73 @@ describe("ax journey view, list and cancel", () => {
 		expect(calls).toEqual([{ op: "cancel", arg: "set-1" }]);
 		expect(JSON.parse(stdout)).toEqual({ setId: "set-1", cancelled: true });
 		expect(await journeySetCancel({ id: undefined, json: false, client })).toBe(EXIT.USAGE);
+	});
+});
+
+describe("--watch: a set followed over the platform's live stream", () => {
+	const run = (client: SetsClient) =>
+		journeySetRun({
+			goals: ["Find the API docs", "Find the pricing"],
+			flags: { domain: "linear.app", levels: false },
+			yes: true,
+			watch: true,
+			json: false,
+			client,
+			sleep: async () => {},
+		});
+
+	it("prints what moves as the platform sends it, reads nothing in between, and reports the set it ended on", async () => {
+		const { client, calls } = fakeClient({
+			follow: async (_id, onSet) => {
+				onSet(RUNNING);
+				onSet(COMPLETE);
+			},
+		});
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).not.toContain("get");
+		expect(stderr).toContain(
+			`${RUNNING.state}: ${RUNNING.runs.started} of ${RUNNING.runs.planned} runs started`,
+		);
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+
+	it("reads the set instead, and says so, when the live stream cannot be opened", async () => {
+		const { client, calls } = fakeClient();
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).toEqual(expect.arrayContaining(["follow", "get"]));
+		expect(stderr).toContain("Live updates are not available right now");
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
+
+	it("goes on reading when the stream closes before the set is over", async () => {
+		const { client, calls } = fakeClient({ follow: async (_id, onSet) => onSet(RUNNING) });
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).toContain("get");
+	});
+});
+
+describe("progressLines", () => {
+	it("says the state once, and a cell only when its counts moved", () => {
+		const first = progressLines(null, RUNNING);
+		expect(first[0]).toBe(
+			`${RUNNING.state}: ${RUNNING.runs.started} of ${RUNNING.runs.planned} runs started`,
+		);
+		// The same document again: nothing moved, nothing is said.
+		expect(progressLines(RUNNING, RUNNING)).toEqual([]);
+		// One cell gains a graded run: that cell's line alone, with its level's label and its agent.
+		const [cell] = RUNNING.cells;
+		if (!cell) throw new Error("the running fixture has no cell");
+		const moved = {
+			...RUNNING,
+			cells: [
+				{ ...cell, graded: cell.graded + 1, passed: (cell.passed ?? 0) + 1 },
+				...RUNNING.cells.slice(1),
+			],
+		};
+		const lines = progressLines(RUNNING, moved);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain(cell.agent);
+		expect(lines[0]).toContain(`${(cell.passed ?? 0) + 1} of ${cell.graded + 1} graded`);
 	});
 });
 
