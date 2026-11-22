@@ -135,7 +135,21 @@ function messageOf(status: number, body: unknown, credential: PlatformCredential
 	if (lacking) return credential.refusal.forbidden(lacking);
 	const said = (body ?? {}) as { message?: unknown; error?: unknown };
 	const text = [said.message, said.error].find((v) => typeof v === "string" && v.length > 0);
-	return typeof text === "string" ? text : `ora answered HTTP ${status}`;
+	const sentence = typeof text === "string" ? text : `ora answered HTTP ${status}`;
+	const lines = validationLines(body);
+	return lines.length > 0 ? `${sentence}: ${lines.join("; ")}` : sentence;
+}
+
+/**
+ * What a validation refusal lists as wrong (`details.errors.<part>`), in ora's words. Its message
+ * alone is "Validation failed", which tells a person nothing about which limit they hit.
+ */
+function validationLines(body: unknown): string[] {
+	const errors = (body as { details?: { errors?: unknown } } | null)?.details?.errors;
+	if (errors === null || typeof errors !== "object") return [];
+	return Object.values(errors)
+		.flat()
+		.filter((line): line is string => typeof line === "string" && line.length > 0);
 }
 
 /**
