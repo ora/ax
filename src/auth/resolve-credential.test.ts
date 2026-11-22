@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { KeyDestinationError } from "../api/key-destination";
 import { NotSignedInError } from "./errors";
 import { ISSUER, PLATFORM } from "./fake-sign-in-server.test-support";
 import { TUNNEL_FEATURE } from "./platform-features";
@@ -73,6 +74,33 @@ describe("a call that cannot go without a credential", () => {
 		expect(() => chain.resolve(PLATFORM)).toThrow(
 			`Your ax sign-in is for https://api.other.test, not ${PLATFORM}.`,
 		);
+	});
+});
+
+describe("a platform address that is not a URL (no scheme)", () => {
+	// The sign-in stored here is for https://api.ora.test; ORA_PLATFORM_URL lost its scheme.
+	const NO_SCHEME = "api.ora.test";
+
+	it("has no sign-in for it, and finding one still never throws", () => {
+		const { chain, signIns } = chainWith({ signedInFor: PLATFORM });
+		expect(signIns.find(NO_SCHEME)).toBeNull();
+		expect(chain.find(NO_SCHEME)).toBeNull();
+	});
+
+	it("names the platform the stored sign-in is for instead", () => {
+		const { signIns } = chainWith({ signedInFor: PLATFORM });
+		expect(signIns.heldFor(NO_SCHEME)).toBe(PLATFORM);
+	});
+
+	it("a call that cannot go without a credential is told to fix the address", () => {
+		const { chain } = chainWith({ signedInFor: PLATFORM });
+		expect(() => chain.resolve(NO_SCHEME)).toThrow(KeyDestinationError);
+		expect(() => chain.resolve(NO_SCHEME)).toThrow("ORA_PLATFORM_URL is not a URL");
+	});
+
+	it("ORA_API_KEY is still found for it", () => {
+		const { chain } = chainWith({ key: "ora_sk_env", signedInFor: PLATFORM });
+		expect(chain.find(NO_SCHEME)?.label).toBe("ORA_API_KEY (a platform key)");
 	});
 });
 

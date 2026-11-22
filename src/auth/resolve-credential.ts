@@ -1,3 +1,5 @@
+import { KeyDestinationError } from "../api/key-destination";
+import { platformDestinationProblem } from "../api/platform-origins";
 import { ApiKeyCredential } from "./api-key-credential";
 import type { PlatformCredential } from "./credential";
 import { NotSignedInError } from "./errors";
@@ -5,6 +7,11 @@ import type { PlatformFeature } from "./platform-features";
 import { SessionStore, type SignInStore } from "./session-store";
 import { SignInCredential } from "./sign-in-credential";
 import { platformResource } from "./sign-in-target";
+
+/** The origin a sign-in for `base` would be issued for, or undefined when `base` is not a URL. */
+function resourceOf(base: string): string | undefined {
+	return URL.canParse(base) ? platformResource(base) : undefined;
+}
 
 // Which credential a platform call signs with, decided in ONE place: an ordered chain of sources,
 // the first with a credential for the platform winning. ORA_API_KEY comes first, so CI and
@@ -39,15 +46,16 @@ export class StoredSignInSource implements CredentialSource {
 		private readonly fetchFn?: typeof fetch,
 	) {}
 
+	/** Null for an address that is not a URL: no sign-in is for it. */
 	find(base: string): PlatformCredential | null {
 		const session = this.store.read();
-		if (!session || session.resource !== platformResource(base)) return null;
+		if (!session || session.resource !== resourceOf(base)) return null;
 		return new SignInCredential(base, this.store, session, this.fetchFn);
 	}
 
 	heldFor(base: string): string | undefined {
 		const session = this.store.read();
-		return session && session.resource !== platformResource(base) ? session.resource : undefined;
+		return session && session.resource !== resourceOf(base) ? session.resource : undefined;
 	}
 }
 
@@ -69,10 +77,16 @@ export class CredentialChain {
 	/**
 	 * As {@link find}, for a call that cannot go without one: none is a NotSignedInError naming
 	 * both ways in, the scopes `feature` needs, and the platform a stored sign-in is for instead.
+	 * An address that is not a URL can take no credential, and that is what it says then (a
+	 * KeyDestinationError, which every command reads as the address to fix).
 	 */
 	resolve(base: string, feature?: PlatformFeature): PlatformCredential {
 		const found = this.find(base);
 		if (found) return found;
+		const malformed = URL.canParse(base)
+			? undefined
+			: platformDestinationProblem(base, "a credential");
+		if (malformed) throw new KeyDestinationError(malformed);
 		const signedInFor = this.sources.map((source) => source.heldFor?.(base)).find(Boolean);
 		throw new NotSignedInError({ base, feature, signedInFor });
 	}

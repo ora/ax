@@ -12,16 +12,15 @@ import {
 	type DeviceAuthorization,
 	discover,
 	OAuthError,
-	pollDeviceToken,
 	type ServerMetadata,
 	startDeviceAuthorization,
-	type TokenSet,
 } from "../auth/oauth";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
-import type { StoredSignIn } from "../auth/session-store";
+import type { SignInStore, StoredSignIn } from "../auth/session-store";
 import { SIGN_IN_SCOPE, type SignInTarget, signInTarget } from "../auth/sign-in-target";
 import { type CommandError, reportError } from "../report/json-error";
 import { EXIT } from "./exit-codes";
+import { LOGIN_NEXT, waitForApproval } from "./login-wait";
 
 // `ax login`: a browser sign-in for ora's platform, the same as the ora CLI's (the device flow,
 // RFC 8628). ax prints a link and a code, opens your browser when it can, and waits while you
@@ -56,10 +55,6 @@ export function loginDeps(): LoginDeps {
 	};
 }
 
-/** Transient failures in a row the poll rides out (a dropped connection) before giving up. */
-const MAX_POLL_FAILURES = 5;
-
-const LOGIN_NEXT = { call: "ax login", why: "start a new sign-in" };
 const KEY_NEXT = {
 	call: "ORA_API_KEY=<platform key> ax journey ...",
 	why: "a platform key works without a browser",
@@ -133,11 +128,18 @@ export async function loginCommand(
 		expiresAt: deps.now() + tokens.expiresIn * 1000,
 		scope: tokens.scope,
 	};
-	const previous = store.read();
-	store.write(session);
+	let replaced: StoredSignIn | null;
+	try {
+		replaced = await save(store, session);
+	} catch (cause) {
+		// Nothing on this machine holds the sign-in just issued, so it is ended on the server too.
+		await endSignIn(session, deps.fetchFn);
+		const message = `ax could not save the sign-in: ${cause instanceof Error ? cause.message : String(cause)}`;
+		return fail({ code: "SIGN_IN_NOT_SAVED", message, next: LOGIN_NEXT }, json, EXIT.API);
+	}
 	// The sign-in this one replaces on this machine is ended on the server too, best effort.
-	if (previous && previous.refreshToken !== session.refreshToken) {
-		await endSignIn(previous, deps.fetchFn);
+	if (replaced && replaced.refreshToken !== session.refreshToken) {
+		await endSignIn(replaced, deps.fetchFn);
 	}
 
 	// Who signed in, asked of the platform with the new access token (it is minutes old).
@@ -165,6 +167,19 @@ export async function loginCommand(
 	return EXIT.OK;
 }
 
+/**
+ * Stores `session` under the sign-in's lock and returns the sign-in it replaces. A renewal
+ * another ax is making finishes first, so the one replaced is the renewed one (ended by the
+ * caller), and no renewal can land on top of the new sign-in afterwards.
+ */
+function save(store: SignInStore, session: StoredSignIn): Promise<StoredSignIn | null> {
+	return store.withLock(async () => {
+		const replaced = store.read();
+		store.write(session);
+		return replaced;
+	});
+}
+
 /** What a sign-in that could not start tells you: most often an ora that does not offer it yet. */
 function startFailure(cause: unknown, target: SignInTarget): CommandError {
 	if (cause instanceof OAuthError && cause.code === "invalid_client") {
@@ -182,9 +197,10 @@ function startFailure(cause: unknown, target: SignInTarget): CommandError {
 		};
 	}
 	const message = cause instanceof Error ? cause.message : String(cause);
+	const later = cause instanceof OAuthError && cause.transient ? ". Try again in a moment." : "";
 	return {
 		code: "SIGN_IN_FAILED",
-		message: `The sign-in could not start: ${message}`,
+		message: `The sign-in could not start: ${message}${later}`,
 		next: LOGIN_NEXT,
 	};
 }
@@ -206,63 +222,4 @@ function showCode(device: DeviceAuthorization, deps: LoginDeps, input: LoginInpu
 	console.error(
 		opened ? "Opened your browser. Waiting for you to approve…" : "Waiting for you to approve…",
 	);
-}
-
-type Approval = { tokens: TokenSet } | { error: CommandError };
-
-/** RFC 8628 §3.5: poll at the server's pace until the code is approved, refused or expired. */
-async function waitForApproval(
-	meta: ServerMetadata,
-	target: SignInTarget,
-	device: DeviceAuthorization,
-	deps: LoginDeps,
-): Promise<Approval> {
-	const deadline = deps.now() + device.expiresIn * 1000;
-	let interval = device.interval;
-	let failures = 0;
-	while (deps.now() < deadline) {
-		await deps.sleep(interval * 1000);
-		try {
-			const poll = await pollDeviceToken(meta, target, device.deviceCode, deps.fetchFn);
-			failures = 0;
-			if (poll.kind === "tokens") return { tokens: poll.tokens };
-			if (poll.kind === "slow_down") interval += 5;
-		} catch (cause) {
-			if (cause instanceof OAuthError) return { error: refusedApproval(cause) };
-			failures += 1;
-			if (failures >= MAX_POLL_FAILURES) {
-				const message = `ax lost touch with ${meta.issuer}: ${cause instanceof Error ? cause.message : String(cause)}`;
-				return { error: { code: "SIGN_IN_FAILED", message, next: LOGIN_NEXT } };
-			}
-		}
-	}
-	return {
-		error: {
-			code: "SIGN_IN_EXPIRED",
-			message: "The code expired before it was approved.",
-			next: LOGIN_NEXT,
-		},
-	};
-}
-
-function refusedApproval(cause: OAuthError): CommandError {
-	if (cause.code === "access_denied") {
-		return {
-			code: "SIGN_IN_CANCELLED",
-			message: "The sign-in was cancelled in the browser.",
-			next: LOGIN_NEXT,
-		};
-	}
-	if (cause.code === "expired_token") {
-		return {
-			code: "SIGN_IN_EXPIRED",
-			message: "The code expired before it was approved.",
-			next: LOGIN_NEXT,
-		};
-	}
-	return {
-		code: "SIGN_IN_FAILED",
-		message: `The sign-in did not complete: ${cause.message}`,
-		next: LOGIN_NEXT,
-	};
 }

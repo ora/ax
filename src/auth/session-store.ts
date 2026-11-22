@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { FileLock, type FileLockTiming } from "./file-lock";
@@ -26,10 +34,16 @@ export interface StoredSignIn {
 
 /** Where the sign-in `ax login` stored is kept: the file below, or a test's own. */
 export interface SignInStore {
+	/** The stored sign-in, or null when there is none or this ax cannot read it. */
 	read(): StoredSignIn | null;
+	/** True when a sign-in file is there, whether or not this ax can read it. */
+	present(): boolean;
 	write(session: StoredSignIn): void;
 	clear(): void;
-	/** Runs `fn` while no other ax command refreshes this sign-in. */
+	/**
+	 * Runs `fn` while no other ax command changes this sign-in: a refresh, `ax login` storing a new
+	 * one, or `ax logout` removing it.
+	 */
 	withLock<T>(fn: () => Promise<T>): Promise<T>;
 }
 
@@ -84,6 +98,10 @@ export class SessionStore implements SignInStore {
 		} catch {
 			return null;
 		}
+	}
+
+	present(): boolean {
+		return existsSync(this.file);
 	}
 
 	/** Written whole, then renamed into place: another ax never reads half a file. */

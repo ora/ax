@@ -1,3 +1,4 @@
+import { fetchText } from "../api/network-failure";
 import { jsonOrNull, PlatformApiError } from "../api/platform-error";
 import { assertPlatformDestination } from "../api/platform-origins";
 import type { PlatformCredential, RefusalWords } from "./credential";
@@ -69,13 +70,17 @@ export async function exchangeKey(
 	fetchFn: typeof fetch = fetch,
 ): Promise<string> {
 	assertPlatformDestination(base);
-	const res = await fetchFn(`${base}/auth/token`, {
-		method: "POST",
-		headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
-		body: "{}",
-		signal: AbortSignal.timeout(KEY_EXCHANGE_TIMEOUT_MS),
-	});
-	const body = jsonOrNull(await res.text());
+	const { res, text } = await fetchText(
+		`${base}/auth/token`,
+		{
+			method: "POST",
+			headers: { authorization: `Bearer ${secret}`, "content-type": "application/json" },
+			body: "{}",
+		},
+		KEY_EXCHANGE_TIMEOUT_MS,
+		fetchFn,
+	);
+	const body = jsonOrNull(text);
 	if (res.status === 401) {
 		const context = "ora refused the key (401)";
 		throw rejectedKey(context, new PlatformApiError(context, { status: 401, payload: body }));

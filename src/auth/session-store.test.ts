@@ -81,6 +81,31 @@ describe("the stored sign-in", () => {
 	});
 });
 
+describe("whether a sign-in file is there", () => {
+	it("is not, before anything was written", () => {
+		expect(freshStore().present()).toBe(false);
+	});
+
+	it("is, for a file this ax cannot read: a newer ax's, or one cut short", () => {
+		const store = freshStore();
+		store.write(SESSION);
+		writeFileSync(store.file, JSON.stringify({ ...SESSION, version: 2 }));
+		expect(store.read()).toBeNull();
+		expect(store.present()).toBe(true);
+		writeFileSync(store.file, JSON.stringify(SESSION).slice(0, 40));
+		expect(store.read()).toBeNull();
+		expect(store.present()).toBe(true);
+	});
+
+	it("is not, once it was cleared", () => {
+		const store = freshStore();
+		store.write(SESSION);
+		expect(store.present()).toBe(true);
+		store.clear();
+		expect(store.present()).toBe(false);
+	});
+});
+
 describe("the sign-in's lock", () => {
 	const lockOf = (store: SessionStore) => join(store.dir, "session.lock");
 

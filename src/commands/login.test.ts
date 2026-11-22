@@ -1,11 +1,13 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeSignInServer, ISSUER, PLATFORM } from "../auth/fake-sign-in-server.test-support";
+import { DEVICE_CODE_GRANT } from "../auth/oauth";
 import { platformCredentials } from "../auth/resolve-credential";
 import { SessionStore } from "../auth/session-store";
 import { type LoginDeps, loginCommand } from "./login";
+import { nextWait } from "./login-wait";
 import { logoutCommand } from "./logout";
 import { whoamiCommand } from "./whoami";
 
@@ -57,6 +59,28 @@ function harness(overrides: Parameters<typeof fakeSignInServer>[0] = {}) {
 }
 
 const all = () => [...errors, ...printed, ...stdout].join("\n");
+
+/** The waits between polls, in ms, as `ax login` asks for them. */
+function recordWaits(deps: LoginDeps): number[] {
+	const waits: number[] = [];
+	const sleep = deps.sleep;
+	deps.sleep = (ms) => {
+		waits.push(ms);
+		return sleep(ms);
+	};
+	return waits;
+}
+
+/** How many device polls the server received. */
+const pollsReceived = (server: ReturnType<typeof fakeSignInServer>): number =>
+	server.forms.filter(({ form }) => form.get("grant_type") === DEVICE_CODE_GRANT).length;
+
+/** A store whose folder is a file: neither its lock nor a sign-in can be written there. */
+function unwritableStore(): SessionStore {
+	const notAFolder = join(mkdtempSync(join(tmpdir(), "ax-login-")), "ax");
+	writeFileSync(notAFolder, "");
+	return new SessionStore(notAFolder);
+}
 
 describe("ax login", () => {
 	it("shows the link and the code, opens the browser, waits for the approval and stores the sign-in", async () => {
@@ -188,6 +212,94 @@ describe("ax login", () => {
 		});
 		expect(stdout.join("")).not.toContain("ABCD-EFGH");
 	});
+
+	it("a slow_down raises the interval for good: every later poll waits the longer one", async () => {
+		const { deps } = harness({ polls: ["slow_down", "pending", "approve"] });
+		const waits = recordWaits(deps);
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		expect(waits).toEqual([5000, 10000, 10000]);
+	});
+
+	it.each(["drop", "unavailable", "rate_limited"] as const)(
+		"a poll the server answers %s once is waited out, and the sign-in is stored (exit 0)",
+		async (answer) => {
+			const { deps, store } = harness({ polls: [answer, "approve"] });
+			expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+			expect(store.read()).toMatchObject({ accessToken: "access-1", refreshToken: "refresh-1" });
+		},
+	);
+
+	it("backs off while the server keeps failing: twice the wait each time, at most a minute", async () => {
+		const { deps } = harness({
+			polls: ["unavailable", "unavailable", "unavailable", "unavailable", "approve"],
+		});
+		const waits = recordWaits(deps);
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		expect(waits).toEqual([5000, 10000, 20000, 40000, 60000]);
+	});
+
+	it("an answer between failures starts the back-off and the count over: only failures in a row add up", async () => {
+		const four = ["unavailable", "unavailable", "unavailable", "unavailable"] as const;
+		const { deps, store } = harness({ polls: [...four, "pending", ...four, "approve"] });
+		const waits = recordWaits(deps);
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		const backOff = [5000, 10000, 20000, 40000, 60000];
+		expect(waits).toEqual([...backOff, ...backOff]);
+		expect(store.read()?.refreshToken).toBe("refresh-1");
+	});
+
+	it("backs off to at most a minute, but never below the server's own interval when that is longer", () => {
+		expect([0, 1, 2, 3, 4, 5].map((failures) => nextWait(5, failures))).toEqual([
+			5, 10, 20, 40, 60, 60,
+		]);
+		expect([0, 1, 2].map((failures) => nextWait(90, failures))).toEqual([90, 90, 90]);
+	});
+
+	it("five transient failures in a row give up (exit 3), store nothing, and say why once", async () => {
+		const { deps, store, server } = harness({ polls: ["unavailable"] });
+		const waits = recordWaits(deps);
+		expect(await loginCommand({ json: true, noBrowser: true }, deps)).toBe(3);
+		const { error } = JSON.parse(stdout.join(""));
+		expect(error.code).toBe("SIGN_IN_FAILED");
+		expect(error.message).toBe(
+			"The sign-in did not complete: account.ora.test answered HTTP 502, 5 times in a row.",
+		);
+		expect(all()).not.toContain("did not complete: the sign-in did not complete");
+		expect(store.read()).toBeNull();
+		expect(pollsReceived(server)).toBe(5);
+		expect(waits).toEqual([5000, 10000, 20000, 40000, 60000]);
+	});
+
+	it.each([
+		["discovery", { discovery: "down" }],
+		["the device start", { start: "down" }],
+	] as const)(
+		"%s answering 503 is a sign-in that could not start, to try again in a moment (exit 3)",
+		async (_step, overrides) => {
+			const { deps, store } = harness(overrides);
+			expect(await loginCommand({ json: true, noBrowser: true }, deps)).toBe(3);
+			const { error } = JSON.parse(stdout.join(""));
+			expect(error.code).toBe("SIGN_IN_FAILED");
+			expect(error.message).toBe(
+				"The sign-in could not start: account.ora.test answered HTTP 503. Try again in a moment.",
+			);
+			expect(all()).not.toContain("does not offer");
+			expect(store.read()).toBeNull();
+		},
+	);
+
+	it("a sign-in it cannot store is ended on the server, and fails (exit 3)", async () => {
+		const { deps, server } = harness();
+		const store = unwritableStore();
+		deps.credentials = platformCredentials({ store, fetchFn: server.fetchFn });
+		expect(await loginCommand({ json: true, noBrowser: true }, deps)).toBe(3);
+		const { error } = JSON.parse(stdout.join(""));
+		expect(error.code).toBe("SIGN_IN_NOT_SAVED");
+		expect(error.message).toMatch(/^ax could not save the sign-in: /);
+		expect(server.state.revoked).toEqual(["refresh-1"]);
+		expect(store.read()).toBeNull();
+		expect(server.state.identityCalls).toEqual([]);
+	});
 });
 
 describe("ax whoami and ax logout", () => {
@@ -262,5 +374,109 @@ describe("ax whoami and ax logout", () => {
 		expect(await logoutCommand({ json: false }, deps)).toBe(0);
 		expect(printed.join("\n")).toContain("Not signed in");
 		expect(server.calls).not.toHaveBeenCalled();
+	});
+});
+
+describe("no token in any output", () => {
+	let out: string[];
+
+	beforeEach(() => {
+		out = [];
+		const keep = (...args: unknown[]) => void out.push(args.map(String).join(" "));
+		for (const method of ["log", "error", "warn", "info", "debug"] as const) {
+			vi.spyOn(console, method).mockImplementation(keep);
+		}
+		const write = (chunk: unknown) => {
+			out.push(typeof chunk === "string" ? chunk : Buffer.from(chunk as Uint8Array).toString());
+			return true;
+		};
+		vi.spyOn(process.stdout, "write").mockImplementation(write);
+		vi.spyOn(process.stderr, "write").mockImplementation(write);
+	});
+
+	/** Moves the stored sign-in's expiry to `ms` from now (a sign-in renews within a minute of it). */
+	function expireIn(store: SessionStore, ms: number): void {
+		const session = store.read();
+		if (!session) throw new Error("ax login stored no sign-in");
+		store.write({ ...session, expiresAt: Date.now() + ms });
+	}
+
+	/** The device code and every token the servers issued, those that appear in any output. */
+	function leaked(...servers: Array<ReturnType<typeof fakeSignInServer>>): string[] {
+		const issued = servers.flatMap(({ state }) =>
+			Array.from({ length: state.issued }, (_, i) => [`access-${i + 1}`, `refresh-${i + 1}`]),
+		);
+		const text = out.join("\n");
+		return ["device-1", ...issued.flat()].filter((secret) => text.includes(secret));
+	}
+
+	it("ax login, ax whoami (renewing a sign-in about to expire) and ax logout print none", async () => {
+		const { deps, store, server } = harness();
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		expect(await loginCommand({ json: true, noBrowser: true }, deps)).toBe(0);
+		expireIn(store, 10 * 60_000);
+		expect(await whoamiCommand({ json: false }, deps)).toBe(0);
+		expect(await whoamiCommand({ json: true }, deps)).toBe(0);
+		expireIn(store, 30_000);
+		expect(await whoamiCommand({ json: false }, deps)).toBe(0);
+		expireIn(store, 30_000);
+		expect(await whoamiCommand({ json: true }, deps)).toBe(0);
+		expect(await logoutCommand({ json: false }, deps)).toBe(0);
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		expect(await logoutCommand({ json: true }, deps)).toBe(0);
+
+		// Each command ran and was heard, and the sign-in about to expire was renewed both times.
+		expect(server.state.issued).toBe(5);
+		expect(server.state.refreshes).toBe(2);
+		expect(server.state.identityCalls).toEqual(
+			expect.arrayContaining(["Bearer access-3", "Bearer access-4"]),
+		);
+		const text = out.join("\n");
+		for (const shown of [
+			"ABCD-EFGH",
+			"Signed in to ora.",
+			'"signedIn": true',
+			"member@acme.test",
+			'"credential": "sign_in"',
+			`Signed out of ${PLATFORM}.`,
+			'"signedOut":true',
+		]) {
+			expect(text).toContain(shown);
+		}
+		expect(leaked(server)).toEqual([]);
+	});
+
+	it("nor does a renewal that fails, a refused code, or a sign-in ax could not store", async () => {
+		const { deps, store, server } = harness();
+		expect(await loginCommand({ json: false, noBrowser: true }, deps)).toBe(0);
+		expireIn(store, 30_000);
+		server.state.refresh = "unavailable";
+		expect(await whoamiCommand({ json: false }, deps)).toBe(3);
+		server.state.refresh = "unreachable";
+		expect(await whoamiCommand({ json: true }, deps)).toBe(3);
+		server.state.refresh = "invalid_grant";
+		expect(await whoamiCommand({ json: false }, deps)).toBe(3);
+		const denied = harness({ polls: ["denied"] });
+		expect(await loginCommand({ json: true, noBrowser: true }, denied.deps)).toBe(3);
+		const unsaved = harness();
+		unsaved.deps.credentials = platformCredentials({
+			store: unwritableStore(),
+			fetchFn: unsaved.server.fetchFn,
+		});
+		expect(await loginCommand({ json: false, noBrowser: true }, unsaved.deps)).toBe(3);
+
+		expect(server.state.refreshes).toBe(3);
+		expect(unsaved.server.state.revoked).toEqual(["refresh-1"]);
+		const text = out.join("\n");
+		for (const shown of [
+			"the sign-in could not be renewed: account.ora.test answered HTTP 503",
+			"the sign-in could not be renewed: could not reach account.ora.test (ECONNREFUSED)",
+			"Your ax sign-in no longer works",
+			"cancelled in the browser",
+			"ax could not save the sign-in",
+		]) {
+			expect(text).toContain(shown);
+		}
+		expect(leaked(server, denied.server, unsaved.server)).toEqual([]);
 	});
 });
