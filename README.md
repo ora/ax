@@ -533,7 +533,15 @@ With `--watch` on a terminal, ax follows the set over ora's live stream and repa
     Pick it up again: ax journey view ebafe3d5-8a74-4eb4-b532-2732055d31c0 --watch
 ```
 
-When watching ends, the panel's last frame stays on screen, and the report under it leaves out the cells the panel already shows: its closing lines and the Next line follow. Off a terminal (CI, a pipe, a file) `--watch` prints a line each time something moves instead, and the report is printed whole.
+When watching ends, the panel's last frame stays on screen, and the report under it leaves out the cells the panel already shows. When the set is complete and ora has read it closely, an end view follows instead of the closing lines:
+
+- **Where agents drop off:** a bar per level of help, its count, and the step that gained or lost agents, named by its layer: *Discovery* when naming the brand or linking the docs helped, *Access and Usability* when starting at the exact page did.
+- **Since the last run of this set:** each level's change in percentage points, up, down, or within noise. The last run of the same set is the last one with the same site, goals, levels and agents; ora decides whether the two are comparable.
+- **Why runs did not pass:** how many never visited your site, visited and still missed, or were blocked by it, and how many passed without visiting it (the agent already knew the answer).
+- **Agents:** each agent over the whole set.
+- **A link to every run's journey on ora**, and a Next line aimed at the layer where agents dropped off.
+
+Off a terminal (CI, a pipe, a file) `--watch` prints a line each time something moves instead, and the report is printed whole. `--json` always prints the set exactly as ora served it, `breakdown` and `links` included.
 
 #### Watching, leaving and stopping
 

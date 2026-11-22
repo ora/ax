@@ -417,7 +417,7 @@ describe("--watch: where the set is shown", () => {
 		client: SetsClient,
 		progress: () => SetProgress,
 		interrupt?: AbortSignal,
-		seams: { stdoutIsTerminal?: boolean } = {},
+		seams: { stdoutIsTerminal?: boolean; endView?: { width: number; color: boolean } } = {},
 	) =>
 		journeySetRun({
 			goals: ["Find the API docs", "Find the pricing"],
@@ -447,6 +447,55 @@ describe("--watch: where the set is shown", () => {
 		expect(stdout).not.toMatch(/\nGoal \d: /);
 		for (const gap of COMPLETE.gaps) expect(stdout).toContain(gap.line);
 		expect(stdout).toContain(`Next: ${COMPLETE.next.line}`);
+	});
+
+	it("a complete set the platform read closely ends with the end view on the terminal, and a Next line aimed at the drop", async () => {
+		const closely: SetDocument = {
+			...COMPLETE,
+			breakdown: {
+				levels: [
+					{ key: "need", graded: 4, passed: 0 },
+					{ key: "brand", graded: 8, passed: 7 },
+					{ key: "exact", graded: 8, passed: 8 },
+				],
+				agents: [
+					{ agent: COMPLETE.agents[0], graded: 10, passed: 7 },
+					{ agent: COMPLETE.agents[1], graded: 10, passed: 8 },
+				],
+				notPassed: { runs: 5, neverVisited: 4, visited: 1, blocked: 0, unclear: 0 },
+				passedWithoutVisiting: 2,
+				previous: null,
+			},
+			links: { set: `https://study.ora.ai/studies/manage/${COMPLETE.setId}` },
+		};
+		const client = fakeClient({
+			follow: async (_id, onSet) => {
+				onSet(closely);
+			},
+		}).client;
+		await run(client, recording(true).progress, undefined, {
+			stdoutIsTerminal: true,
+			endView: { width: 120, color: false },
+		});
+		expect(stdout).toContain("◆ Where agents drop off");
+		expect(stdout).toContain("4 of 5 never visited linear.app");
+		expect(stdout).toContain(
+			`Every run's journey, step by step:  https://study.ora.ai/studies/manage/${COMPLETE.setId}`,
+		);
+		expect(stdout).toContain(
+			`Next: ${COMPLETE.next.line}  # the Discovery checks behind the drop at Need only`,
+		);
+		// The end view says what the closing lines said: they are not printed again.
+		expect(stdout).not.toContain(COMPLETE.gaps[0].line);
+	});
+
+	it("a platform that serves no breakdown keeps the report as before, under the panel", async () => {
+		await run(completing(), recording(true).progress, undefined, {
+			stdoutIsTerminal: true,
+			endView: { width: 120, color: false },
+		});
+		expect(stdout).not.toContain("◆ Where agents drop off");
+		for (const gap of COMPLETE.gaps) expect(stdout).toContain(gap.line);
 	});
 
 	it("a report going anywhere else (a pipe, a file) keeps every cell, whatever the terminal shows", async () => {
