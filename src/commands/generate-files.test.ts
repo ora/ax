@@ -18,7 +18,7 @@ const BUNDLE = realBundle as api.AgentFilesBundle;
 let out: string;
 
 const run = (over: Partial<Parameters<typeof generateFilesCommand>[0]> = {}) =>
-	generateFilesCommand({ domain: "stripe.com", out, force: false, json: false, ...over });
+	generateFilesCommand({ domain: "debian.org", out, force: false, json: false, ...over });
 
 beforeEach(() => {
 	out = mkdtempSync(join(tmpdir(), "ax-generate-files-"));
@@ -111,13 +111,13 @@ describe("generateFilesCommand", () => {
 			error: {
 				code: "API_ERROR",
 				message: "could not reach ora at https://ora.ai: fetch failed",
-				next: `ax generate-files stripe.com --json --out ${out}`,
+				next: `ax generate-files debian.org --json --out ${out}`,
 			},
 		});
 	});
 
 	it("--json gives a 2xx answer ax refused the envelope, never the refused body", async () => {
-		const refused = { domain: "stripe.com", generatedAt: "2026-11-13T00:00:00Z" };
+		const refused = { domain: "debian.org", generatedAt: "2026-11-13T00:00:00Z" };
 		vi.mocked(api.fetchAgentFiles).mockRejectedValueOnce(
 			new api.AgentFilesApiError("ora answered without a files list", {
 				status: 200,
@@ -134,12 +134,12 @@ describe("generateFilesCommand", () => {
 	it("ends a write with a Next line to rescan, and a refusal to overwrite with --force", async () => {
 		expect(await run()).toBe(EXIT.OK);
 		expect(console.log).toHaveBeenLastCalledWith(
-			"Next: ax audit stripe.com --force  # after you publish them, rescan to verify",
+			"Next: ax audit debian.org --force  # after you publish them, rescan to verify",
 		);
 
 		expect(await run()).toBe(EXIT.USAGE);
 		expect(console.error).toHaveBeenLastCalledWith(
-			`Next: ax generate-files stripe.com --out ${out} --force  # overwrite them, or pass --out <dir> to write somewhere else`,
+			`Next: ax generate-files debian.org --out ${out} --force  # overwrite them, or pass --out <dir> to write somewhere else`,
 		);
 	});
 
@@ -171,7 +171,7 @@ describe("generateFilesCommand with the 1.31.0 files", () => {
 		notes: [`note for ${path}`],
 		mediaType,
 		body,
-		url: `https://stripe.com${path}`,
+		url: `https://debian.org${path}`,
 	});
 	const card = (url: string): api.AgentFile => ({
 		path: new URL(url).pathname,
@@ -190,7 +190,7 @@ describe("generateFilesCommand with the 1.31.0 files", () => {
 				...ALL.files,
 				text("/robots.txt", "User-agent: *\nAllow: /\n", "text/plain"),
 				text("/llms.txt", "# Stripe\n", "text/markdown"),
-				card("https://stripe.com/mcp/server-card"),
+				card("https://debian.org/mcp/server-card"),
 			],
 		});
 		expect(await run()).toBe(EXIT.OK);
@@ -205,7 +205,7 @@ describe("generateFilesCommand with the 1.31.0 files", () => {
 	it("names a card that lives on another host instead of writing it, and prints the bundle notes", async () => {
 		vi.mocked(api.fetchAgentFiles).mockResolvedValueOnce({
 			...ALL,
-			files: [...ALL.files, card("https://mcp.stripe.com/server-card")],
+			files: [...ALL.files, card("https://mcp.debian.org/server-card")],
 		});
 		expect(await run()).toBe(EXIT.OK);
 		expect(existsSync(join(out, "server-card"))).toBe(false);
@@ -213,13 +213,18 @@ describe("generateFilesCommand with the 1.31.0 files", () => {
 			.mocked(console.log)
 			.mock.calls.map((c) => String(c[0]))
 			.join("\n");
-		expect(printed).toContain("https://mcp.stripe.com/server-card");
+		expect(printed).toContain("https://mcp.debian.org/server-card");
 		expect(printed).toContain("No robots.txt draft");
 	});
 
 	it("writes a 1.30.0 server's files, which carry no body or url, from their JSON content", async () => {
+		// A 1.30.0 server sent only path, spec, content and notes per file.
+		const files = BUNDLE.files.map(
+			({ body: _body, url: _url, mediaType: _mediaType, ...file }) => file,
+		);
+		vi.mocked(api.fetchAgentFiles).mockResolvedValueOnce({ ...BUNDLE, files });
 		expect(await run()).toBe(EXIT.OK);
-		const poppy = BUNDLE.files.find((f) => f.path === "/.well-known/poppy.json")!;
+		const poppy = files.find((f) => f.path === "/.well-known/poppy.json")!;
 		expect(readFileSync(join(out, ".well-known", "poppy.json"), "utf8")).toBe(
 			`${JSON.stringify(poppy.content, null, 2)}\n`,
 		);
