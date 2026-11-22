@@ -1,0 +1,69 @@
+{
+	"site": "linear.app",
+	"brand": "Linear",
+	"goals": [
+		{
+			"index": 1,
+			"text": "Find how to create an issue from the API",
+			"levels": [
+				"need",
+				"brand",
+				"exact"
+			]
+		},
+		{
+			"index": 2,
+			"text": "Find how to receive a webhook from Linear when an issue is updated.",
+			"levels": [
+				"brand",
+				"exact"
+			]
+		}
+	],
+	"levels": [
+		{
+			"key": "need",
+			"label": "Need only",
+			"prompt": null
+		},
+		{
+			"key": "brand",
+			"label": "Brand named",
+			"prompt": "Use Linear."
+		},
+		{
+			"key": "exact",
+			"label": "Exact target",
+			"prompt": "Start at https://linear.app/developers."
+		}
+	],
+	"skippedLevels": [
+		{
+			"level": "need",
+			"goal": 2,
+			"note": "The goal names Linear, so the need level is skipped. Write the goal without it to include that level."
+		},
+		{
+			"level": "docs",
+			"goal": null,
+			"note": "No --docs URL, so the docs level is skipped. Add --docs <url> to include it."
+		}
+	],
+	"agents": [
+		{
+			"id": "claude-code/claude-haiku-4-5-20251001",
+			"chosen": "named"
+		},
+		{
+			"id": "codex/gpt-5.4-mini",
+			"chosen": "named"
+		}
+	],
+	"repeat": 1,
+	"runs": {
+		"total": 10,
+		"limit": 200,
+		"left": 9998090,
+		"fits": true
+	}
+}

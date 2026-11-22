@@ -21,36 +21,42 @@ function isThisMachine(hostname: string): boolean {
 	return isLoopback(hostname) || hostname.endsWith(".localhost");
 }
 
+/** How the refusals name a key, unless the caller sends something else (a sign-in's tokens). */
+const A_KEY = "your key";
+
 /**
- * Why ax will not send a key to `base`, or undefined when it may.
+ * Why ax will not send a key to `base`, or undefined when it may. `credential` is what the
+ * refusal calls the thing that was not sent: `your key` unless the caller says otherwise.
  *
- * The default host is always fine. Any other host gets the key only over https
- * (plain http only to this machine), and only when the user chose it: a host
- * that came from a `.env` in the current directory is refused, because that
- * file may belong to whatever repository ax happens to run in.
+ * The default host is always fine (ora's own hosts, when `defaultBase` lists more than one).
+ * Any other host gets the key only over https (plain http only to this machine), and only when
+ * the user chose it: a host that came from a `.env` in the current directory is refused, because
+ * that file may belong to whatever repository ax happens to run in.
  */
 export function keyDestinationProblem(
 	base: string,
 	variable: KeyBaseVariable,
-	defaultBase: string,
+	defaultBase: string | readonly string[],
+	credential: string = A_KEY,
 ): string | undefined {
 	let url: URL;
 	try {
 		url = new URL(base);
 	} catch {
-		return `${variable} is not a URL, so ax did not send your key anywhere.`;
+		return `${variable} is not a URL, so ax did not send ${credential} anywhere.`;
 	}
-	if (url.origin === new URL(defaultBase).origin) return undefined;
+	const defaults = typeof defaultBase === "string" ? [defaultBase] : defaultBase;
+	if (defaults.some((value) => url.origin === new URL(value).origin)) return undefined;
 	const local = isThisMachine(url.hostname);
 	if (url.protocol !== "https:" && !local) {
-		return `${variable} is ${url.origin}. ax sends your key only over https, or over plain http to this machine.`;
+		return `${variable} is ${url.origin}. ax sends ${credential} only over https, or over plain http to this machine.`;
 	}
 	if (
 		!isLoopback(url.hostname) &&
 		fromLocalEnvFile(variable) &&
 		sameOrigin(process.env[variable], url)
 	) {
-		return `${variable} in ./.env points at ${url.host}, so ax did not send your key there. To use that host, export ${variable} in your shell.`;
+		return `${variable} in ./.env points at ${url.host}, so ax did not send ${credential} there. To use that host, export ${variable} in your shell.`;
 	}
 	return undefined;
 }
@@ -67,9 +73,10 @@ function sameOrigin(value: string | undefined, url: URL): boolean {
 export function assertKeyDestination(
 	base: string,
 	variable: KeyBaseVariable,
-	defaultBase: string,
+	defaultBase: string | readonly string[],
+	credential: string = A_KEY,
 ): void {
-	const problem = keyDestinationProblem(base, variable, defaultBase);
+	const problem = keyDestinationProblem(base, variable, defaultBase, credential);
 	if (problem) throw new KeyDestinationError(problem);
 }
 

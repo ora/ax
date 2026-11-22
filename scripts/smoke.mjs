@@ -7,8 +7,10 @@
 // Also checks the things that break `npx ax` but never break `pnpm test`:
 // a missing shebang or a non-executable bin.
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 const BIN = "dist/main.cjs";
 const failures = [];
@@ -61,6 +63,9 @@ check("--help exits 0 and lists every command", () => {
 		"journey",
 		"skill",
 		"generate-files",
+		"login",
+		"logout",
+		"whoami",
 	]) {
 		if (!help.includes(command)) throw new Error(`help omits "${command}"`);
 	}
@@ -79,12 +84,46 @@ check("audit --help exits 0", () => ax(["audit", "--help"]));
 check("webmcp-audit --help exits 0", () => ax(["webmcp-audit", "--help"]));
 check("deep-journey --help exits 0", () => ax(["deep-journey", "--help"]));
 check("journey --help exits 0", () => ax(["journey", "--help"]));
+check("login --help exits 0", () => ax(["login", "--help"]));
+check("logout --help exits 0", () => ax(["logout", "--help"]));
+check("whoami --help exits 0", () => ax(["whoami", "--help"]));
 
 // Each call below fails on its flags before any network call, so these run offline.
 function axFails(args) {
 	const run = spawnSync(process.execPath, [BIN, ...args], { encoding: "utf8" });
 	return { status: run.status, stderr: run.stderr };
 }
+
+// The sign-in commands, from an empty directory (no .env) with an empty config home, so a
+// developer's own sign-in or key never reaches them. Each one ends before any network call.
+const home = mkdtempSync(join(tmpdir(), "ax-smoke-"));
+function axSignedOut(args, env = {}) {
+	const run = spawnSync(process.execPath, [resolve(BIN), ...args], {
+		cwd: home,
+		encoding: "utf8",
+		env: { ...process.env, XDG_CONFIG_HOME: home, ORA_API_KEY: "", ...env },
+	});
+	return { status: run.status, stdout: run.stdout, stderr: run.stderr };
+}
+
+check("whoami with no sign-in and no key exits 2 and says ax login", () => {
+	const { status, stderr } = axSignedOut(["whoami"]);
+	if (status !== 2) throw new Error(`exit ${status}, want 2`);
+	if (!stderr.includes("ax login")) throw new Error("does not point at ax login");
+});
+
+check("logout with nothing stored exits 0 and says so", () => {
+	const { status, stdout } = axSignedOut(["logout"]);
+	if (status !== 0) throw new Error(`exit ${status}, want 0`);
+	if (!stdout.includes("Not signed in")) throw new Error("does not say it was not signed in");
+});
+
+check("login refuses a platform that is not api.<domain> before any request", () => {
+	const { status } = axSignedOut(["login", "--no-browser"], {
+		ORA_PLATFORM_URL: "https://platform.example.test",
+	});
+	if (status !== 2) throw new Error(`exit ${status}, want 2`);
+});
 
 check("deep-journey still runs, notes its new name, and keeps its exit codes", () => {
 	const args = [
@@ -114,6 +153,80 @@ check("journey with no goal takes the free path, which needs --domain", () => {
 	if (!stderr.includes("--domain names the site")) throw new Error("not the free path's error");
 	if (stderr.includes("ORA_API_KEY")) throw new Error("the free path asked for a Front key");
 });
+
+// A set of journeys, through the bundled bin, against the mock sets server (the platform's real
+// answers, checked in). Unit tests drive the commands directly; only this proves the bin routes
+// `ax journey` to a set, signs the calls and prints the served document.
+check(
+	"journey list with no credential is a usage error that names both ways in, before any call",
+	() => {
+		// A config home of its own: a sign-in stored on this machine must not answer for the check.
+		const run = spawnSync(process.execPath, [BIN, "journey", "list"], {
+			encoding: "utf8",
+			env: { ...process.env, XDG_CONFIG_HOME: home, ORA_API_KEY: "" },
+		});
+		if (run.status !== 2) throw new Error(`exit ${run.status}, want 2`);
+		if (!run.stderr.includes("ax login")) throw new Error("the error does not name ax login");
+		if (!run.stderr.includes("ORA_API_KEY")) throw new Error("the error does not name the key");
+	},
+);
+
+const SETS_PORT = 8798;
+const mock = spawn(process.execPath, ["scripts/mock-sets-server.mjs", String(SETS_PORT)], {
+	stdio: ["ignore", "pipe", "inherit"],
+});
+await new Promise((ready, reject) => {
+	mock.stdout.once("data", ready);
+	mock.once("error", reject);
+	mock.once("exit", (code) => reject(new Error(`mock sets server exited ${code}`)));
+});
+function axSet(args) {
+	return spawnSync(process.execPath, [BIN, ...args], {
+		encoding: "utf8",
+		env: {
+			...process.env,
+			XDG_CONFIG_HOME: home,
+			ORA_PLATFORM_URL: `http://localhost:${SETS_PORT}`,
+			ORA_API_KEY: "ora_sk_mock",
+			NO_COLOR: "1",
+		},
+	});
+}
+try {
+	check("journey view --json prints the set exactly as the platform served it", () => {
+		const served = JSON.parse(
+			readFileSync("src/journey-set/__fixtures__/set-running.json", "utf8"),
+		);
+		const run = axSet(["journey", "view", served.setId, "--json"]);
+		if (run.status !== 0) throw new Error(`exit ${run.status}: ${run.stderr}`);
+		if (JSON.stringify(JSON.parse(run.stdout)) !== JSON.stringify(served))
+			throw new Error("stdout is not the served document");
+	});
+
+	check("two goals are a set: the preview is printed and nothing launches without --yes", () => {
+		const run = axSet([
+			"journey",
+			"Find the API docs",
+			"Find the pricing",
+			"--domain",
+			"linear.app",
+		]);
+		if (run.status !== 2) throw new Error(`exit ${run.status}, want 2`);
+		if (!run.stderr.includes("a set of journeys")) throw new Error("no preview on stderr");
+		if (!run.stderr.includes("Nothing was launched"))
+			throw new Error("did not say nothing launched");
+		if (run.stdout !== "") throw new Error("stdout is not empty");
+	});
+
+	check("journey list prints each set and the next call", () => {
+		const run = axSet(["journey", "list"]);
+		if (run.status !== 0) throw new Error(`exit ${run.status}: ${run.stderr}`);
+		if (!run.stdout.includes("Next: ax journey view ")) throw new Error("no Next line");
+	});
+} finally {
+	mock.removeAllListeners("exit");
+	mock.kill();
+}
 
 if (failures.length > 0) {
 	console.error(`\nsmoke failed (${failures.length}):`);

@@ -1,12 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiKeyCredential } from "../auth/api-key-credential";
+import { KeyRejectedError } from "../auth/errors";
 import { KeyDestinationError } from "./key-destination";
-import {
-	decodeEventBlock,
-	exchangeKey,
-	launchJourney,
-	PlatformApiError,
-	type RawRunStep,
-} from "./platform";
+import { decodeEventBlock, launchJourney, type RawRunStep, type RunRequest } from "./platform";
+import { PlatformApiError } from "./platform-error";
 
 // The run stream is *named* SSE — `event: X` + `data: {json}` blocks with
 // `: ping` heartbeat comments in between. A different framing from the scan
@@ -47,13 +44,17 @@ function platformMock(config: { created?: unknown; stream?: Response; spendRows?
 	});
 }
 
-const REQUEST = {
+const BASE = "https://platform.test";
+
+/** A run on a platform key, with a credential of its own: a traded token is kept per credential. */
+const request = (over: Partial<RunRequest> = {}): RunRequest => ({
 	intent: "Locate the REST API reference",
 	domain: "acme.dev",
 	harness: "claude-code",
-	apiKey: "ora_sk_local",
-	baseUrl: "https://platform.test",
-};
+	baseUrl: BASE,
+	credential: new ApiKeyCredential(over.baseUrl ?? BASE, "ora_sk_local"),
+	...over,
+});
 
 const FINALE: Array<[string, unknown]> = [
 	[
@@ -105,7 +106,7 @@ describe("launchJourney", () => {
 		vi.stubGlobal("fetch", fetchMock);
 
 		const burst: RawRunStep[] = [];
-		const run = await launchJourney(REQUEST, { step: (s) => burst.push(s) });
+		const run = await launchJourney(request(), { step: (s) => burst.push(s) });
 
 		// Raw `step` events are the end-of-run burst — collected, never merged
 		// with trajectory snapshots.
@@ -119,6 +120,23 @@ describe("launchJourney", () => {
 		expect(String(fetchMock.mock.calls[0][0])).toContain("/auth/token");
 		expect(String(fetchMock.mock.calls[2][0])).toContain("/experiment/v1/runs/run_9/stream");
 		expect(String(fetchMock.mock.calls[3][0])).toContain("/runs?pageSize=");
+	});
+
+	it("with a browser sign-in: no key trade, the access token on every call, asked again for the totals", async () => {
+		const fetchMock = platformMock({ stream: runStream(FINALE) });
+		vi.stubGlobal("fetch", fetchMock);
+		const bearers = ["access-1", "access-2"];
+		const credential = { bearer: vi.fn(async () => bearers.shift() ?? "x") };
+		await launchJourney(request({ credential }));
+
+		const urls = fetchMock.mock.calls.map(([url]) => String(url));
+		expect(urls.some((url) => url.endsWith("/auth/token"))).toBe(false);
+		const auth = (i: number) =>
+			(fetchMock.mock.calls[i][1] as { headers: Record<string, string> }).headers.authorization;
+		expect(auth(0)).toBe("Bearer access-1");
+		// The totals are read after the run: the credential is asked again (a sign-in renews there).
+		expect(auth(fetchMock.mock.calls.length - 1)).toBe("Bearer access-2");
+		expect(credential.bearer).toHaveBeenCalledTimes(2);
 	});
 
 	it("relays every growing trajectory snapshot and keeps the last", async () => {
@@ -140,7 +158,7 @@ describe("launchJourney", () => {
 		);
 
 		const sizes: number[] = [];
-		const run = await launchJourney(REQUEST, { snapshot: (s) => sizes.push(s.length) });
+		const run = await launchJourney(request(), { snapshot: (s) => sizes.push(s.length) });
 		expect(sizes).toEqual([1, 2]);
 		expect(run.trajectory).toHaveLength(2);
 		expect(run.trajectory[1]).toMatchObject({ type: "tool_call", tool: "WebSearch" });
@@ -164,7 +182,7 @@ describe("launchJourney", () => {
 			}),
 		);
 
-		const run = await launchJourney(REQUEST);
+		const run = await launchJourney(request());
 		expect(run.usage).toMatchObject({
 			totalTokens: 119_100,
 			inputTokens: 101_000,
@@ -179,7 +197,7 @@ describe("launchJourney", () => {
 			platformMock({ stream: runStream([["run", { runId: "run_9" }], ...FINALE]) }),
 		);
 		const openings: string[] = [];
-		await launchJourney(REQUEST, { opened: (id) => openings.push(id) });
+		await launchJourney(request(), { opened: (id) => openings.push(id) });
 		expect(openings).toEqual(["run_9"]);
 	});
 
@@ -187,7 +205,7 @@ describe("launchJourney", () => {
 		const fetchMock = platformMock({ stream: runStream(FINALE) });
 		vi.stubGlobal("fetch", fetchMock);
 
-		await launchJourney({ ...REQUEST, model: "claude-haiku-4-5-20251001" });
+		await launchJourney(request({ model: "claude-haiku-4-5-20251001" }));
 		const create = fetchMock.mock.calls.find(
 			([at, init]) =>
 				String(at).endsWith("/experiment/v1/runs") &&
@@ -206,19 +224,14 @@ describe("launchJourney", () => {
 		});
 	});
 
-	it("demands ORA_API_KEY up front", async () => {
-		vi.stubEnv("ORA_API_KEY", "");
-		await expect(
-			launchJourney({ intent: "x", harness: "claude-code", baseUrl: "https://platform.test" }),
-		).rejects.toThrow(/ORA_API_KEY/);
-	});
-
-	it("translates a 401 token exchange into a key hint", async () => {
+	it("translates a 401 token exchange into the key's own refusal", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => new Response("{}", { status: 401 })),
 		);
-		await expect(launchJourney(REQUEST)).rejects.toThrow(/API key/i);
+		const failure = launchJourney(request());
+		await expect(failure).rejects.toThrow(KeyRejectedError);
+		await expect(failure).rejects.toThrow(/platform key was rejected\. Check ORA_API_KEY/);
 	});
 
 	it("translates a 429 on create into a rate-limit hint", async () => {
@@ -229,7 +242,7 @@ describe("launchJourney", () => {
 				return new Response("{}", { status: 429 });
 			}),
 		);
-		await expect(launchJourney(REQUEST)).rejects.toThrow(/rate limit/i);
+		await expect(launchJourney(request())).rejects.toThrow(/rate limit/i);
 	});
 
 	it("keeps the platform's JSON error body on the error, and none for a non-JSON one", async () => {
@@ -241,7 +254,7 @@ describe("launchJourney", () => {
 				return asJson(served, 422);
 			}),
 		);
-		const failure = launchJourney(REQUEST);
+		const failure = launchJourney(request());
 		await expect(failure).rejects.toThrow(PlatformApiError);
 		await expect(failure).rejects.toMatchObject({ status: 422, payload: served });
 
@@ -249,7 +262,7 @@ describe("launchJourney", () => {
 			"fetch",
 			vi.fn(async () => new Response("<html>bad gateway</html>", { status: 502 })),
 		);
-		await expect(launchJourney(REQUEST)).rejects.toMatchObject({ status: 502, payload: null });
+		await expect(launchJourney(request())).rejects.toMatchObject({ status: 502, payload: null });
 	});
 
 	it("times out when the run stream goes silent", async () => {
@@ -271,37 +284,19 @@ describe("launchJourney", () => {
 				});
 			}),
 		);
-		await expect(launchJourney({ ...REQUEST, idleMs: 40 })).rejects.toThrow(/timed out/i);
+		await expect(launchJourney(request({ idleMs: 40 }))).rejects.toThrow(/timed out/i);
 	});
 });
 
-describe("exchangeKey", () => {
+describe("a journey's key", () => {
 	afterEach(() => vi.unstubAllGlobals());
 
-	it("never sends the key over plain http to a host other than this machine", async () => {
+	it("is held to the destination rule before the run is created", async () => {
 		const fetchMock = vi.fn(async () => asJson({ token: "t" }));
 		vi.stubGlobal("fetch", fetchMock);
-		await expect(exchangeKey("http://collector.example", "ora_sk_local")).rejects.toThrow(
+		await expect(launchJourney(request({ baseUrl: "http://collector.example" }))).rejects.toThrow(
 			KeyDestinationError,
 		);
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	it("bounds the exchange, so a platform that never answers does not hang the command", async () => {
-		const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
-			asJson({ token: "t" }),
-		);
-		vi.stubGlobal("fetch", fetchMock);
-		await exchangeKey("https://platform.test", "ora_sk_local");
-		expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
-	});
-
-	it("checks the destination of a single journey's key too", async () => {
-		const fetchMock = vi.fn(async () => asJson({ token: "t" }));
-		vi.stubGlobal("fetch", fetchMock);
-		await expect(
-			launchJourney({ ...REQUEST, baseUrl: "http://collector.example" }),
-		).rejects.toThrow(KeyDestinationError);
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });

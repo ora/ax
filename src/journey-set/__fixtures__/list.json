@@ -1,0 +1,20 @@
+{
+	"sets": [
+		{
+			"setId": "593eea5e-c76d-4394-8dd7-dc52c6fbb61d",
+			"createdAt": "2026-11-22T05:38:37.144632+00:00",
+			"site": "linear.app",
+			"state": "complete",
+			"goals": 2,
+			"plannedRuns": 10
+		},
+		{
+			"setId": "064fab01-f0a1-489a-8e48-cf41a6c7708a",
+			"createdAt": "2026-11-22T05:17:15.04524+00:00",
+			"site": "linear.app",
+			"state": "complete",
+			"goals": 2,
+			"plannedRuns": 10
+		}
+	]
+}
