@@ -264,7 +264,8 @@ describe("endViewLines: the screen", () => {
 		const url =
 			"https://study.ws-a-b.dev.example.sh/studies/manage/103e2b77-f72b-409d-bfc4-c0199aea324f";
 		const lines = plainLines(set({ links: { set: url } }), 60);
-		expect(lines.some((line) => line.includes(url))).toBe(true);
+		// Too narrow for words and link on one line: the link stands whole on a line of its own.
+		expect(lines).toContain(`  ${url}`);
 	});
 
 	it("text the platform sent cannot move the cursor", () => {
