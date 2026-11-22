@@ -44,7 +44,7 @@ const REFUSALS = {
 			error: "Set engine",
 			code: "PRODUCT_REQUIRED",
 			message:
-				"This organization does not have the product a set of journeys runs on. An owner or admin of the organization adds it from the account's Products page; then run this again.",
+				"This organization does not have the product a set of journeys runs on. An owner or admin of the organization can add it on the approval page when signing a tool in to it; then run this again.",
 		},
 	],
 	down: [
