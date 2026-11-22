@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.1](https://github.com/ora/ax/compare/v0.12.0...v0.12.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **help:** the top-level help lists every flag of a set ([#112](https://github.com/ora/ax/issues/112)) ([edc3699](https://github.com/ora/ax/commit/edc3699ec6e81dd948d9c35daa3aaa0741be1cba))
+* **help:** the top-level help shows sets of journeys ([#110](https://github.com/ora/ax/issues/110)) ([fdd95a9](https://github.com/ora/ax/commit/fdd95a9a6d60ef9c3c8404d89eff701d9b1d2b96))
+
 ## [0.12.0](https://github.com/ora/ax/compare/v0.11.0...v0.12.0) (2026-11-22)
 
 
