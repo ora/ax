@@ -162,19 +162,32 @@ export async function followSet(
 	const deadline = now() + options.waitMinutes * 60_000;
 	let set = first;
 	let said = "";
+	/** Under --watch: the last document whose moves were printed, so reading on prints only what moved since. */
+	let shown: SetDocument | null = null;
 	if (options.watch) {
 		const live = await watchSet(client, first, { deadline, now, interrupt: options.interrupt });
 		if (live.end !== null) return { set: live.set, end: live.end };
-		// The live stream could not be opened, or ended before the set was over: read it instead.
-		console.error("  Live updates are not available right now; checking every few seconds.");
+		// ora closes a study's live stream a minute after its last run, and a set is complete only once every
+		// grade and check is final: a stream ora ended while the set was grading is that, not a failure, so ax
+		// reads on and says nothing about it. Any other end (it would not open, or broke while runs were going)
+		// is said.
+		if (!(live.closedByOra && live.set.state === "grading"))
+			console.error("  Live updates are not available right now; checking every few seconds.");
 		set = live.set;
+		shown = live.printed;
 	}
 	for (;;) {
 		if (set.state === "complete" || set.state === "stopped" || set.state === "failed")
 			return { set, end: set.state };
-		const line = `${set.state}: ${set.runs.started} of ${set.runs.planned} runs started`;
-		if (line !== said) console.error(`  ${line}`);
-		said = line;
+		if (options.watch) {
+			// Reading on after the stream: the same lines the stream printed, for what moved since.
+			for (const moved of progressLines(shown, set)) console.error(`  ${moved}`);
+			shown = set;
+		} else {
+			const line = `${set.state}: ${set.runs.started} of ${set.runs.planned} runs started`;
+			if (line !== said) console.error(`  ${line}`);
+			said = line;
+		}
 		if (options.interrupt.aborted) return { set, end: "detached" };
 		if (now() >= deadline) return { set, end: "wait_limit" };
 		await sleep(POLL_MS, options.interrupt);
@@ -213,18 +226,25 @@ export function progressLines(before: SetDocument | null, after: SetDocument): s
 /**
  * Follow the set over the platform's live stream, printing what moves as it moves. `end` is null
  * when the stream could not say how the set ended (it would not open, or closed early): the caller
- * then reads the set instead. The wait limit and Ctrl-C close the stream; the runs go on.
+ * then reads the set instead. `closedByOra` says the stream ended on ora's side, normally (not an
+ * error, not our own close); `printed` is the last document whose moves were printed, if any. The
+ * wait limit and Ctrl-C close the stream; the runs go on.
  */
 async function watchSet(
 	client: SetsClient,
 	first: SetDocument,
 	options: { deadline: number; now: () => number; interrupt: AbortSignal },
-): Promise<{ set: SetDocument; end: FollowEnd | null }> {
+): Promise<{
+	set: SetDocument;
+	end: FollowEnd | null;
+	closedByOra: boolean;
+	printed: SetDocument | null;
+}> {
 	const over = (set: SetDocument): FollowEnd | null =>
 		set.state === "complete" || set.state === "stopped" || set.state === "failed"
 			? set.state
 			: null;
-	if (over(first)) return { set: first, end: over(first) };
+	if (over(first)) return { set: first, end: over(first), closedByOra: false, printed: null };
 	const stop = new AbortController();
 	let outOfTime = false;
 	const timer = setTimeout(
@@ -238,6 +258,7 @@ async function watchSet(
 	options.interrupt.addEventListener("abort", onInterrupt, { once: true });
 	let latest = first;
 	let printed: SetDocument | null = null;
+	let closedByOra = false;
 	try {
 		await client.follow(
 			first.setId,
@@ -248,6 +269,7 @@ async function watchSet(
 			},
 			stop.signal,
 		);
+		closedByOra = !stop.signal.aborted;
 	} catch (error) {
 		// A stream we closed ourselves is not a failure; any other one falls back to reading.
 		if (!stop.signal.aborted && !(error instanceof Error)) throw error;
@@ -255,9 +277,9 @@ async function watchSet(
 		clearTimeout(timer);
 		options.interrupt.removeEventListener("abort", onInterrupt);
 	}
-	if (options.interrupt.aborted) return { set: latest, end: "detached" };
-	if (outOfTime) return { set: latest, end: "wait_limit" };
-	return { set: latest, end: over(latest) };
+	if (options.interrupt.aborted) return { set: latest, end: "detached", closedByOra, printed };
+	if (outOfTime) return { set: latest, end: "wait_limit", closedByOra, printed };
+	return { set: latest, end: over(latest), closedByOra, printed };
 }
 
 const END_LINE: Readonly<Record<FollowEnd, string | null>> = {

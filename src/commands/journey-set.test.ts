@@ -354,6 +354,32 @@ describe("--watch: a set followed over the platform's live stream", () => {
 		expect(await run(client)).toBe(EXIT.OK);
 		expect(calls.map((call) => call.op)).toContain("get");
 	});
+
+	it("a stream that ends while the set is grading is not reported as unavailable: ax reads on and prints what moves", async () => {
+		// Its runs are over and their grades are settling. ora's live stream of a study closes a minute after its
+		// last run (staging and dev, 2026-11-22), and a set is complete only once every grade and check is final.
+		const [cell] = RUNNING.cells;
+		if (!cell) throw new Error("the running fixture has no cell");
+		const grading: SetDocument = { ...RUNNING, state: "grading", complete: false };
+		const settled: SetDocument = {
+			...COMPLETE,
+			cells: COMPLETE.cells.map((each, i) =>
+				i === 0 ? { ...each, graded: each.graded + 1 } : each,
+			),
+		};
+		const gets = [grading, settled];
+		const { client, calls } = fakeClient({
+			follow: async (_id, onSet) => onSet(grading),
+			get: async (id: string) => {
+				calls.push({ op: "get", arg: id });
+				return gets.shift() ?? settled;
+			},
+		});
+		expect(await run(client)).toBe(EXIT.OK);
+		expect(calls.map((call) => call.op)).toContain("get");
+		expect(stderr).not.toContain("Live updates are not available");
+		expect(stdout).toContain(`set ${COMPLETE.setId}`);
+	});
 });
 
 describe("progressLines", () => {
