@@ -1,5 +1,6 @@
 import { PlatformApiError } from "../api/platform-error";
 import type { PlatformCredential, RefusalWords } from "./credential";
+import { endSignIn } from "./end-sign-in";
 import { SignInEndedError } from "./errors";
 import { fetchIdentity, type Identity } from "./identity";
 import { OAuthError, refreshTokens } from "./oauth";
@@ -15,6 +16,8 @@ const RENEW_BEFORE_MS = 60_000;
 
 const ENDED =
 	"Your ax sign-in no longer works (it was disconnected, or your access changed). Run ax login.";
+
+const SIGNED_OUT_HERE = "You signed out of ax on this machine. Run ax login.";
 
 const SIGN_IN_REFUSAL: RefusalWords = {
 	unauthorized: "your sign-in no longer works. Run ax login.",
@@ -41,12 +44,24 @@ export class SignInCredential implements PlatformCredential {
 		return this.renew();
 	}
 
-	renew(): Promise<string> {
+	async renew(): Promise<string> {
 		const spent = this.session.refreshToken;
+		// A renewal no file ended up holding (see below), ended on ora once the lock is given back.
+		let orphan: StoredSignIn | undefined;
+		try {
+			return await this.renewLocked(spent, (renewal) => {
+				orphan = renewal;
+			});
+		} finally {
+			if (orphan) await endSignIn(orphan, this.fetchFn);
+		}
+	}
+
+	private renewLocked(spent: string, orphaned: (renewal: StoredSignIn) => void): Promise<string> {
 		return this.store.withLock(async () => {
 			const stored = this.store.read();
 			if (!stored || stored.resource !== this.session.resource) {
-				throw new SignInEndedError("You signed out of ax on this machine. Run ax login.");
+				throw new SignInEndedError(SIGNED_OUT_HERE);
 			}
 			if (stored.refreshToken !== spent && stored.expiresAt - this.now() > RENEW_BEFORE_MS) {
 				this.session = stored;
@@ -62,9 +77,10 @@ export class SignInCredential implements PlatformCredential {
 				);
 			} catch (err) {
 				// The server refuses the refresh token itself: the sign-in is over, and keeping it would
-				// only fail the same way on every command.
+				// only fail the same way on every command. It is removed only while it is still the one
+				// refused: a sign-in stored since (`ax login`) is another, and stays.
 				if (err instanceof OAuthError && err.code === "invalid_grant") {
-					this.store.clear();
+					if (this.store.read()?.refreshToken === stored.refreshToken) this.store.clear();
 					throw new SignInEndedError(ENDED, { cause: err });
 				}
 				throw err;
@@ -76,6 +92,20 @@ export class SignInCredential implements PlatformCredential {
 				expiresAt: this.now() + tokens.expiresIn * 1000,
 				scope: tokens.scope || stored.scope,
 			};
+			// Stored only while the file still holds the sign-in renewed. Under the lock nothing else
+			// changes it, but a holder that outlived the stale window (a machine that slept mid-request)
+			// had its lock broken: a sign-in removed meanwhile (`ax logout`) stays removed, and one
+			// stored since (`ax login`) is the one to use. The renewal is then ended on ora, so no
+			// live sign-in is left that no file holds.
+			const current = this.store.read();
+			if (current?.refreshToken !== stored.refreshToken) {
+				orphaned(next);
+				if (!current || current.resource !== this.session.resource) {
+					throw new SignInEndedError(SIGNED_OUT_HERE);
+				}
+				this.session = current;
+				return current.accessToken;
+			}
 			this.store.write(next);
 			this.session = next;
 			return next.accessToken;

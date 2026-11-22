@@ -22,6 +22,20 @@ import {
 
 const TARGET = { issuer: ISSUER, resource: PLATFORM, clientId: AX_CLIENT_ID };
 
+/** The stand-in server, with one change to its discovery answer (a field set to undefined is left out). */
+function withMetadata(change: Record<string, unknown>): typeof fetch {
+	const server = fakeSignInServer();
+	return async (input, init) => {
+		const res = await server.fetchFn(input, init);
+		if (!String(input).endsWith("/.well-known/oauth-authorization-server")) return res;
+		const body = (await res.json()) as Record<string, unknown>;
+		return new Response(JSON.stringify({ ...body, ...change }), {
+			status: res.status,
+			headers: { "content-type": "application/json" },
+		});
+	};
+}
+
 describe("where ax signs in", () => {
 	it("is account.<domain> for a platform at api.<domain>, scheme and port kept", () => {
 		expect(signInTarget("https://api.ora.ai")).toEqual({
@@ -96,6 +110,28 @@ describe("discovery", () => {
 		expect(error.code).toBe("invalid_metadata");
 		expect(error.message).toContain("elsewhere.test");
 	});
+
+	it("a server that is down (503) is transient, and says nothing of whether ora offers a sign-in", async () => {
+		const error = await discover(ISSUER, fakeSignInServer({ discovery: "down" }).fetchFn).catch(
+			(e) => e,
+		);
+		expect(error).toBeInstanceOf(OAuthError);
+		expect(error.code).not.toBe("not_offered");
+		expect(error).toMatchObject({
+			status: 503,
+			transient: true,
+			message: "account.ora.test answered HTTP 503",
+		});
+	});
+
+	it.each([null, undefined])(
+		"a revocation address of %s is none (RFC 8414 §2: it is optional)",
+		async (named) => {
+			const meta = await discover(ISSUER, withMetadata({ revocation_endpoint: named }));
+			expect(meta.revocationEndpoint).toBeUndefined();
+			expect(meta.tokenEndpoint).toBe(`${ISSUER}/oauth2/token`);
+		},
+	);
 });
 
 describe("the device flow", () => {
@@ -163,6 +199,28 @@ describe("the device flow", () => {
 			expect(error.code).toBe(answer === "denied" ? "access_denied" : "expired_token");
 		},
 	);
+
+	it.each([
+		["unavailable", "account.ora.test answered HTTP 502"],
+		["rate_limited", "account.ora.test answered HTTP 429"],
+		["drop", "could not reach account.ora.test (ECONNRESET)"],
+	] as const)(
+		"a poll the server answers %s is a transient OAuthError, for the caller to wait out",
+		async (answer, message) => {
+			const server = fakeSignInServer({ polls: [answer] });
+			const meta = await discover(ISSUER, server.fetchFn);
+			const error = await pollDeviceToken(meta, TARGET, "device-1", server.fetchFn).catch((e) => e);
+			expect(error).toBeInstanceOf(OAuthError);
+			expect(error).toMatchObject({ transient: true, message });
+		},
+	);
+
+	it("a code refused in the browser is the server's word: not transient", async () => {
+		const server = fakeSignInServer({ polls: ["denied"] });
+		const meta = await discover(ISSUER, server.fetchFn);
+		const error = await pollDeviceToken(meta, TARGET, "device-1", server.fetchFn).catch((e) => e);
+		expect(error).toMatchObject({ code: "access_denied", status: 400, transient: false });
+	});
 });
 
 describe("refresh and revoke", () => {
@@ -192,6 +250,52 @@ describe("refresh and revoke", () => {
 			server.fetchFn,
 		).catch((e) => e);
 		expect(error.code).toBe("invalid_grant");
+	});
+
+	it("a refresh the server cannot answer (503) is transient, and says the sign-in could not be renewed", async () => {
+		const server = fakeSignInServer({ refresh: "unavailable" });
+		const error = await refreshTokens(
+			`${ISSUER}/oauth2/token`,
+			TARGET,
+			"refresh-0",
+			server.fetchFn,
+		).catch((e) => e);
+		expect(error).toBeInstanceOf(OAuthError);
+		expect(error).toMatchObject({
+			status: 503,
+			transient: true,
+			message: "the sign-in could not be renewed: account.ora.test answered HTTP 503",
+		});
+	});
+
+	it("a refresh that gets no answer is transient, and names the host and Node's code", async () => {
+		const server = fakeSignInServer({ refresh: "unreachable" });
+		const error = await refreshTokens(
+			`${ISSUER}/oauth2/token`,
+			TARGET,
+			"refresh-0",
+			server.fetchFn,
+		).catch((e) => e);
+		expect(error).toBeInstanceOf(OAuthError);
+		expect(error).toMatchObject({
+			code: "unreachable",
+			status: 0,
+			transient: true,
+			message: "the sign-in could not be renewed: could not reach account.ora.test (ECONNREFUSED)",
+		});
+	});
+
+	it("a refused refresh token stays terminal: the sign-in is over, nothing to wait out", async () => {
+		const server = fakeSignInServer({ refresh: "invalid_grant" });
+		const error = await refreshTokens(
+			`${ISSUER}/oauth2/token`,
+			TARGET,
+			"refresh-0",
+			server.fetchFn,
+		).catch((e) => e);
+		expect(error).toBeInstanceOf(OAuthError);
+		expect(error).toMatchObject({ code: "invalid_grant", status: 400, transient: false });
+		expect(error.message).toMatch(/^the sign-in could not be renewed: /);
 	});
 
 	it("revoking hands the server the refresh token, and never throws", async () => {

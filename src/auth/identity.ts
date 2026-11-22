@@ -1,3 +1,4 @@
+import { fetchText } from "../api/network-failure";
 import { jsonOrNull, PlatformApiError } from "../api/platform-error";
 import { plainLines } from "../ui/ansi";
 
@@ -17,11 +18,13 @@ export async function fetchIdentity(
 	bearer: string,
 	fetchFn: typeof fetch = fetch,
 ): Promise<Identity> {
-	const res = await fetchFn(`${base}/auth/identity`, {
-		headers: { authorization: `Bearer ${bearer}`, accept: "application/json" },
-		signal: AbortSignal.timeout(IDENTITY_TIMEOUT_MS),
-	});
-	const body = jsonOrNull(await res.text());
+	const { res, text } = await fetchText(
+		`${base}/auth/identity`,
+		{ headers: { authorization: `Bearer ${bearer}`, accept: "application/json" } },
+		IDENTITY_TIMEOUT_MS,
+		fetchFn,
+	);
+	const body = jsonOrNull(text);
 	if (!res.ok || body === null || typeof body !== "object") {
 		throw new PlatformApiError(`ora could not say who this credential is (${res.status})`, {
 			status: res.status,

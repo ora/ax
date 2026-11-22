@@ -73,11 +73,82 @@ describe("a sign-in's bearer", () => {
 		expect(store.read()).toEqual(session());
 	});
 
+	it("a 503 whose body names invalid_grant keeps the sign-in: only an OAuth answer ends one", async () => {
+		const server = fakeSignInServer();
+		const busy: typeof fetch = async (input, init) => {
+			const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
+			if (form.get("grant_type") === "refresh_token") {
+				return Response.json({ error: "invalid_grant" }, { status: 503 });
+			}
+			return server.fetchFn(input, init);
+		};
+		const store = freshStore();
+		store.write(session());
+		const credential = new SignInCredential(PLATFORM, store, session(), busy, () => NOW);
+		const error = await credential.renew().catch((e: unknown) => e);
+		expect(error).not.toBeInstanceOf(SignInEndedError);
+		expect(String(error)).toContain("account.ora.test answered HTTP 503");
+		expect(store.read()).toEqual(session());
+	});
+
 	it("signed out on this machine meanwhile: the renewal says so and stores nothing", async () => {
 		const server = fakeSignInServer();
 		const credential = new SignInCredential(PLATFORM, freshStore(), session(), server.fetchFn);
 		await expect(credential.renew()).rejects.toBeInstanceOf(SignInEndedError);
 		expect(server.state.refreshes).toBe(0);
+	});
+});
+
+/** As signedIn, with the refresh held at the sign-in server until the test lets it answer. */
+function signedInWithHeldRefresh(stored: StoredSignIn) {
+	const server = fakeSignInServer();
+	const sent = deferred();
+	const answer = deferred();
+	const held: typeof fetch = async (input, init) => {
+		const form = new URLSearchParams(typeof init?.body === "string" ? init.body : "");
+		if (form.get("grant_type") === "refresh_token") {
+			sent.resolve();
+			await answer.promise;
+		}
+		return server.fetchFn(input, init);
+	};
+	const store = freshStore();
+	store.write(stored);
+	const credential = new SignInCredential(PLATFORM, store, stored, held, () => NOW);
+	return { store, server, credential, sent: sent.promise, answer: answer.resolve };
+}
+
+describe("a renewal whose file changed while its refresh was out", () => {
+	// Under the lock nothing else changes the file. These are what happens when a renewal outlived
+	// the lock's stale window (a machine that slept mid-request) and another ax broke the lock: the
+	// test changes the file directly, with no lock, while the refresh is out.
+
+	it("removed meanwhile (ax logout): it stays removed, and the renewal says you signed out", async () => {
+		const { store, server, credential, sent, answer } = signedInWithHeldRefresh(session());
+		const renewing = credential.renew();
+		await sent;
+		store.clear();
+		answer();
+		const error = await renewing.catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(SignInEndedError);
+		expect(String(error)).toContain("You signed out of ax on this machine");
+		expect(store.present()).toBe(false);
+		expect(server.state.refreshes).toBe(1);
+		// The renewal no file holds is ended on the server, not left live.
+		expect(server.state.revoked).toEqual(["refresh-1"]);
+	});
+
+	it("a newer sign-in stored meanwhile (ax login): the renewal uses it and leaves it stored", async () => {
+		const { store, server, credential, sent, answer } = signedInWithHeldRefresh(session());
+		const newer = session({ accessToken: "access-new", refreshToken: "refresh-new" });
+		const renewing = credential.renew();
+		await sent;
+		store.write(newer);
+		answer();
+		expect(await renewing).toBe("access-new");
+		expect(store.read()).toEqual(newer);
+		// The renewal it set aside is ended on the server; the newer sign-in is untouched.
+		expect(server.state.revoked).toEqual(["refresh-1"]);
 	});
 });
 
@@ -126,3 +197,11 @@ describe("a sign-in, as a person reads it", () => {
 		);
 	});
 });
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+	let resolve: () => void = () => {};
+	const promise = new Promise<void>((settle) => {
+		resolve = settle;
+	});
+	return { promise, resolve };
+}

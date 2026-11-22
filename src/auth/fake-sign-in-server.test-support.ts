@@ -6,15 +6,24 @@ import { vi } from "vitest";
 export const PLATFORM = "https://api.ora.test";
 export const ISSUER = "https://account.ora.test";
 
+/**
+ * A server's transient answers: `unavailable` is a proxy's 502 page, `rate_limited` a 429, and
+ * `drop` no answer at all (fetch throws, ECONNRESET).
+ */
+export type TransientAnswer = "unavailable" | "rate_limited" | "drop";
+
 export interface FakeServerState {
 	/** Each device poll answers the next of these; the last one repeats. */
-	polls: Array<"pending" | "slow_down" | "approve" | "denied" | "expired">;
-	/** What a refresh answers. */
-	refresh: "ok" | "invalid_grant" | "down";
-	/** What discovery answers. */
-	discovery: "ok" | "missing" | "other-issuer" | "off-host";
-	/** What the device start answers. */
-	start: "ok" | "invalid_client";
+	polls: Array<"pending" | "slow_down" | "approve" | "denied" | "expired" | TransientAnswer>;
+	/**
+	 * What a refresh answers. `down` throws a bare "fetch failed"; `unreachable` throws it with
+	 * Node's ECONNREFUSED in its cause; `unavailable` is a 503.
+	 */
+	refresh: "ok" | "invalid_grant" | "down" | "unreachable" | "unavailable";
+	/** What discovery answers (`down` is a 503). */
+	discovery: "ok" | "missing" | "other-issuer" | "off-host" | "down";
+	/** What the device start answers (`down` is a 503). */
+	start: "ok" | "invalid_client" | "down";
 	refreshes: number;
 	revoked: string[];
 	identityCalls: string[];
@@ -23,6 +32,24 @@ export interface FakeServerState {
 
 const json = (body: unknown, status = 200): Response =>
 	new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+/** What fetch throws when it gets no answer: "fetch failed", with Node's errno code in its cause. */
+export const unreachable = (code = "ECONNREFUSED"): TypeError =>
+	new TypeError("fetch failed", { cause: Object.assign(new Error(`connect ${code}`), { code }) });
+
+const badGateway = (): Response =>
+	new Response("<html><body>502 Bad Gateway</body></html>", {
+		status: 502,
+		headers: { "content-type": "text/html" },
+	});
+
+/** The answer for a transient case, or undefined for any other. `drop` throws. */
+function transient(answer: string): Response | undefined {
+	if (answer === "unavailable") return badGateway();
+	if (answer === "rate_limited") return json({ message: "Too many requests" }, 429);
+	if (answer === "drop") throw unreachable("ECONNRESET");
+	return undefined;
+}
 
 export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 	const state: FakeServerState = {
@@ -53,6 +80,7 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 		if (init?.method === "POST") forms.push({ url, form });
 		if (url === `${ISSUER}/.well-known/oauth-authorization-server`) {
 			if (state.discovery === "missing") return json({ error: "not found" }, 404);
+			if (state.discovery === "down") return json({ error: "unavailable" }, 503);
 			const host = state.discovery === "off-host" ? "https://elsewhere.test" : ISSUER;
 			return json({
 				issuer: state.discovery === "other-issuer" ? "https://account.other.test" : ISSUER,
@@ -63,6 +91,7 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 		}
 		if (url === `${ISSUER}/oauth2/device/auth`) {
 			if (state.start === "invalid_client") return json({ error: "invalid_client" }, 401);
+			if (state.start === "down") return json({ error: "temporarily_unavailable" }, 503);
 			return json({
 				device_code: "device-1",
 				user_code: "ABCD-EFGH",
@@ -76,10 +105,14 @@ export function fakeSignInServer(overrides: Partial<FakeServerState> = {}) {
 			if (form.get("grant_type") === "refresh_token") {
 				state.refreshes += 1;
 				if (state.refresh === "down") throw new TypeError("fetch failed");
+				if (state.refresh === "unreachable") throw unreachable();
+				if (state.refresh === "unavailable") return json({ error: "server_error" }, 503);
 				if (state.refresh === "invalid_grant") return json({ error: "invalid_grant" }, 400);
 				return json(tokens());
 			}
 			const next = state.polls.length > 1 ? state.polls.shift() : state.polls[0];
+			const passing = transient(next ?? "");
+			if (passing) return passing;
 			if (next === "approve") return json(tokens());
 			if (next === "denied") return json({ error: "access_denied" }, 400);
 			if (next === "expired") return json({ error: "expired_token" }, 400);
