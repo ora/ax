@@ -291,7 +291,17 @@ describe("ax journey: when the arguments ask for a set", async () => {
 		expect(sets.journeySetView).toHaveBeenCalledWith({
 			id: "set-1",
 			wait: "5",
+			watch: false,
 			json: true,
+			...signed,
+		});
+		// --watch follows the set live.
+		await typed(["view", "set-1", "--watch"]);
+		expect(sets.journeySetView).toHaveBeenLastCalledWith({
+			id: "set-1",
+			wait: undefined,
+			watch: true,
+			json: false,
 			...signed,
 		});
 		await typed(["list"]);

@@ -151,6 +151,46 @@ describe("createSetsClient", () => {
 		});
 	});
 
+	it("follows a set's live stream: each set event's document in order, keepalives ignored, however the bytes are chunked", async () => {
+		const { credential } = fakeCredential();
+		const text =
+			'event: set\ndata: {"setId":"s1","state":"running"}\n\n: keepalive\n\nevent: set\ndata: {"setId":"s1","state":"complete"}\n\n';
+		const bytes = new TextEncoder().encode(text);
+		const seen: { url: string; accept: string }[] = [];
+		const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+			seen.push({
+				url: String(url),
+				accept: String((init?.headers as Record<string, string> | undefined)?.accept),
+			});
+			return new Response(
+				new ReadableStream<Uint8Array>({
+					start(controller) {
+						controller.enqueue(bytes.slice(0, 17));
+						controller.enqueue(bytes.slice(17));
+						controller.close();
+					},
+				}),
+				{ status: 200, headers: { "content-type": "text/event-stream" } },
+			);
+		});
+		const client = createSetsClient({
+			base: BASE,
+			credential,
+			fetch: fetchMock as unknown as typeof fetch,
+		});
+		const states: string[] = [];
+		await client.follow("s 1", (set) => states.push(set.state), new AbortController().signal);
+		expect(states).toEqual(["running", "complete"]);
+		expect(seen).toEqual([{ url: `${BASE}/ax/v1/sets/s%201/stream`, accept: "text/event-stream" }]);
+	});
+
+	it("a stream that cannot be opened rejects with the platform's status, so the caller can read instead", async () => {
+		const { client } = clientOver([{ status: 404, body: { error: "Not Found" } }]);
+		await expect(client.follow("s1", () => {}, new AbortController().signal)).rejects.toMatchObject(
+			{ status: 404 },
+		);
+	});
+
 	it("an answer that is not JSON is a failure, never an empty set", async () => {
 		const { client } = clientOver([{ status: 200, body: null }]);
 		await expect(client.list()).rejects.toThrow("non-JSON");
