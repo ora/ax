@@ -71,6 +71,23 @@ check("--help exits 0 and lists every command", () => {
 	}
 });
 
+check(
+	"--help shows a set of journeys: how to start one, and how to list, follow and stop one",
+	() => {
+		const help = ax(["--help"]);
+		for (const piece of [
+			"a set of journeys",
+			"--levels",
+			"journey list",
+			"journey view",
+			"journey cancel",
+			"--watch",
+		]) {
+			if (!help.includes(piece)) throw new Error(`help omits "${piece}"`);
+		}
+	},
+);
+
 check("--help and -h show the curated screen, the same one as bare ax", () => {
 	const bare = ax([]);
 	for (const flag of ["--help", "-h"]) {
