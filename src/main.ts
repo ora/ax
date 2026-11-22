@@ -3,7 +3,7 @@ import pc from "picocolors";
 import pkg from "../package.json";
 import { platformBase } from "./api/platform-origins";
 import { resolveBase } from "./api/skills";
-import { scopeList, TUNNEL_FEATURE } from "./auth/platform-features";
+import { SETS_FEATURE, scopeList, TUNNEL_FEATURE } from "./auth/platform-features";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
@@ -295,7 +295,7 @@ const login = defineCommand({
 	meta: {
 		name: "login",
 		description:
-			"Sign in to ora's platform through your browser, for a journey with a goal and audit --tunnel ora (exit codes: 0 signed in, 2 address refused, 3 sign-in failed)",
+			"Sign in to ora's platform through your browser, for a journey with a goal, a set of journeys and audit --tunnel ora (exit codes: 0 signed in, 2 address refused, 3 sign-in failed)",
 	},
 	args: {
 		"no-browser": {
@@ -545,6 +545,24 @@ function helpScreen(): string {
 		`    --model <m>      ${d("Model override (harness default when omitted)")}`,
 		`    --json           ${d("Output as JSON")}`,
 		`    ${d("requires ax login (a browser sign-in), or ORA_API_KEY (see .env.example)")}`,
+		"",
+		`  ${d("journey options, a set of journeys (several goals, agents, repeats or levels of help):")}`,
+		`    --domain <d>     ${d("The site (required): a domain or an http(s) URL")}`,
+		`    --agents <list>  ${d("1 to 4 agents as harness or harness/model, comma separated (default: the one the preview names)")}`,
+		`    --levels         ${d("Run each goal at the levels of help: need only, brand named, docs linked, exact target")}`,
+		`    --brand <name>   ${d("The brand the brand and docs levels name; turns levels on (default: the domain's name)")}`,
+		`    --docs <url>     ${d("The documentation URL: adds the docs level; turns levels on")}`,
+		`    --exact <url>    ${d("The page the agent starts at: adds the exact level; turns levels on")}`,
+		`    --repeat <n>     ${d("Runs per goal, level and agent, 1 to 10 (default 1)")}`,
+		`    --yes            ${d("Launch without asking (needed where there is no terminal to ask on)")}`,
+		`    --wait <minutes> ${d("Minutes to watch before stopping (default 60); the runs go on either way")}`,
+		`    --watch          ${d("Follow the set live over ora's stream, printing what moves as it moves")}`,
+		`    --json           ${d("Print the set exactly as ora serves it")}`,
+		`    journey view ${d("<id> [--watch] [--wait <minutes>] [--json]")}  ${d("Print a set as it stands, or follow it")}`,
+		`    journey list ${d("[--json]")}    ${d("Your organization's sets, newest first")}`,
+		`    journey cancel ${d("<id> [--json]")}  ${d("Stop the runs still going; finished runs keep their results")}`,
+		`    ${d(`a set takes 1 to 5 goals, 1 to 4 agents, 1 to 10 repeats and at most 200 runs; needs ax login, or ORA_API_KEY: ${scopeList(SETS_FEATURE)}`)}`,
+		`    ${d("exit codes: 0 a report printed, or the question was declined · 2 usage or a refusal before launch · 3 the platform failed · 130 Ctrl-C")}`,
 		"",
 		...workflowLines(),
 	].join("\n");
