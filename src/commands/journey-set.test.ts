@@ -276,6 +276,42 @@ describe("ax journey view, list and cancel", () => {
 		expect(JSON.parse(stdout)).toEqual({ setId: "set-1", cancelled: true });
 		expect(await journeySetCancel({ id: undefined, json: false, client })).toBe(EXIT.USAGE);
 	});
+
+	it("cancel of a set that is already over is not a failure: ora's own sentence, a pointer at view, exit 0", async () => {
+		// The body ora's set API gives for a finished set, 2026-11-22.
+		const body = {
+			error: "Set engine",
+			code: "SET_ALREADY_OVER",
+			message: "This set is complete: nothing is left to stop.",
+		};
+		const { client } = fakeClient({
+			cancel: async () => {
+				throw new PlatformApiError(body.message, { status: 409, payload: body });
+			},
+		});
+		expect(await journeySetCancel({ id: "set-1", json: false, client })).toBe(EXIT.OK);
+		expect(stdout).toContain("This set is complete: nothing is left to stop.");
+		expect(stdout).toContain("Next: ax journey view set-1");
+		expect(stderr).toBe("");
+		stdout = "";
+		expect(await journeySetCancel({ id: "set-1", json: true, client })).toBe(EXIT.OK);
+		expect(JSON.parse(stdout)).toEqual(body);
+	});
+
+	it("any other refusal of a cancel is still a failure", async () => {
+		const body = {
+			error: "Set engine",
+			code: "SET_CONFLICT",
+			message: "The set is not in a state that allows this.",
+		};
+		const { client } = fakeClient({
+			cancel: async () => {
+				throw new PlatformApiError(body.message, { status: 409, payload: body });
+			},
+		});
+		expect(await journeySetCancel({ id: "set-1", json: false, client })).not.toBe(EXIT.OK);
+		expect(stderr).toContain("The set is not in a state that allows this.");
+	});
 });
 
 describe("--watch: a set followed over the platform's live stream", () => {
