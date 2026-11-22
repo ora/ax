@@ -77,10 +77,18 @@ check(
 		const help = ax(["--help"]);
 		for (const piece of [
 			"a set of journeys",
-			"--levels",
 			"journey list",
 			"journey view",
 			"journey cancel",
+			// Every flag a set takes, in the top-level help itself, not only under ax journey --help.
+			"--agents <list>",
+			"--levels",
+			"--brand <name>",
+			"--docs <url>",
+			"--exact <url>",
+			"--repeat <n>",
+			"--yes",
+			"--wait <minutes>",
 			"--watch",
 		]) {
 			if (!help.includes(piece)) throw new Error(`help omits "${piece}"`);
