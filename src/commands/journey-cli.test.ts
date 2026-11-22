@@ -211,3 +211,63 @@ describe("journeyUsage", () => {
 		expect(usage).toContain("ax deep-journey <url> is the older name for this");
 	});
 });
+
+// A set of journeys: which typed forms reach the set commands, and that one journey is untouched.
+vi.mock("./journey-set", () => ({
+	journeySetRun: vi.fn(async () => 0),
+	journeySetView: vi.fn(async () => 0),
+	journeySetList: vi.fn(async () => 0),
+	journeySetCancel: vi.fn(async () => 0),
+}));
+
+describe("ax journey: when the arguments ask for a set", async () => {
+	const sets = vi.mocked(await import("./journey-set"));
+	const typed = async (rawArgs: string[]) => {
+		vi.clearAllMocks();
+		oneMock.mockResolvedValue(0);
+		freeMock.mockResolvedValue(0);
+		await runCommand(journey, { rawArgs });
+	};
+
+	it("view, list and cancel take the first goal's place", async () => {
+		await typed(["view", "set-1", "--wait", "5", "--json"]);
+		expect(sets.journeySetView).toHaveBeenCalledWith({ id: "set-1", wait: "5", json: true });
+		await typed(["list"]);
+		expect(sets.journeySetList).toHaveBeenCalledWith({ json: false });
+		await typed(["cancel", "set-1"]);
+		expect(sets.journeySetCancel).toHaveBeenCalledWith({ id: "set-1", json: false });
+		expect(oneMock).not.toHaveBeenCalled();
+	});
+
+	it("more than one goal is a set, with every goal as typed", async () => {
+		await typed([GOAL, "Find the pricing page", "--domain", "linear.app", "--yes"]);
+		expect(sets.journeySetRun).toHaveBeenCalledWith(
+			expect.objectContaining({
+				goals: [GOAL, "Find the pricing page"],
+				yes: true,
+				json: false,
+				flags: expect.objectContaining({ domain: "linear.app", levels: false }),
+			}),
+		);
+	});
+
+	it.each([
+		["--levels", []],
+		["--agents", ["claude-code,codex"]],
+		["--brand", ["Linear"]],
+		["--docs", ["https://linear.app/docs"]],
+		["--exact", ["https://linear.app/developers"]],
+		["--repeat", ["3"]],
+	])("one goal with %s is a set", async (flag, value) => {
+		await typed([GOAL, "--domain", "linear.app", flag, ...value]);
+		expect(sets.journeySetRun).toHaveBeenCalledTimes(1);
+		expect(oneMock).not.toHaveBeenCalled();
+	});
+
+	it("one goal with none of a set's flags is still one journey", async () => {
+		vi.stubEnv("ORA_API_KEY", "ora_sk_test");
+		await typed([GOAL, "--domain", "linear.app"]);
+		expect(sets.journeySetRun).not.toHaveBeenCalled();
+		expect(oneMock).toHaveBeenCalledTimes(1);
+	});
+});

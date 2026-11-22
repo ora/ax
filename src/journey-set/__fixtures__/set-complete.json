@@ -1,0 +1,217 @@
+{
+	"setId": "593eea5e-c76d-4394-8dd7-dc52c6fbb61d",
+	"site": "linear.app",
+	"brand": "Linear",
+	"createdAt": "2026-11-22T05:38:37.144632+00:00",
+	"state": "complete",
+	"complete": true,
+	"error": null,
+	"goals": [
+		{
+			"index": 1,
+			"text": "Find how to create an issue from the API",
+			"levels": [
+				"need",
+				"brand",
+				"exact"
+			]
+		},
+		{
+			"index": 2,
+			"text": "Find how to receive a webhook from Linear when an issue is updated.",
+			"levels": [
+				"brand",
+				"exact"
+			]
+		}
+	],
+	"levels": [
+		{
+			"key": "need",
+			"label": "Need only"
+		},
+		{
+			"key": "brand",
+			"label": "Brand named"
+		},
+		{
+			"key": "exact",
+			"label": "Exact target"
+		}
+	],
+	"skippedLevels": [
+		{
+			"level": "need",
+			"goal": 2,
+			"note": "The goal names Linear, so the need level is skipped. Write the goal without it to include that level."
+		},
+		{
+			"level": "docs",
+			"goal": null,
+			"note": "No --docs URL, so the docs level is skipped. Add --docs <url> to include it."
+		}
+	],
+	"agents": [
+		"claude-code/claude-haiku-4-5-20251001",
+		"codex/gpt-5.4-mini"
+	],
+	"repeat": 1,
+	"runs": {
+		"planned": 10,
+		"started": 10,
+		"notStarted": 0
+	},
+	"cells": [
+		{
+			"goal": 1,
+			"level": "brand",
+			"agent": "claude-code/claude-haiku-4-5-20251001",
+			"runs": 1,
+			"graded": 1,
+			"passed": 0,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		},
+		{
+			"goal": 1,
+			"level": "brand",
+			"agent": "codex/gpt-5.4-mini",
+			"runs": 1,
+			"graded": 1,
+			"passed": 1,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 1
+		},
+		{
+			"goal": 1,
+			"level": "exact",
+			"agent": "claude-code/claude-haiku-4-5-20251001",
+			"runs": 1,
+			"graded": 1,
+			"passed": 0,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		},
+		{
+			"goal": 1,
+			"level": "exact",
+			"agent": "codex/gpt-5.4-mini",
+			"runs": 1,
+			"graded": 1,
+			"passed": 1,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		},
+		{
+			"goal": 1,
+			"level": "need",
+			"agent": "claude-code/claude-haiku-4-5-20251001",
+			"runs": 1,
+			"graded": 1,
+			"passed": 0,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 1
+		},
+		{
+			"goal": 1,
+			"level": "need",
+			"agent": "codex/gpt-5.4-mini",
+			"runs": 1,
+			"graded": 1,
+			"passed": 0,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 1
+		},
+		{
+			"goal": 2,
+			"level": "brand",
+			"agent": "claude-code/claude-haiku-4-5-20251001",
+			"runs": 1,
+			"graded": 1,
+			"passed": 1,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		},
+		{
+			"goal": 2,
+			"level": "brand",
+			"agent": "codex/gpt-5.4-mini",
+			"runs": 1,
+			"graded": 1,
+			"passed": 1,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		},
+		{
+			"goal": 2,
+			"level": "exact",
+			"agent": "claude-code/claude-haiku-4-5-20251001",
+			"runs": 1,
+			"graded": 1,
+			"passed": 1,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		},
+		{
+			"goal": 2,
+			"level": "exact",
+			"agent": "codex/gpt-5.4-mini",
+			"runs": 1,
+			"graded": 1,
+			"passed": 1,
+			"rate": null,
+			"excluded": 0,
+			"inFlight": 0,
+			"blocked": 0,
+			"neverVisited": 0
+		}
+	],
+	"gaps": [
+		{
+			"from": "need",
+			"to": "brand",
+			"direction": "better",
+			"layer": "discovery",
+			"earlySignal": true,
+			"fromPassed": 0,
+			"fromGraded": 2,
+			"toPassed": 3,
+			"toGraded": 4,
+			"line": "linear.app loses agents at the Discovery layer: 0 of 2 runs satisfied at Need only, 3 of 4 at Brand named. An early signal: not enough runs to decide."
+		}
+	],
+	"notes": [
+		"At the need level the prompt does not name your site, so an agent can reach the goal without using it."
+	],
+	"next": {
+		"command": "audit",
+		"line": "ax audit linear.app"
+	}
+}

@@ -7,7 +7,7 @@
 // Also checks the things that break `npx ax` but never break `pnpm test`:
 // a missing shebang or a non-executable bin.
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 
 const BIN = "dist/main.cjs";
@@ -114,6 +114,74 @@ check("journey with no goal takes the free path, which needs --domain", () => {
 	if (!stderr.includes("--domain names the site")) throw new Error("not the free path's error");
 	if (stderr.includes("ORA_API_KEY")) throw new Error("the free path asked for a Front key");
 });
+
+// A set of journeys, through the bundled bin, against the mock sets server (the platform's real
+// answers, checked in). Unit tests drive the commands directly; only this proves the bin routes
+// `ax journey` to a set, exchanges the key and prints the served document.
+check("journey list with no key is a usage error that names ORA_API_KEY, before any call", () => {
+	const run = spawnSync(process.execPath, [BIN, "journey", "list"], {
+		encoding: "utf8",
+		env: { ...process.env, ORA_API_KEY: "" },
+	});
+	if (run.status !== 2) throw new Error(`exit ${run.status}, want 2`);
+	if (!run.stderr.includes("ORA_API_KEY")) throw new Error("the error does not name the key");
+});
+
+const SETS_PORT = 8798;
+const mock = spawn(process.execPath, ["scripts/mock-sets-server.mjs", String(SETS_PORT)], {
+	stdio: ["ignore", "pipe", "inherit"],
+});
+await new Promise((resolve, reject) => {
+	mock.stdout.once("data", resolve);
+	mock.once("error", reject);
+	mock.once("exit", (code) => reject(new Error(`mock sets server exited ${code}`)));
+});
+function axSet(args) {
+	return spawnSync(process.execPath, [BIN, ...args], {
+		encoding: "utf8",
+		env: {
+			...process.env,
+			ORA_PLATFORM_URL: `http://localhost:${SETS_PORT}`,
+			ORA_API_KEY: "ora_sk_mock",
+			NO_COLOR: "1",
+		},
+	});
+}
+try {
+	check("journey view --json prints the set exactly as the platform served it", () => {
+		const served = JSON.parse(
+			readFileSync("src/journey-set/__fixtures__/set-running.json", "utf8"),
+		);
+		const run = axSet(["journey", "view", served.setId, "--json"]);
+		if (run.status !== 0) throw new Error(`exit ${run.status}: ${run.stderr}`);
+		if (JSON.stringify(JSON.parse(run.stdout)) !== JSON.stringify(served))
+			throw new Error("stdout is not the served document");
+	});
+
+	check("two goals are a set: the preview is printed and nothing launches without --yes", () => {
+		const run = axSet([
+			"journey",
+			"Find the API docs",
+			"Find the pricing",
+			"--domain",
+			"linear.app",
+		]);
+		if (run.status !== 2) throw new Error(`exit ${run.status}, want 2`);
+		if (!run.stderr.includes("a set of journeys")) throw new Error("no preview on stderr");
+		if (!run.stderr.includes("Nothing was launched"))
+			throw new Error("did not say nothing launched");
+		if (run.stdout !== "") throw new Error("stdout is not empty");
+	});
+
+	check("journey list prints each set and the next call", () => {
+		const run = axSet(["journey", "list"]);
+		if (run.status !== 0) throw new Error(`exit ${run.status}: ${run.stderr}`);
+		if (!run.stdout.includes("Next: ax journey view ")) throw new Error("no Next line");
+	});
+} finally {
+	mock.removeAllListeners("exit");
+	mock.kill();
+}
 
 if (failures.length > 0) {
 	console.error(`\nsmoke failed (${failures.length}):`);
