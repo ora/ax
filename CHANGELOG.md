@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/ora/ax/compare/v0.13.0...v0.14.0) (2026-11-22)
+
+
+### Features
+
+* **journey:** a watched set ends with where agents drop off, why runs missed, and the last run ([#115](https://github.com/ora/ax/issues/115)) ([ff0a303](https://github.com/ora/ax/commit/ff0a303bc6543876a4065fb5091d8587c1bfeb7a))
+
 ## [0.13.0](https://github.com/ora/ax/compare/v0.12.1...v0.13.0) (2026-11-22)
 
 
