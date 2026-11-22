@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0](https://github.com/ora/ax/compare/v0.11.0...v0.12.0) (2026-11-22)
+
+
+### Features
+
+* **auth:** ax login, ax whoami and ax logout, a browser sign-in to ora's platform ([#101](https://github.com/ora/ax/issues/101)) ([b289ba6](https://github.com/ora/ax/commit/b289ba67036c7bae4d99ddead3597d30eaf0474a))
+* **journey:** --watch follows a set live; one goal runs as a set of one ([#109](https://github.com/ora/ax/issues/109)) ([f9a3813](https://github.com/ora/ax/commit/f9a381330c7c1289d95d78772e03bfe628960283))
+
 ## [0.11.0](https://github.com/ora/ax/compare/v0.10.3...v0.11.0) (2026-11-15)
 
 
