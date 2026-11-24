@@ -198,7 +198,7 @@ describe("ax journey: a set", () => {
 		const { exit } = await run({ wait: "1", now: () => (clock += 40_000) }, client);
 		expect(exit).toBe(EXIT.OK);
 		expect(stderr).toContain("The wait ran out before the set finished.");
-		expect(stdout).toContain(`Next: ax journey view ${RUNNING.setId}`);
+		expect(stdout).toContain(`Next: ax run set view ${RUNNING.setId}`);
 	});
 
 	it("Ctrl-C stops watching, not the set: it points at view and exits 130", async () => {
@@ -211,11 +211,11 @@ describe("ax journey: a set", () => {
 		expect(exit).toBe(INTERRUPTED);
 		expect(client.calls.map((c) => c.op)).not.toContain("cancel");
 		expect(stderr).toContain("Stopped watching. The set's runs go on.");
-		expect(stdout).toContain(`Next: ax journey view ${CREATED.setId}`);
+		expect(stdout).toContain(`Next: ax run set view ${CREATED.setId}`);
 	});
 });
 
-describe("ax journey view, list and cancel", () => {
+describe("ax run set view, list and cancel", () => {
 	it("view prints the set as it stands; a complete one ends with the platform's next step", async () => {
 		const { client, calls } = fakeClient({ get: async () => COMPLETE });
 		const asked: string[] = [];
@@ -237,7 +237,7 @@ describe("ax journey view, list and cancel", () => {
 	it("view of a set that is still going points back at view, and needs an id", async () => {
 		const { client } = fakeClient({ get: async () => RUNNING });
 		expect(await journeySetView({ id: RUNNING.setId, json: false, client })).toBe(EXIT.OK);
-		expect(stdout).toContain(`Next: ax journey view ${RUNNING.setId}`);
+		expect(stdout).toContain(`Next: ax run set view ${RUNNING.setId}`);
 		expect(await journeySetView({ id: undefined, json: false, client })).toBe(EXIT.USAGE);
 	});
 
@@ -268,7 +268,7 @@ describe("ax journey view, list and cancel", () => {
 		});
 		const { client } = fakeClient({ list: () => Promise.reject(refused) });
 		expect(await journeySetList({ json: false, client })).toBe(EXIT.USAGE);
-		expect(stderr).toContain("Next: ax journey list");
+		expect(stderr).toContain("Next: ax run set list");
 		expect(stderr).not.toContain("ORA_API_KEY");
 	});
 
@@ -310,7 +310,7 @@ describe("ax journey view, list and cancel", () => {
 		});
 		expect(await journeySetCancel({ id: "set-1", json: false, client })).toBe(EXIT.OK);
 		expect(stdout).toContain("This set is complete: nothing is left to stop.");
-		expect(stdout).toContain("Next: ax journey view set-1");
+		expect(stdout).toContain("Next: ax run set view set-1");
 		expect(stderr).toBe("");
 		stdout = "";
 		expect(await journeySetCancel({ id: "set-1", json: true, client })).toBe(EXIT.OK);
@@ -508,7 +508,7 @@ describe("--watch: where the set is shown", () => {
 		expect(stdout).toMatch(/\nGoal \d: /);
 	});
 
-	it("ax journey view --watch: the same, the rows the live view left are not printed again", async () => {
+	it("ax run set view --watch: the same, the rows the live view left are not printed again", async () => {
 		const exit = await journeySetView({
 			id: RUNNING.setId,
 			watch: true,

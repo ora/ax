@@ -32,7 +32,7 @@ function resultNext(input: JourneyCommandInput): NextStep {
 		};
 	}
 	return {
-		call: axCall(["journey", input.intent, "--domain", placeholder("domain"), ...jsonWords(input)]),
+		call: axCall(["run", input.intent, "--domain", placeholder("domain"), ...jsonWords(input)]),
 		why: "name the site so the run can be traced back to it",
 	};
 }
@@ -44,7 +44,7 @@ function resultNext(input: JourneyCommandInput): NextStep {
  */
 function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
 	const retry = axCall([
-		"journey",
+		"run",
 		input.intent,
 		...(input.domain ? ["--domain", input.domain] : []),
 		"--harness",
@@ -114,7 +114,37 @@ export async function journeyCommand(
 
 function runViewStep(runId: string, json: boolean): NextStep {
 	return {
-		call: axCall(["journey", "view", runId, ...(json ? ["--json"] : [])]),
+		call: axCall(["run", "view", runId, ...(json ? ["--json"] : [])]),
 		why: "open the run already started",
 	};
+}
+
+export async function viewRun(runId: string, json: boolean, waitMinutes?: number): Promise<number> {
+	const interrupt = onInterrupt();
+	try {
+		const base = platformBase();
+		const credential = platformCredentials().chain.resolve(base, SETS_FEATURE);
+		const client = createSetsClient({ base, credential, signal: interrupt.signal });
+		const run = await client.getRun(runId);
+		const evidence =
+			waitMinutes !== undefined && runIsLive(run)
+				? await watchRun(client, run, { json, waitMinutes, interrupt: interrupt.signal })
+				: run;
+		printRun(evidence, json);
+		return 0;
+	} catch (cause) {
+		if (interrupt.signal.aborted) return INTERRUPTED;
+		const next = runViewStep(runId, json);
+		reportError(
+			credentialFailure(cause, { retry: next.call }) ?? {
+				code: "PLATFORM_ERROR",
+				message: cause instanceof Error ? cause.message : String(cause),
+				next,
+			},
+			{ json, served: servedBody(cause) },
+		);
+		return 2;
+	} finally {
+		interrupt.stop();
+	}
 }

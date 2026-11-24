@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { journeyCommand } from "./journey";
-import { journeySetView } from "./journey-set";
+import { journeyCommand, viewRun } from "./journey";
 
 const goal = "Find the API endpoint for creating an issue";
 const input = { intent: goal, harness: "codex", json: true };
@@ -86,15 +85,7 @@ describe("a standalone Studio journey", () => {
 			"/ax/v1/runs/run-one",
 		]);
 		expect(requests[1]).toMatchObject({ method: "POST", body: { goal, agent: "codex" } });
-		expect(JSON.parse(String(stdout.mock.calls[0][0]))).toMatchObject({
-			runId: created.runId,
-			state: "succeeded",
-			reportUrl,
-			totalTokens: 731,
-			costUsd: 0,
-			intentSatisfied: true,
-			steps: evidence.trajectory.steps,
-		});
+		expect(JSON.parse(String(stdout.mock.calls[0][0]))).toEqual(evidence);
 	});
 
 	it("passes the site and precise model and prints the recorded insight and report in the terminal", async () => {
@@ -110,7 +101,7 @@ describe("a standalone Studio journey", () => {
 
 	it("opens an existing regular run by ID without launching a new one", async () => {
 		const { requests, stdout } = server();
-		expect(await journeySetView({ id: "run-one", json: true })).toBe(0);
+		expect(await viewRun("run-one", true)).toBe(0);
 		const result = JSON.parse(String(stdout.mock.calls[0][0]));
 		expect(result.runId).toBe("run-one");
 		expect(result).not.toHaveProperty("setId");

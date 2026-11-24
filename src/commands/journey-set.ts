@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { PlatformApiError } from "../api/platform-error";
 import { platformBase } from "../api/platform-origins";
-import { type AxClient, createSetsClient, type SetDocument, type SetsClient } from "../api/sets";
+import { createSetsClient, type SetDocument, type SetsClient } from "../api/sets";
 import { KeyRejectedError } from "../auth/errors";
 import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
@@ -9,7 +9,6 @@ import { type SetFlags, setRequestOf, wholeNumber } from "../journey-set/args";
 import { type EndViewOptions, endNextWhy, endViewLines } from "../journey-set/end-view";
 import { type FollowEnd, followSet } from "../journey-set/follow-set";
 import { onInterrupt } from "../journey-set/interrupt";
-import { watchRun } from "../journey-set/journey-progress";
 import { progressFor } from "../journey-set/live-watch";
 import { previewProblem, renderList, renderPreview, renderReport } from "../journey-set/render";
 import type { SetProgress } from "../journey-set/set-progress";
@@ -18,10 +17,9 @@ import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { credentialFailure } from "./credential-failure";
 import { EXIT } from "./exit-codes";
-import { printRun } from "./journey-run-result";
 
-// A set of journeys: `ax journey "<goal>" ["<goal>" ...] --domain <site>` with any set flag, and
-// `ax journey view | list | cancel`. The platform plans, runs, grades and counts a set; ax asks,
+// A set of journeys: `ax run set create "<goal>" ["<goal>" ...] --domain <site>` and
+// `ax run set view | list | cancel`. The platform plans, runs, grades and counts a set; ax asks,
 // waits and prints. It signs as every platform command does: ORA_API_KEY when set, else the
 // sign-in `ax login` stored (auth/resolve-credential.ts). Lines for a person (the preview, the question, progress, the Next line under
 // --json) go to stderr; stdout carries the report, or under --json the platform's answer as served.
@@ -31,11 +29,9 @@ export const INTERRUPTED = 130;
 /** How long a set is followed when --wait names nothing. */
 export const DEFAULT_WAIT_MINUTES = 60;
 
-type ViewClient = SetsClient & Partial<Pick<AxClient, "getRun" | "followRun">>;
-
 /** Tests only; there is no flag for any of these. */
 interface Seams {
-	client?: ViewClient;
+	client?: SetsClient;
 	/** Which credential signs the calls: ax's own chain unless a caller (a test, the command) hands one in. */
 	credentials?: PlatformCredentials;
 	now?: () => number;
@@ -109,7 +105,7 @@ async function askOnTerminal(question: string): Promise<string | null> {
 }
 
 const viewStep = (id: string, json: boolean): NextStep => ({
-	call: axCall(["journey", "view", id, ...(json ? ["--json"] : [])]),
+	call: axCall(["run", "set", "view", id, ...(json ? ["--json"] : [])]),
 });
 function fail(error: CommandError, exit: number, json: boolean, served?: unknown): number {
 	reportError(error, { json, served });
@@ -156,7 +152,7 @@ function failedCall(error: unknown, json: boolean, next: NextStep): number {
  * The client a command calls with: the one handed in, else one that signs with the first credential
  * the chain holds for this platform. None is a NotSignedInError, which failedCall words.
  */
-function clientOf(input: Pick<Seams, "client" | "credentials">): ViewClient {
+function clientOf(input: Pick<Seams, "client" | "credentials">): SetsClient {
 	if (input.client) return input.client;
 	const base = platformBase();
 	const credential = (input.credentials ?? platformCredentials()).chain.resolve(base, SETS_FEATURE);
@@ -209,7 +205,15 @@ function report(
 export async function journeySetRun(input: SetRunInput): Promise<number> {
 	const { json } = input;
 	const usage: NextStep = {
-		call: axCall(["journey", placeholder("goal"), "--domain", placeholder("site"), "--levels"]),
+		call: axCall([
+			"run",
+			"set",
+			"create",
+			placeholder("goal"),
+			"--domain",
+			placeholder("site"),
+			"--levels",
+		]),
 		why: "a set of journeys",
 	};
 	const built = setRequestOf(input.goals, input.flags);
@@ -250,7 +254,10 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 						code: "CONFIRMATION_NEEDED",
 						message:
 							"There is no terminal to ask on, and --yes was not given. Nothing was launched.",
-						next: { call: `${axCall(["journey", "..."])} --yes`, why: "launch without asking" },
+						next: {
+							call: `${axCall(["run", "set", "create", "..."])} --yes`,
+							why: "launch without asking",
+						},
 					},
 					EXIT.USAGE,
 					json,
@@ -292,10 +299,13 @@ export interface SetViewInput extends Seams {
 
 export async function journeySetView(input: SetViewInput): Promise<number> {
 	const { json } = input;
-	const listStep: NextStep = { call: axCall(["journey", "list"]), why: "your sets and their ids" };
+	const listStep: NextStep = {
+		call: axCall(["run", "set", "list"]),
+		why: "your sets and their ids",
+	};
 	if (!input.id)
 		return fail(
-			{ code: "INVALID_SET", message: "ax journey view needs a set or run id", next: listStep },
+			{ code: "INVALID_SET", message: "ax run set view needs a set id", next: listStep },
 			EXIT.USAGE,
 			json,
 		);
@@ -313,28 +323,7 @@ export async function journeySetView(input: SetViewInput): Promise<number> {
 	const interrupt = input.interrupt ? { signal: input.interrupt, stop: () => {} } : onInterrupt();
 	try {
 		const client = clientOf(input);
-		let first: SetDocument;
-		try {
-			first = await client.get(input.id);
-		} catch (error) {
-			if (
-				!(
-					error instanceof PlatformApiError &&
-					error.status === 404 &&
-					client.getRun &&
-					client.followRun
-				)
-			)
-				throw error;
-			const native = { getRun: client.getRun, followRun: client.followRun };
-			const run = await native.getRun(input.id);
-			const evidence =
-				input.wait !== undefined || input.watch
-					? await watchRun(native, run, { json, interrupt: interrupt.signal, waitMinutes })
-					: run;
-			printRun(evidence, json);
-			return 0;
-		}
+		const first = await client.get(input.id);
 		// Without --wait or --watch, view prints the set as it stands: its own state line says whether
 		// it is still going, so no "the wait ran out" line belongs above it.
 		if (input.wait === undefined && !input.watch) {
@@ -369,7 +358,9 @@ export async function journeySetList(
 				? viewStep(first.setId, json)
 				: {
 						call: axCall([
-							"journey",
+							"run",
+							"set",
+							"create",
 							placeholder("goal"),
 							"--domain",
 							placeholder("site"),
@@ -383,7 +374,7 @@ export async function journeySetList(
 	} catch (error) {
 		// A credential's failure gets its own line from failedCall; any other refusal says its own fix, so the way on is the list again.
 		return failedCall(error, json, {
-			call: axCall(["journey", "list", ...(json ? ["--json"] : [])]),
+			call: axCall(["run", "set", "list", ...(json ? ["--json"] : [])]),
 			why: "once that is fixed",
 		});
 	}
@@ -393,10 +384,13 @@ export async function journeySetCancel(
 	input: { id: string | undefined; json: boolean } & Pick<Seams, "client" | "credentials">,
 ): Promise<number> {
 	const { json } = input;
-	const listStep: NextStep = { call: axCall(["journey", "list"]), why: "your sets and their ids" };
+	const listStep: NextStep = {
+		call: axCall(["run", "set", "list"]),
+		why: "your sets and their ids",
+	};
 	if (!input.id)
 		return fail(
-			{ code: "INVALID_SET", message: "ax journey cancel needs a set id", next: listStep },
+			{ code: "INVALID_SET", message: "ax run set cancel needs a set id", next: listStep },
 			EXIT.USAGE,
 			json,
 		);

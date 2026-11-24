@@ -35,7 +35,7 @@ import { spinner } from "../ui/spinner";
 
 // `ax journey --domain <site>` with no goal of its own (and the older
 // `ax deep-journey <url>`): run a real agent at a site through ora's PUBLIC
-// journey API (no key, no workspace - unlike `ax journey "<goal>"`, which
+// journey API (no key, no workspace - unlike `ax run "<goal>"`, which
 // drives the authenticated platform). Thin client: verdict, step_count, and insight are
 // rendered exactly as the contract delivers them; nothing is re-judged here.
 
@@ -551,7 +551,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 				code: "NEEDS_KEY",
 				message:
 					input.via === "journey"
-						? "a goal of your own on ora's public journeys needs an ora partner API key (set ORA_PARTNER_API_KEY or pass --api-key); without --agent, --intent or --no-stream it runs on your Front account with ORA_API_KEY"
+						? "a goal of your own on ora's public journeys needs an ora partner API key (set ORA_PARTNER_API_KEY or pass --api-key); use ax run with a Studio sign-in for a Studio goal"
 						: "--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
 				next: {
 					call: keyedCall(undefined, input.agent),

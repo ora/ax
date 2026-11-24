@@ -68,6 +68,6 @@
 	],
 	"next": {
 		"command": "view",
-		"line": "ax journey view 593eea5e-c76d-4394-8dd7-dc52c6fbb61d"
+		"line": "ax run set view 593eea5e-c76d-4394-8dd7-dc52c6fbb61d"
 	}
 }

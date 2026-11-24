@@ -5,45 +5,6 @@ import type { SetRequest } from "../api/sets";
 // starts and whether it fits are all in the preview's answer. This module only refuses what
 // cannot be a request at all (no site, a repeat that is not a number).
 
-/** The words after `ax journey` that are not flags or flag values: the goals, or a subcommand and its id. */
-export function positionals(rawArgs: readonly string[], valueFlags: ReadonlySet<string>): string[] {
-	const found: string[] = [];
-	for (let i = 0; i < rawArgs.length; i++) {
-		const arg = rawArgs[i];
-		if (arg === "--") {
-			found.push(...rawArgs.slice(i + 1));
-			break;
-		}
-		if (!arg.startsWith("-")) {
-			found.push(arg);
-			continue;
-		}
-		if (!arg.includes("=") && valueFlags.has(arg)) i++;
-	}
-	return found;
-}
-
-/** The subcommands that take the first goal's place. A goal cannot be exactly one of these words. */
-export const SET_SUBCOMMANDS = ["view", "list", "cancel"] as const;
-export type SetSubcommand = (typeof SET_SUBCOMMANDS)[number];
-
-export function subcommandOf(word: string | undefined): SetSubcommand | undefined {
-	return SET_SUBCOMMANDS.find((name) => name === word);
-}
-
-/** The flags that make `ax journey "<goal>"` a set rather than one journey. */
-export const SET_FLAGS = [
-	"agents",
-	"levels",
-	"brand",
-	"docs",
-	"exact",
-	"repeat",
-	"yes",
-	"wait",
-	"watch",
-] as const;
-
 export interface SetFlags {
 	domain?: string;
 	agents?: string;

@@ -85,7 +85,7 @@ const STATE_LINE: Readonly<Record<SetDocument["state"], string | null>> = {
  * the live view already left them on: the set's id and state, then what it found (gaps, skipped levels, notes).
  */
 export function renderReport(set: SetDocument, options: { cells?: boolean } = {}): string {
-	const lines: string[] = [`${set.site ?? "Standalone journey"}  set ${set.setId}`];
+	const lines: string[] = [`${set.site}  set ${set.setId}`];
 	const state = STATE_LINE[set.state];
 	if (state) lines.push(`${state}${set.error ? ` ${plain(set.error)}` : ""}`);
 	if (set.runs.notStarted > 0)
@@ -130,13 +130,13 @@ function minuteOf(instant: string): string {
 	return `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-/** `ax journey list`: the organization's sets, newest first, as the platform ordered them. */
+/** `ax run set list`: the organization's sets, newest first, as the platform ordered them. */
 export function renderList(list: SetList): string {
 	if (list.sets.length === 0) return "No sets yet.";
 	return list.sets
 		.map(
 			(set) =>
-				`${pad(plain(set.setId), 38)}${pad(plain(set.site ?? "Standalone journey"), 24)}${pad(plain(set.state), 11)}${plural(set.goals, "goal", "goals")}, ${plural(set.plannedRuns, "run", "runs")}  ${minuteOf(set.createdAt)}`,
+				`${pad(plain(set.setId), 38)}${pad(plain(set.site), 24)}${pad(plain(set.state), 11)}${plural(set.goals, "goal", "goals")}, ${plural(set.plannedRuns, "run", "runs")}  ${minuteOf(set.createdAt)}`,
 		)
 		.join("\n");
 }

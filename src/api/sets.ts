@@ -101,7 +101,7 @@ export interface SetBreakdown {
 /** `GET /ax/v1/sets/{id}` and the answer of create: the set and its report as it stands. */
 export interface SetDocument {
 	setId: string;
-	site: string | null;
+	site: string;
 	brand: string | null;
 	createdAt: string;
 	state: "preparing" | "running" | "grading" | "complete" | "stopped" | "failed";
@@ -126,7 +126,7 @@ export interface SetDocument {
 export interface SetList {
 	sets: {
 		setId: string;
-		site: string | null;
+		site: string;
 		createdAt: string;
 		state: string;
 		goals: number;

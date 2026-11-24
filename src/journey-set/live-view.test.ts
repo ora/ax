@@ -53,7 +53,7 @@ function set(over: Partial<SetDocument> = {}): SetDocument {
 		cells: [],
 		gaps: [],
 		notes: [],
-		next: { command: "view", line: "ax journey view 8e716c09-3ad7-4690-9501-5e8cb8b2d900" },
+		next: { command: "view", line: "ax run set view 8e716c09-3ad7-4690-9501-5e8cb8b2d900" },
 		...over,
 	};
 }
@@ -239,7 +239,7 @@ describe("liveSetLines: what a person watching the set sees", () => {
 		expect(text).toContain("■ passed");
 		expect(text).toContain("□ waiting");
 		expect(text).toContain("Ctrl-C stops watching; the runs go on");
-		expect(text).toContain("ax journey view 8e716c09-3ad7-4690-9501-5e8cb8b2d900 --watch");
+		expect(text).toContain("ax run set view 8e716c09-3ad7-4690-9501-5e8cb8b2d900 --watch");
 	});
 
 	it("a complete set says so, and every row is done", () => {

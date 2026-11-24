@@ -98,7 +98,7 @@ export function liveSetLines(set: SetDocument, options: LiveViewOptions): string
 		line([{ text: `    ${pad(label, 9)}`, tint: pc.dim }, { text: value }]);
 
 	// The header: what was asked.
-	const site = plain(set.site ?? "Standalone journey");
+	const site = plain(set.site);
 	const shortId = plain(set.setId).slice(0, 8);
 	const left = `  ◆ ${site} · a set of journeys`;
 	const right = `set ${shortId}`;
@@ -215,7 +215,7 @@ export function liveSetLines(set: SetDocument, options: LiveViewOptions): string
 					line([{ text: "    Ctrl-C stops watching; the runs go on.", tint: pc.dim }]),
 					line([
 						{
-							text: `    Pick it up again: ax journey view ${plain(set.setId)} --watch`,
+							text: `    Pick it up again: ax run set view ${plain(set.setId)} --watch`,
 							tint: pc.dim,
 						},
 					]),
