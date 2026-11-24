@@ -386,7 +386,7 @@ Edges come from ora's own per-step attribution (link-follows nest under the page
 | Flag | Effect |
 |---|---|
 | `--domain <d>` | Site the agent targets (e.g. `stripe.com`) |
-| `--harness <h>` | Agent harness: `claude-code` (default), `codex`, `claude-consumer`, `chatgpt-consumer` |
+| `--harness <h>` | An agent enabled on your Studio plan. Omit to use the plan default. |
 | `--model <m>` | Model override (e.g. `claude-haiku-4-5-20251001` — cheap and good for demos) |
 | `--json` | Full result as JSON: run metadata, usage, insight, and the raw trajectory |
 

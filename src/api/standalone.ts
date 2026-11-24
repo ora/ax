@@ -5,6 +5,7 @@ export interface StandaloneRequest {
 	goal: string;
 	site?: string;
 	agent?: string;
+	model?: string;
 }
 export interface InsightRecommendation {
 	title: string;

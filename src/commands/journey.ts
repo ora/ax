@@ -15,7 +15,7 @@ import { DEFAULT_WAIT_MINUTES, INTERRUPTED } from "./journey-set";
 export interface JourneyCommandInput {
 	intent: string;
 	domain?: string;
-	harness: string;
+	harness?: string;
 	model?: string;
 	json: boolean;
 }
@@ -47,8 +47,7 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 		"run",
 		input.intent,
 		...(input.domain ? ["--domain", input.domain] : []),
-		"--harness",
-		input.harness,
+		...(input.harness ? ["--harness", input.harness] : []),
 		...(input.model ? ["--model", input.model] : []),
 		...jsonWords(input),
 	]);
@@ -79,7 +78,8 @@ export async function journeyCommand(
 		created = await client.createRun({
 			goal: input.intent,
 			...(input.domain !== undefined ? { site: input.domain } : {}),
-			agent: input.model ? `${input.harness}/${input.model}` : input.harness,
+			...(input.harness ? { agent: input.harness } : {}),
+			...(input.model ? { model: input.model } : {}),
 		});
 		console.error(`Run ${created.runId} started.`);
 		const evidence = await watchRun(client, created, {

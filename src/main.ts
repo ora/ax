@@ -543,7 +543,7 @@ function helpScreen(): string {
 		"",
 		`  ${d("run options (Studio):")}`,
 		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com)")}`,
-		`    --harness <h>    ${d("Agent harness: claude-code (default), codex, claude-consumer, chatgpt-consumer")}`,
+		`    --harness <h>    ${d("Agent harness from your Studio plan (default selected by Studio)")}`,
 		`    --model <m>      ${d("Model override (harness default when omitted)")}`,
 		`    --json           ${d("Output as JSON")}`,
 		`    ${d("requires ax login (a browser sign-in), or ORA_API_KEY (see .env.example)")}`,

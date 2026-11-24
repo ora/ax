@@ -194,7 +194,7 @@ async function studioRun(rawArgs: string[]): Promise<number> {
 	return journeyCommand({
 		intent: positionals[0],
 		domain: values.domain,
-		harness: values.harness ?? "claude-code",
+		harness: values.harness,
 		model: values.model,
 		json: Boolean(values.json),
 	});
@@ -227,7 +227,6 @@ export const runUsage = () =>
 		"ax run set view <set-id> [--watch] [--wait <minutes>] [--json]",
 		"ax run set cancel <set-id> [--json]",
 		"",
-		"Sign in with ax login or set ORA_API_KEY. A standalone goal uses claude-code by default.",
-		"Harnesses: claude-consumer, chatgpt-consumer, claude-code, codex.",
+		"Sign in with ax login or set ORA_API_KEY. Studio selects a default agent from your plan.",
 		"Set creation previews the run count and asks before launching. Use --yes to confirm.",
 	].join("\n");

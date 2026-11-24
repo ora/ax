@@ -88,12 +88,23 @@ describe("a standalone Studio journey", () => {
 		expect(JSON.parse(String(stdout.mock.calls[0][0]))).toEqual(evidence);
 	});
 
+	it("lets Studio choose a permitted harness when the caller omits it", async () => {
+		const { requests } = server();
+		await journeyCommand({ intent: goal, json: true });
+		expect(requests[1].body).toEqual({ goal });
+	});
+
 	it("passes the site and precise model and prints the recorded insight and report in the terminal", async () => {
 		const { requests, human } = server();
 		expect(
 			await journeyCommand({ ...input, domain: "linear.app", model: "gpt-5.4-mini", json: false }),
 		).toBe(0);
-		expect(requests[1].body).toEqual({ goal, site: "linear.app", agent: "codex/gpt-5.4-mini" });
+		expect(requests[1].body).toEqual({
+			goal,
+			site: "linear.app",
+			agent: "codex",
+			model: "gpt-5.4-mini",
+		});
 		const lines = human.mock.calls.flat().join("\n");
 		expect(lines).toContain("Found the endpoint.");
 		expect(lines).toContain(reportUrl);
