@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { PlatformApiError } from "../api/platform-error";
 import { platformBase } from "../api/platform-origins";
-import { createSetsClient, type SetDocument, type SetsClient } from "../api/sets";
+import { type AxClient, createSetsClient, type SetDocument, type SetsClient } from "../api/sets";
 import { KeyRejectedError } from "../auth/errors";
 import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
@@ -9,6 +9,7 @@ import { type SetFlags, setRequestOf, wholeNumber } from "../journey-set/args";
 import { type EndViewOptions, endNextWhy, endViewLines } from "../journey-set/end-view";
 import { type FollowEnd, followSet } from "../journey-set/follow-set";
 import { onInterrupt } from "../journey-set/interrupt";
+import { watchRun } from "../journey-set/journey-progress";
 import { progressFor } from "../journey-set/live-watch";
 import { previewProblem, renderList, renderPreview, renderReport } from "../journey-set/render";
 import type { SetProgress } from "../journey-set/set-progress";
@@ -17,6 +18,7 @@ import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { credentialFailure } from "./credential-failure";
 import { EXIT } from "./exit-codes";
+import { printRun } from "./journey-run-result";
 
 // A set of journeys: `ax journey "<goal>" ["<goal>" ...] --domain <site>` with any set flag, and
 // `ax journey view | list | cancel`. The platform plans, runs, grades and counts a set; ax asks,
@@ -29,9 +31,11 @@ export const INTERRUPTED = 130;
 /** How long a set is followed when --wait names nothing. */
 export const DEFAULT_WAIT_MINUTES = 60;
 
+type ViewClient = SetsClient & Partial<Pick<AxClient, "getRun" | "followRun">>;
+
 /** Tests only; there is no flag for any of these. */
 interface Seams {
-	client?: SetsClient;
+	client?: ViewClient;
 	/** Which credential signs the calls: ax's own chain unless a caller (a test, the command) hands one in. */
 	credentials?: PlatformCredentials;
 	now?: () => number;
@@ -152,7 +156,7 @@ function failedCall(error: unknown, json: boolean, next: NextStep): number {
  * The client a command calls with: the one handed in, else one that signs with the first credential
  * the chain holds for this platform. None is a NotSignedInError, which failedCall words.
  */
-function clientOf(input: Pick<Seams, "client" | "credentials">): SetsClient {
+function clientOf(input: Pick<Seams, "client" | "credentials">): ViewClient {
 	if (input.client) return input.client;
 	const base = platformBase();
 	const credential = (input.credentials ?? platformCredentials()).chain.resolve(base, SETS_FEATURE);
@@ -291,7 +295,7 @@ export async function journeySetView(input: SetViewInput): Promise<number> {
 	const listStep: NextStep = { call: axCall(["journey", "list"]), why: "your sets and their ids" };
 	if (!input.id)
 		return fail(
-			{ code: "INVALID_SET", message: "ax journey view needs a set id", next: listStep },
+			{ code: "INVALID_SET", message: "ax journey view needs a set or run id", next: listStep },
 			EXIT.USAGE,
 			json,
 		);
@@ -309,7 +313,28 @@ export async function journeySetView(input: SetViewInput): Promise<number> {
 	const interrupt = input.interrupt ? { signal: input.interrupt, stop: () => {} } : onInterrupt();
 	try {
 		const client = clientOf(input);
-		const first = await client.get(input.id);
+		let first: SetDocument;
+		try {
+			first = await client.get(input.id);
+		} catch (error) {
+			if (
+				!(
+					error instanceof PlatformApiError &&
+					error.status === 404 &&
+					client.getRun &&
+					client.followRun
+				)
+			)
+				throw error;
+			const native = { getRun: client.getRun, followRun: client.followRun };
+			const run = await native.getRun(input.id);
+			const evidence =
+				input.wait !== undefined || input.watch
+					? await watchRun(native, run, { json, interrupt: interrupt.signal, waitMinutes })
+					: run;
+			printRun(evidence, json);
+			return 0;
+		}
 		// Without --wait or --watch, view prints the set as it stands: its own state line says whether
 		// it is still going, so no "the wait ran out" line belongs above it.
 		if (input.wait === undefined && !input.watch) {

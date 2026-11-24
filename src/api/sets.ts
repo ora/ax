@@ -1,7 +1,7 @@
 import type { PlatformCredential } from "../auth/credential";
 import { decodeEventBlock, type JourneyStep } from "./platform";
 import { jsonOrNull, PlatformApiError } from "./platform-error";
-import type { StandaloneEvidence, StandaloneRequest } from "./standalone";
+import type { StandaloneEvidence, StandaloneRequest, StandaloneRun } from "./standalone";
 
 // Client for ora's sets API (`/ax/v1`): the backend of a set of journeys. The platform plans,
 // runs, grades and counts a set; this client asks and hands the answer over. It holds no state
@@ -199,10 +199,10 @@ function validationLines(body: unknown): string[] {
  * renewal is the credential's own to word: a key ora rejects, a sign-in that has ended.
  */
 export interface AxClient extends SetsClient {
-	createRun(request: StandaloneRequest): Promise<SetDocument>;
-	getRun(setId: string): Promise<StandaloneEvidence>;
+	createRun(request: StandaloneRequest): Promise<StandaloneRun>;
+	getRun(runId: string): Promise<StandaloneEvidence>;
 	followRun(
-		setId: string,
+		runId: string,
 		onSnapshot: (steps: JourneyStep[]) => void,
 		signal: AbortSignal,
 	): Promise<void>;
@@ -293,7 +293,7 @@ export function createSetsClient(options: SetsClientOptions): AxClient {
 
 	return {
 		createRun: (body) => call("POST", "/runs", body),
-		getRun: (setId) => call("GET", `/runs/${encodeURIComponent(setId)}`),
+		getRun: (runId) => call("GET", `/runs/${encodeURIComponent(runId)}`),
 		follow: (id, onSet, signal) =>
 			stream(
 				`/sets/${encodeURIComponent(id)}/stream`,

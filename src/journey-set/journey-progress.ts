@@ -1,60 +1,38 @@
-import type { JourneyStep } from "../api/platform";
-import type { AxClient, SetDocument } from "../api/sets";
+import type { AxClient } from "../api/sets";
+import { runIsLive, type StandaloneEvidence, type StandaloneRun } from "../api/standalone";
 import { buildJourneyTree, drawJourneyTree, journeySummary } from "../ui/graph";
 import { LivePanel } from "../ui/panel";
-import type { SetProgress } from "./set-progress";
 
-/** One terminal tree, fed by the child run’s trajectory while the owning evaluation determines when grading finishes. */
-export class JourneyProgress implements SetProgress {
-	private readonly panel = new LivePanel();
-	private readonly stop = new AbortController();
-	private attached = false;
-	private state = "preparing";
-	private steps: JourneyStep[] = [];
-
-	constructor(
-		private readonly client: AxClient,
-		private readonly goal: string,
-	) {}
-
-	show(set: SetDocument): void {
-		this.state = set.state;
-		this.panel.open();
-		this.draw();
-		if (this.attached || set.complete || !set.runs.started) return;
-		this.attached = true;
-		// The report still settles and its final evidence is read if the live stream closes early.
-		void this.client
-			.followRun(
-				set.setId,
+/** Report the last durable state even when the live connection ends early. */
+export async function watchRun(
+	client: Pick<AxClient, "getRun" | "followRun">,
+	run: StandaloneRun,
+	opts: { json: boolean; interrupt: AbortSignal; waitMinutes: number },
+): Promise<StandaloneEvidence> {
+	if (runIsLive(run)) {
+		const panel = !opts.json && process.stdout.isTTY ? new LivePanel() : null;
+		const timeout = AbortSignal.timeout(opts.waitMinutes * 60_000);
+		const signal = AbortSignal.any([opts.interrupt, timeout]);
+		try {
+			panel?.open();
+			await client.followRun(
+				run.runId,
 				(steps) => {
-					if (this.stop.signal.aborted) return;
-					this.steps = steps;
-					this.draw();
+					if (!panel) return;
+					const tree = drawJourneyTree(buildJourneyTree(steps, run.goal, false));
+					panel.draw(
+						[`  ${journeySummary(steps)}`, "", ...tree.map((line) => `  ${line}`)],
+						"Running",
+					);
 				},
-				this.stop.signal,
-			)
-			.catch(() => {});
+				signal,
+			);
+		} catch (error) {
+			if (opts.interrupt.aborted) throw error;
+			if (!timeout.aborted) console.error("Live updates ended. Reading the saved run.");
+		} finally {
+			panel?.close();
+		}
 	}
-
-	private draw(): void {
-		const tree = drawJourneyTree(buildJourneyTree(this.steps, this.goal, false));
-		this.panel.draw(
-			[`  ${journeySummary(this.steps)}`, "", ...tree.map((line) => `  ${line}`)],
-			this.state,
-		);
-	}
-
-	note(message: string): void {
-		this.panel.draw([], message);
-	}
-
-	close(): void {
-		this.stop.abort();
-		this.panel.close();
-	}
-
-	leftOnScreen(): boolean {
-		return false;
-	}
+	return client.getRun(run.runId);
 }

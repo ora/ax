@@ -354,7 +354,7 @@ ax journey "<goal>" [--domain d] [--harness h] [--model m] [--json]
 ax journey "Find the API docs and how to authenticate" --domain stripe.com
 ```
 
-Starts one Studio evaluation and draws its agent’s trajectory as steps arrive. After grading, ax prints the recorded evidence, rubric results and Studio report link when available:
+Starts one regular Studio run and draws its trajectory as steps arrive. When it finishes, ax prints the recorded evidence, the analyzer’s findings when available, and the link to the run in Studio’s Evaluations page:
 
 ```
   ▶ stripe.com  ·  claude-code
@@ -427,7 +427,7 @@ ax journey "Find how to create an issue from the API" \
   --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
 ```
 
-`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`, `--watch`). One goal with none of them is the single journey above. Single journeys and sets use the same Studio monthly run allowance. A single journey may omit the domain. Its JSON includes the child `runId`, the evaluation’s `setId`, and `reportUrl` when Studio report links are enabled.
+`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`, `--watch`). One goal with none of them is the single journey above. Single journeys and sets use the same Studio monthly run allowance. A single journey may omit the domain. Its JSON includes its own `runId` and `reportUrl` when Studio report links are enabled. Use `ax journey view <runId>` to reopen it.
 
 A set runs on ora's platform, in your organization. The platform starts the runs, has each one graded and counts them; ax asks, waits and prints. The report here, `--json` and the platform's own pages therefore show the same numbers, and nothing is kept on your machine: a set is found again by its id (`ax journey list`).
 
@@ -557,7 +557,7 @@ Off a terminal (CI, a pipe, a file) `--watch` prints a line each time something 
 | `--wait <minutes>` | How long to watch (default 60). When it runs out ax prints the set as it stands and exits `0` |
 | `--watch` | Follow the set over ora's live stream: on a terminal a live panel (see *Watching live*), elsewhere a line each time the state or a level and agent's runs move. Without it ax reads the set every few seconds and prints the state. If the stream is not available ax says so and reads instead |
 | `--json` | The set exactly as the platform served it, on stdout; the preview and progress stay on stderr |
-| `ax journey view <id>` | Print a set as it stands now; with `--wait`, watch it until it finishes |
+| `ax journey view <id>` | Print a set or individual run by ID. Add `--wait` to follow it until it finishes |
 | `ax journey list` | Your organization's sets, newest first |
 | `ax journey cancel <id>` | Stop the runs still going. Runs that already finished keep their results; the set then reads `stopped`, and a cell whose runs were stopped reads `no grade`. A set with no run still going is left as it is: ax prints what ora says about it and exits `0` |
 

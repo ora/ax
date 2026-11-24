@@ -27,27 +27,38 @@ export interface JourneyInsight {
 	usage?: { input_tokens?: number; output_tokens?: number };
 }
 
-/** The member's child-run evidence returned by GET /ax/v1/runs/:setId. */
-export interface StandaloneEvidence {
-	setId: string;
-	runId: string | null;
-	run: {
-		harness: string;
-		model: string;
-		outcome: string | null;
-		durationMs: number | null;
-		numTurns: number | null;
-		totalTokens: number | null;
-		inputTokens: number | null;
-		outputTokens: number | null;
-		costUsd: number | null;
-		intentSatisfied: boolean | null;
-		insightSummary: string | null;
-		qualityScore: number | null;
-		rubricResults: { criterion: string; passed: boolean; note?: string }[] | null;
-		judgeModel: string | null;
-		gradedAt: string | null;
-	} | null;
+export interface StandaloneRun {
+	runId: string;
+	goal: string;
+	site: string | null;
+	harness: string;
+	model: string | null;
+	state:
+		| "queued"
+		| "pending"
+		| "in_progress"
+		| "succeeded"
+		| "failed"
+		| "timeout"
+		| "error"
+		| "canceled";
+	createdAt: string;
+	reportUrl: string | null;
+}
+
+/** Native evidence recorded for this run. The analyzer can finish after execution. */
+export interface StandaloneEvidence extends StandaloneRun {
+	outcome: string | null;
+	durationMs: number | null;
+	numTurns: number | null;
+	totalTokens: number | null;
+	inputTokens: number | null;
+	outputTokens: number | null;
+	costUsd: number | null;
 	trajectory: { steps: JourneyStep[] } | null;
 	insight: JourneyInsight | null;
+}
+
+export function runIsLive(run: StandaloneRun): boolean {
+	return ["queued", "pending", "in_progress"].includes(run.state);
 }

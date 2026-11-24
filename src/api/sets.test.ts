@@ -71,15 +71,15 @@ function clientOver(answers: { status: number; body: unknown }[]) {
 }
 
 describe("createSetsClient", () => {
-	it("opens the AX child stream with the set ID, and reads only live trajectory events", async () => {
+	it("opens the AX standalone stream with the run ID, and reads only live trajectory events", async () => {
 		const steps = [{ id: 1, turn: 1, type: "text" }];
 		const event = (name: string) => `event: ${name}\ndata: ${JSON.stringify({ steps })}\n\n`;
 		const fetched = vi.fn().mockResolvedValue(new Response(event("step") + event("trajectory")));
 		const { credential } = fakeCredential();
 		const client = createSetsClient({ base: BASE, credential, fetch: fetched });
 		const onSnapshot = vi.fn();
-		await client.followRun("set id", onSnapshot, new AbortController().signal);
-		expect(fetched.mock.calls[0][0]).toBe(`${BASE}/ax/v1/runs/set%20id/stream`);
+		await client.followRun("run id", onSnapshot, new AbortController().signal);
+		expect(fetched.mock.calls[0][0]).toBe(`${BASE}/ax/v1/runs/run%20id/stream`);
 		expect(onSnapshot.mock.calls).toEqual([[steps]]);
 	});
 

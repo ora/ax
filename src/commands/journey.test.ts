@@ -1,27 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import complete from "../journey-set/__fixtures__/set-complete.json";
-import created from "../journey-set/__fixtures__/set-created.json";
 import { journeyCommand } from "./journey";
+import { journeySetView } from "./journey-set";
 
 const goal = "Find the API endpoint for creating an issue";
 const input = { intent: goal, harness: "codex", json: true };
-const reportUrl = "https://app.ora.ai/review/evaluations/set-one";
-const settled = { ...complete, setId: "set-one", links: { set: reportUrl }, site: null };
+const reportUrl = "https://app.ora.ai/review/evaluations/runs/run-one";
+const created = {
+	runId: "run-one",
+	goal,
+	site: null,
+	harness: "codex",
+	model: "gpt-5.4-mini",
+	state: "pending",
+	createdAt: "2026-11-24T12:00:00Z",
+	reportUrl,
+};
 const evidence = {
-	setId: settled.setId,
-	runId: "child-one",
-	run: {
-		harness: "codex",
-		model: "gpt-5.4-mini",
-		outcome: "success",
-		totalTokens: 731,
-		costUsd: 0,
-		numTurns: 2,
-		durationMs: 3000,
-		qualityScore: 80,
-		rubricResults: [{ criterion: "Link to the endpoint", passed: true, note: "Linked the docs." }],
-		judgeModel: "judge",
-	},
+	...created,
+	state: "succeeded",
+	outcome: "success",
+	totalTokens: 731,
+	costUsd: 0,
+	numTurns: 2,
+	durationMs: 3000,
 	insight: { intent_satisfied: true, summary: "Found the endpoint." },
 	trajectory: { steps: [{ id: 0, type: "text", kind: "output", turn: 1, text: "See the docs." }] },
 };
@@ -48,10 +49,14 @@ function server(refusal?: number) {
 							{ code: "PRODUCT_REQUIRED", message: "Studio access required." },
 							{ status: refusal },
 						);
-					return Response.json({ ...created, setId: settled.setId, site: null }, { status: 201 });
-				case "/ax/v1/sets/set-one/stream":
-					return new Response(`event: set\ndata: ${JSON.stringify(settled)}\n\n`);
-				case "/ax/v1/runs/set-one":
+					return Response.json(created, { status: 201 });
+				case "/ax/v1/sets/run-one":
+					return Response.json({ code: "SET_NOT_FOUND" }, { status: 404 });
+				case "/ax/v1/runs/run-one/stream":
+					return new Response(
+						`event: trajectory\ndata: ${JSON.stringify(evidence.trajectory)}\n\n`,
+					);
+				case "/ax/v1/runs/run-one":
 					return Response.json(evidence);
 				default:
 					throw new Error(`unexpected request: ${path}`);
@@ -71,38 +76,45 @@ afterEach(() => {
 });
 
 describe("a standalone Studio journey", () => {
-	it("runs a domain-free goal once, follows grading, and prints child-run evidence and its Studio report", async () => {
+	it("runs a domain-free goal once, follows the real run, and prints native evidence and its Studio report", async () => {
 		const { requests, stdout } = server();
 		expect(await journeyCommand(input)).toBe(0);
 		expect(requests.map((r) => r.path)).toEqual([
 			"/auth/token",
 			"/ax/v1/runs",
-			"/ax/v1/sets/set-one/stream",
-			"/ax/v1/runs/set-one",
+			"/ax/v1/runs/run-one/stream",
+			"/ax/v1/runs/run-one",
 		]);
 		expect(requests[1]).toMatchObject({ method: "POST", body: { goal, agent: "codex" } });
 		expect(JSON.parse(String(stdout.mock.calls[0][0]))).toMatchObject({
-			runId: "child-one",
-			setId: "set-one",
+			runId: created.runId,
+			state: "succeeded",
 			reportUrl,
 			totalTokens: 731,
 			costUsd: 0,
 			intentSatisfied: true,
-			qualityScore: 80,
 			steps: evidence.trajectory.steps,
-			rubricResults: evidence.run.rubricResults,
 		});
 	});
 
-	it("passes the site and precise model and prints the recorded grade and report in the terminal", async () => {
+	it("passes the site and precise model and prints the recorded insight and report in the terminal", async () => {
 		const { requests, human } = server();
 		expect(
 			await journeyCommand({ ...input, domain: "linear.app", model: "gpt-5.4-mini", json: false }),
 		).toBe(0);
 		expect(requests[1].body).toEqual({ goal, site: "linear.app", agent: "codex/gpt-5.4-mini" });
 		const lines = human.mock.calls.flat().join("\n");
-		expect(lines).toContain("Linked the docs.");
+		expect(lines).toContain("Found the endpoint.");
 		expect(lines).toContain(reportUrl);
+	});
+
+	it("opens an existing regular run by ID without launching a new one", async () => {
+		const { requests, stdout } = server();
+		expect(await journeySetView({ id: "run-one", json: true })).toBe(0);
+		const result = JSON.parse(String(stdout.mock.calls[0][0]));
+		expect(result.runId).toBe("run-one");
+		expect(result).not.toHaveProperty("setId");
+		expect(requests.filter((r) => r.method === "POST" && r.path.startsWith("/ax/"))).toEqual([]);
 	});
 
 	it("returns a Studio refusal without trying another product or creating a second run", async () => {
