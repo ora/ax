@@ -16,6 +16,14 @@ afterEach(() => {
 	vi.unstubAllEnvs();
 });
 
+it("keeps the public JSON error code when the domain is missing", async () => {
+	const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+	vi.spyOn(console, "error").mockImplementation(() => {});
+	await runCommand(journey, { rawArgs: ["--json"] });
+	expect(process.exitCode).toBe(2);
+	expect(JSON.parse(String(stdout.mock.calls[0]?.[0])).error.code).toBe("INVALID_TARGET");
+});
+
 it("keeps a partner task public even when a Studio key is set", async () => {
 	vi.stubEnv("ORA_API_KEY", "ora_sk_test");
 	await runCommand(journey, {

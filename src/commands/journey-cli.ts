@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { defineCommand } from "citty";
 import { wholeNumber } from "../journey-set/args";
 import { reportError } from "../report/json-error";
+import { axCall, placeholder } from "../report/next-line";
 import { deepJourneyCommand } from "./deep-journey";
 import { EXIT } from "./exit-codes";
 import { journeyCommand, viewRun } from "./journey";
@@ -66,10 +67,18 @@ export const journey = defineCommand({
 					"no-stream": flag,
 				},
 			});
-			if (!values.domain?.trim())
-				throw new UsageError(
-					"--domain names the site the agent works on. Use ax run for a Studio goal.",
+			if (!values.domain?.trim()) {
+				const json = Boolean(values.json);
+				const next = {
+					call: axCall(["journey", "--domain", placeholder("domain"), ...(json ? ["--json"] : [])]),
+					why: "ora picks the task",
+				};
+				reportError(
+					{ code: "INVALID_TARGET", message: "--domain names the site the agent works on", next },
+					{ json },
 				);
+				return EXIT.USAGE;
+			}
 			if (positionals.length > 1)
 				throw new UsageError(
 					"journey takes one public task. To run a Studio set, use ax run set create.",
