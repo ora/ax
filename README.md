@@ -336,7 +336,7 @@ ax whoami     # who ax calls ora's platform as
 ax logout     # end the sign-in, on ora and on this machine
 ```
 
-`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. If ora's sign-in server stops answering for a moment while you do, ax waits a little longer and tries again. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `runs:read` + `runs:write` for journeys and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
+`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. If ora's sign-in server stops answering for a moment while you do, ax waits a little longer and tries again. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `ax.sets:read` + `ax.sets:write` for Studio journeys and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
 
 The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_CONFIG_HOME/ax` when set, `%APPDATA%\ax` on Windows), readable by your account only. It lasts until you run `ax logout` or disconnect **ax** in ora under Settings › Connected apps. `ax logout` removes the file first and then ends the sign-in on ora, so nothing is left on disk even when ora can't be reached; it also removes a file this version of ax can't read. After that, ora refuses the next command, and a tunnel the sign-in opened closes within about half a minute. A sign-in is for the platform it was made for: point `ORA_PLATFORM_URL` elsewhere and ax neither uses nor sends it.
 
@@ -354,7 +354,7 @@ ax journey "<goal>" [--domain d] [--harness h] [--model m] [--json]
 ax journey "Find the API docs and how to authenticate" --domain stripe.com
 ```
 
-Triggers a real agent run on ora's platform and renders the journey live — the whole graph repaints in place as the agent moves:
+Starts one Studio evaluation and draws its agent’s trajectory as steps arrive. After grading, ax prints the recorded evidence, rubric results and Studio report link when available:
 
 ```
   ▶ stripe.com  ·  claude-code
@@ -386,17 +386,17 @@ Edges come from ora's own per-step attribution (link-follows nest under the page
 | Flag | Effect |
 |---|---|
 | `--domain <d>` | Site the agent targets (e.g. `stripe.com`) |
-| `--harness <h>` | Agent harness: `claude-code` (default), `codex`, `openclaw`, `hermess`, `claude-agent`, `eve`, … |
+| `--harness <h>` | Agent harness: `claude-code` (default), `codex`, `claude-consumer`, `chatgpt-consumer` |
 | `--model <m>` | Model override (e.g. `claude-haiku-4-5-20251001` — cheap and good for demos) |
 | `--json` | Full result as JSON: run metadata, usage, insight, and the raw trajectory |
 
 Note: run-to-run variance is real — agents sometimes answer from search snippets without fetching, which scores differently. Run a few journeys before drawing conclusions.
 
-Journey exit codes: `0` run outcome `success` · `1` non-success outcome · `2` any error.
+Journey exit codes: `0` run outcome `success` · `1` non-success outcome · `2` command error · `130` interrupted while watching.
 
 #### Setup
 
-`journey` needs a [sign-in](#sign-in), or an ora platform API key with the `runs:read` + `runs:write` scopes:
+`journey` needs a [sign-in](#sign-in), or a Studio API key with the `ax.sets:read` + `ax.sets:write` scopes:
 
 ```sh
 ax login                             # once, at your terminal
@@ -427,7 +427,7 @@ ax journey "Find how to create an issue from the API" \
   --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
 ```
 
-`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`, `--watch`). One goal with none of them is the single journey above. If ora refuses that run because your organization does not have the product single runs belong to, ax runs the goal as a set of one instead (one run, on the agent you named or your plan's own) and follows it live.
+`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`, `--watch`). One goal with none of them is the single journey above. Single journeys and sets use the same Studio monthly run allowance. A single journey may omit the domain. Its JSON includes the child `runId`, the evaluation’s `setId`, and `reportUrl` when Studio report links are enabled.
 
 A set runs on ora's platform, in your organization. The platform starts the runs, has each one graded and counts them; ax asks, waits and prints. The report here, `--json` and the platform's own pages therefore show the same numbers, and nothing is kept on your machine: a set is found again by its id (`ax journey list`).
 
@@ -567,7 +567,7 @@ Set exit codes: `0` a report was printed, or you answered no · `2` usage, or th
 
 #### Setup for sets
 
-A set signs in the way a journey does: `ax login` once (a browser sign-in, which asks for the scopes a set needs), or an ora platform API key in `ORA_API_KEY` with the `ax.sets:write` and `ax.sets:read` scopes. A key with `ax.sets:read` alone can `list` and `view`. Your organization also needs ora Study, the product a set runs on and is billed to. A new account made on the way through `ax login` starts on it; for an existing organization, an owner or admin adds it on the approval page of the sign-in.
+A set signs in the way a journey does: `ax login` once (a browser sign-in, which asks for the scopes a set needs), or an ora platform API key in `ORA_API_KEY` with the `ax.sets:write` and `ax.sets:read` scopes. A key with `ax.sets:read` alone can `list` and `view`. A Studio organization can use the same sign-in or Studio-scoped key for a single journey and a set.
 
 ## Environment variables
 

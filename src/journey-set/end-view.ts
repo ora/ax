@@ -29,7 +29,8 @@ const LAYER_WORDS: Readonly<Record<NonNullable<SetGap["layer"]>, string>> = {
 
 /** What a level of help did, said by the level a gap moves INTO. */
 function stepWords(set: SetDocument, to: string): string {
-	if (to === "brand") return `naming ${plain(set.brand ?? set.site)} got agents to your site`;
+	if (to === "brand")
+		return `naming ${plain(set.brand ?? set.site ?? "the brand")} got agents to your site`;
 	if (to === "docs") return "linking the docs got agents to your site";
 	if (to === "exact") return "the exact page got agents through";
 	return "this level got more agents through";
@@ -176,6 +177,7 @@ function whyLines(
 	line: (s: Segment[]) => string,
 ): string[] {
 	const { notPassed: missed, passedWithoutVisiting } = breakdown;
+	if (!set.site) return [];
 	const site = plain(set.site);
 	const of = (n: number) => `${n} of ${missed.runs}`;
 	const lines = [line(heading("Why runs did not pass"))];

@@ -325,41 +325,12 @@ async function runJourney(
 			model: input.model,
 			json,
 		},
-		{
-			credentials,
-			// The organization does not hold the product one run at a time belongs to. Its journeys run
-			// as sets, so the goal runs as a set of one: one run, on the agent named or the plan's own,
-			// followed live. Nothing is asked: one journey is what was typed.
-			onProductRefused: () => {
-				console.error(
-					"Your organization runs journeys as sets on ora. Running this goal as a set of one.",
-				);
-				return journeySetRun({
-					goals: [goal],
-					flags: {
-						domain: input.domain,
-						agents: undefined,
-						harness: input.harness,
-						model: input.model,
-						levels: false,
-						brand: undefined,
-						docs: undefined,
-						exact: undefined,
-						repeat: undefined,
-					},
-					yes: true,
-					wait: input.wait,
-					watch: true,
-					json,
-					credentials,
-				});
-			},
-		},
+		{ credentials },
 	);
 }
 
 const JOURNEY_DESCRIPTION =
-	"Send a real AI agent at a site and watch it live: free on one of ora's curated tasks, or on a goal of your own with a platform key";
+	"Send a real AI agent at a site and watch it live: free on one of ora's curated tasks, or on a goal of your own with a Studio sign-in or key";
 
 /**
  * `ax journey`, with the credentials a goal of your own signs in with: ax's own chain unless a
@@ -453,7 +424,7 @@ export function journeyUsage(): string {
 		h("A GOAL OF YOUR OWN"),
 		"",
 		`  --domain <site>  ${d("Site the agent works on (e.g. stripe.com)")}`,
-		`  --harness <h>    ${d(`Agent harness: ${DEFAULT_HARNESS} (default), codex, openclaw, hermess, claude-agent, eve, ...`)}`,
+		`  --harness <h>    ${d(`Agent harness: ${DEFAULT_HARNESS} (default), codex, claude-consumer, chatgpt-consumer`)}`,
 		`  --model <m>      ${d("Model override (the harness default when omitted)")}`,
 		`  --json           ${d("Print the run as JSON")}`,
 		`  ${d("needs ax login (a browser sign-in), or ORA_API_KEY (see .env.example)")}`,

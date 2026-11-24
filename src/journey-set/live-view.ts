@@ -98,7 +98,7 @@ export function liveSetLines(set: SetDocument, options: LiveViewOptions): string
 		line([{ text: `    ${pad(label, 9)}`, tint: pc.dim }, { text: value }]);
 
 	// The header: what was asked.
-	const site = plain(set.site);
+	const site = plain(set.site ?? "Standalone journey");
 	const shortId = plain(set.setId).slice(0, 8);
 	const left = `  ◆ ${site} · a set of journeys`;
 	const right = `set ${shortId}`;

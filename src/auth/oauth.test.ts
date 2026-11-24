@@ -61,8 +61,6 @@ describe("where ax signs in", () => {
 		expect(SIGN_IN_SCOPE.split(" ")).toEqual([
 			"openid",
 			"offline_access",
-			"runs:read",
-			"runs:write",
 			"tunnels:write",
 			"tunnels:connect",
 			// A set of journeys: read and list (read), preview, start and stop (write).

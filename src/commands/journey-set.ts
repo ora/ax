@@ -8,6 +8,7 @@ import { type PlatformCredentials, platformCredentials } from "../auth/resolve-c
 import { type SetFlags, setRequestOf, wholeNumber } from "../journey-set/args";
 import { type EndViewOptions, endNextWhy, endViewLines } from "../journey-set/end-view";
 import { type FollowEnd, followSet } from "../journey-set/follow-set";
+import { onInterrupt } from "../journey-set/interrupt";
 import { progressFor } from "../journey-set/live-watch";
 import { previewProblem, renderList, renderPreview, renderReport } from "../journey-set/render";
 import type { SetProgress } from "../journey-set/set-progress";
@@ -88,14 +89,6 @@ export interface SetRunInput extends Seams {
 	json: boolean;
 	/** Asks on the terminal; null when there is no terminal or Ctrl-C answers. Tests answer for the person. */
 	ask?: (question: string) => Promise<string | null>;
-}
-
-/** A signal that aborts on the first Ctrl-C, and the call that stops listening. */
-function onInterrupt(): { signal: AbortSignal; stop: () => void } {
-	const controller = new AbortController();
-	const handler = () => controller.abort();
-	process.once("SIGINT", handler);
-	return { signal: controller.signal, stop: () => process.removeListener("SIGINT", handler) };
 }
 
 async function askOnTerminal(question: string): Promise<string | null> {

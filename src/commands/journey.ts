@@ -1,29 +1,20 @@
 import pc from "picocolors";
-import {
-	type JourneyInsight,
-	type JourneyRun,
-	type JourneyStep,
-	launchJourney,
-	type RunRequest,
-	type RunSpend,
-	type RunSummary,
-} from "../api/platform";
 import { platformBase } from "../api/platform-origins";
-import { JOURNEY_FEATURE } from "../auth/platform-features";
+import { createSetsClient, type SetDocument } from "../api/sets";
+import type { JourneyInsight, StandaloneEvidence } from "../api/standalone";
+import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import { followSet } from "../journey-set/follow-set";
+import { onInterrupt } from "../journey-set/interrupt";
+import { JourneyProgress } from "../journey-set/journey-progress";
+import { LineProgress } from "../journey-set/set-progress";
 import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
-import { flow, squeeze, stdoutWidth } from "../ui/ansi";
-import {
-	buildJourneyTree,
-	drawJourneyTree,
-	isSearchStep,
-	journeySummary,
-	splitUrl,
-} from "../ui/graph";
-import { LivePanel } from "../ui/panel";
+import { flow, plain, stdoutWidth } from "../ui/ansi";
+import { buildJourneyTree, drawJourneyTree, journeySummary } from "../ui/graph";
 import { credentialFailure } from "./credential-failure";
+import { DEFAULT_WAIT_MINUTES, INTERRUPTED } from "./journey-set";
 
 export interface JourneyCommandInput {
 	intent: string;
@@ -35,19 +26,6 @@ export interface JourneyCommandInput {
 
 const wide = () => stdoutWidth(60, 120);
 
-// Present-tense caption for whatever the agent is doing right now.
-function activityLabel(step: JourneyStep): string {
-	if (step.type === "tool_call") {
-		const detail = step.input_display ?? step.summary ?? "";
-		if (isSearchStep(step)) return detail ? `searching ${squeeze(detail, 40)}` : "searching…";
-		const { host } = splitUrl(detail);
-		return host ? `fetching ${host}` : "fetching…";
-	}
-	if (step.type === "text" && step.kind === "reasoning") return "deciding next step…";
-	if (step.type === "text") return "writing the answer…";
-	return "working…";
-}
-
 const chipTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
 
 function chipCost(usd: number): string {
@@ -56,18 +34,18 @@ function chipCost(usd: number): string {
 	return `$${usd.toFixed(2)}`;
 }
 
-function outcomeLines(summary: RunSummary, spend?: RunSpend): string[] {
-	const won = summary.outcome === "success";
+function outcomeLines(run: NonNullable<StandaloneEvidence["run"]>): string[] {
+	const won = run.outcome === "success";
 	const chips: string[] = [];
-	if (summary.num_turns != null) chips.push(`${summary.num_turns} turns`);
-	if (summary.duration_ms != null) chips.push(`${(summary.duration_ms / 1000).toFixed(1)}s`);
-	if (spend?.totalTokens != null) chips.push(`${chipTokens(spend.totalTokens)} tokens`);
-	if (spend?.costUsd != null) chips.push(chipCost(spend.costUsd));
+	if (run.numTurns != null) chips.push(`${run.numTurns} turns`);
+	if (run.durationMs != null) chips.push(`${(run.durationMs / 1000).toFixed(1)}s`);
+	if (run.totalTokens != null) chips.push(`${chipTokens(run.totalTokens)} tokens`);
+	if (run.costUsd != null) chips.push(chipCost(run.costUsd));
 
 	return [
 		"",
 		`  ${pc.dim("─".repeat(Math.min(wide() - 4, 52)))}`,
-		`  ${won ? pc.green("✓") : pc.red("✗")} ${pc.bold(won ? "completed" : summary.outcome)}${
+		`  ${won ? pc.green("✓") : pc.red("✗")} ${pc.bold(won ? "completed" : (run.outcome ?? "no outcome recorded"))}${
 			chips.length ? `  ${pc.dim(chips.join(" · "))}` : ""
 		}`,
 	];
@@ -123,38 +101,66 @@ function insightLines(insight: JourneyInsight): string[] {
 	return rows;
 }
 
-function journeyRunJson(run: JourneyRun): string {
-	const insight = run.insight ?? {};
-	return JSON.stringify(
-		{
-			runId: run.runId,
-			intent: run.intent,
-			domain: run.domain,
-			harness: run.harness,
-			model: run.result?.effective_model ?? run.result?.model,
-			outcome: run.result?.outcome,
-			durationMs: run.result?.duration_ms,
-			numTurns: run.result?.num_turns,
-			totalTokens: run.usage?.totalTokens,
-			inputTokens: run.usage?.inputTokens,
-			outputTokens: run.usage?.outputTokens,
-			costUsd: run.usage?.costUsd,
-			visibilityScore: insight.visibility_score,
-			intentSatisfied: insight.intent_satisfied,
-			taskSatisfied: insight.task_satisfied,
-			summary: insight.summary,
-			keyObservations: insight.key_observations,
-			frictionPoints: insight.friction_points,
-			recommendations: insight.recommendations,
-			journeyLayers: insight.journey_layers,
-			intentCategory: insight.intent_category,
-			steps: run.trajectory,
-		},
-		null,
-		2,
-	);
+/** Preserve the standalone command’s script fields, and add the Studio evaluation and its judge’s grades. */
+function journeyRunJson(
+	input: JourneyCommandInput,
+	set: SetDocument,
+	evidence: StandaloneEvidence,
+) {
+	const { run, insight } = evidence;
+	return {
+		setId: set.setId,
+		reportUrl: set.links?.set,
+		runId: evidence.runId ?? undefined,
+		intent: input.intent,
+		domain: input.domain,
+		harness: run?.harness ?? input.harness,
+		model: run?.model,
+		outcome: run?.outcome ?? undefined,
+		durationMs: run?.durationMs ?? undefined,
+		numTurns: run?.numTurns ?? undefined,
+		totalTokens: run?.totalTokens ?? undefined,
+		inputTokens: run?.inputTokens ?? undefined,
+		outputTokens: run?.outputTokens ?? undefined,
+		costUsd: run?.costUsd ?? undefined,
+		visibilityScore: insight?.visibility_score,
+		intentSatisfied: insight?.intent_satisfied ?? run?.intentSatisfied ?? undefined,
+		taskSatisfied: insight?.task_satisfied,
+		summary: insight?.summary ?? run?.insightSummary ?? undefined,
+		keyObservations: insight?.key_observations,
+		frictionPoints: insight?.friction_points,
+		recommendations: insight?.recommendations,
+		journeyLayers: insight?.journey_layers,
+		intentCategory: insight?.intent_category,
+		steps: evidence.trajectory?.steps ?? [],
+		qualityScore: run?.qualityScore ?? undefined,
+		rubricResults: run?.rubricResults ?? undefined,
+		judgeModel: run?.judgeModel ?? undefined,
+		gradedAt: run?.gradedAt ?? undefined,
+	};
 }
 
+function printRun(input: JourneyCommandInput, set: SetDocument, evidence: StandaloneEvidence) {
+	const result = journeyRunJson(input, set, evidence);
+	if (input.json) {
+		process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+		return;
+	}
+	console.log(`  ${journeySummary(result.steps)}`);
+	for (const row of drawJourneyTree(buildJourneyTree(result.steps, input.intent, true)))
+		console.log(`  ${row}`);
+	if (evidence.run) for (const row of outcomeLines(evidence.run)) console.log(row);
+	if (evidence.insight) for (const row of insightLines(evidence.insight)) console.log(row);
+	if (result.qualityScore !== undefined)
+		console.log(`  ${pc.bold("Grade")}  ${result.qualityScore}/100`);
+	for (const mark of result.rubricResults ?? []) {
+		console.log(
+			`    ${mark.passed ? pc.green("✓") : pc.red("✗")} ${plain(mark.criterion)}${mark.note ? ` — ${plain(mark.note)}` : ""}`,
+		);
+	}
+	if (set.error) console.log(`  ${plain(set.error)}`);
+	if (result.reportUrl) console.log(`  Report: ${plain(result.reportUrl)}`);
+}
 /** A caller reading JSON keeps reading JSON on the next call. */
 const jsonWords = (input: JourneyCommandInput) => (input.json ? ["--json"] : []);
 
@@ -200,111 +206,59 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 	);
 }
 
-export interface JourneyDeps {
-	/** Which credential the run signs its calls with. */
-	credentials: PlatformCredentials;
-	/**
-	 * What to do when ora refuses the run because the organization does not hold the product a single
-	 * run belongs to. The caller's other way to run the goal; without one the refusal is reported.
-	 */
-	onProductRefused?: () => Promise<number>;
-}
-
-/** ora refused the call because the organization does not hold the product this API belongs to. */
-function productRefused(cause: unknown): boolean {
-	const failure = (cause ?? {}) as { status?: unknown; payload?: unknown };
-	const code = (failure.payload as { code?: unknown } | null | undefined)?.code;
-	return failure.status === 403 && typeof code === "string" && code.includes("PRODUCT");
-}
-
-// Exit codes: 0 run outcome "success" · 1 finished otherwise · 2 error.
+/** One typed goal creates one Studio evaluation. The same AX credential reads its status and child-run evidence. */
 export async function journeyCommand(
 	input: JourneyCommandInput,
-	deps: JourneyDeps = { credentials: platformCredentials() },
+	deps: { credentials: PlatformCredentials } = { credentials: platformCredentials() },
 ): Promise<number> {
-	const fail = async (cause: unknown): Promise<number> => {
-		if (deps.onProductRefused && productRefused(cause)) return deps.onProductRefused();
+	let created: SetDocument | undefined;
+	const interrupt = onInterrupt();
+	try {
+		const base = platformBase();
+		const credential = deps.credentials.chain.resolve(base, SETS_FEATURE);
+		const client = createSetsClient({ base, credential, signal: interrupt.signal });
+		created = await client.createRun({
+			goal: input.intent,
+			...(input.domain !== undefined ? { site: input.domain } : {}),
+			agent: input.model ? `${input.harness}/${input.model}` : input.harness,
+		});
+		console.error(`Evaluation ${created.setId} started.`);
+		const { set, end } = await followSet(client, created, {
+			interrupt: interrupt.signal,
+			waitMinutes: DEFAULT_WAIT_MINUTES,
+			watch: true,
+			progress:
+				!input.json && process.stdout.isTTY
+					? new JourneyProgress(client, input.intent)
+					: new LineProgress(),
+		});
+		if (end === "detached" || end === "wait_limit") {
+			if (input.json) process.stdout.write(`${JSON.stringify(set, null, 2)}\n`);
+			printNext(
+				{ call: axCall(["journey", "view", set.setId, ...jsonWords(input)]) },
+				{ stderr: input.json },
+			);
+			return end === "detached" ? INTERRUPTED : 2;
+		}
+		const evidence = await client.getRun(set.setId);
+		printRun(input, set, evidence);
+		printNext(resultNext(input), { stderr: input.json });
+		return evidence.run?.outcome === "success" ? 0 : 1;
+	} catch (cause) {
+		if (interrupt.signal.aborted) return INTERRUPTED;
 		const error = launchFailure(input, cause);
+		if (created)
+			error.next = {
+				call: axCall(["journey", "view", created.setId, ...jsonWords(input)]),
+				why: "open the evaluation already started",
+			};
 		reportError(error, {
 			json: input.json,
 			display: (message) => `Journey failed: ${message}`,
 			served: servedBody(cause),
 		});
 		return 2;
-	};
-	let request: RunRequest;
-	try {
-		const base = platformBase();
-		request = {
-			intent: input.intent,
-			domain: input.domain,
-			harness: input.harness,
-			model: input.model,
-			baseUrl: base,
-			credential: deps.credentials.chain.resolve(base, JOURNEY_FEATURE),
-		};
-	} catch (cause) {
-		return fail(cause);
-	}
-
-	if (input.json) {
-		try {
-			const run = await launchJourney(request);
-			process.stdout.write(`${journeyRunJson(run)}\n`);
-			printNext(resultNext(input), { stderr: true });
-			return run.result?.outcome === "success" ? 0 : 1;
-		} catch (cause) {
-			return fail(cause);
-		}
-	}
-
-	const panel = new LivePanel();
-	let steps: JourneyStep[] = [];
-	let settled = false;
-
-	const view = (): string[] => [
-		`  ${journeySummary(steps)}`,
-		"",
-		...drawJourneyTree(buildJourneyTree(steps, input.intent, settled)).map((row) => `  ${row}`),
-	];
-
-	console.log();
-	console.log(
-		`  ${pc.cyan("▶")} ${input.domain ? pc.bold(input.domain) : pc.dim("(no domain)")}  ${pc.dim("·")}  ${pc.dim(input.harness)}`,
-	);
-	console.log();
-	panel.open();
-	panel.draw(view(), "waking the agent");
-
-	try {
-		const run = await launchJourney(request, {
-			snapshot: (latest) => {
-				steps = latest;
-				const tail = latest[latest.length - 1];
-				panel.draw(view(), tail ? activityLabel(tail) : "working");
-			},
-			finished: () => {
-				settled = true;
-				panel.draw(view(), "scoring the journey");
-			},
-		});
-
-		// Swap the live region for a permanent copy, then the finale under it.
-		panel.close();
-		settled = true;
-		if (run.trajectory.length) steps = run.trajectory;
-		for (const row of view()) console.log(row);
-		if (run.result) for (const row of outcomeLines(run.result, run.usage)) console.log(row);
-		if (run.insight) {
-			for (const row of insightLines(run.insight)) console.log(row);
-		} else if (run.result) {
-			console.log(pc.dim("  (insight not available for this run)"));
-			console.log();
-		}
-		printNext(resultNext(input), { stderr: false });
-		return run.result?.outcome === "success" ? 0 : 1;
-	} catch (cause) {
-		panel.close();
-		return fail(cause);
+	} finally {
+		interrupt.stop();
 	}
 }
