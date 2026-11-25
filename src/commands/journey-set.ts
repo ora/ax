@@ -12,7 +12,7 @@ import { onInterrupt } from "../journey-set/interrupt";
 import { progressFor } from "../journey-set/live-watch";
 import { previewProblem, renderList, renderPreview, renderReport } from "../journey-set/render";
 import type { SetProgress } from "../journey-set/set-progress";
-import { isRunLimitError, studioUsageStep } from "../journey-set/usage";
+import { isRunLimitError, workspaceUsageStep } from "../journey-set/usage";
 import { errorChain, servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
@@ -243,7 +243,7 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 				{
 					code: "SET_REFUSED",
 					message: `${problem.message} Nothing was launched.`,
-					next: problem.reason === "allowance" ? studioUsageStep() : usage,
+					next: problem.reason === "allowance" ? workspaceUsageStep() : usage,
 				},
 				EXIT.USAGE,
 				json,
@@ -275,7 +275,7 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 		}
 		created = await client.create(built.request);
 	} catch (error) {
-		return failedCall(error, json, isRunLimitError(error) ? studioUsageStep() : usage);
+		return failedCall(error, json, isRunLimitError(error) ? workspaceUsageStep() : usage);
 	}
 
 	console.error(`Set ${created.setId} started.`);

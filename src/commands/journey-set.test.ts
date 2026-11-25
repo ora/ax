@@ -168,7 +168,7 @@ describe("ax journey: a set", () => {
 	});
 
 	it.each(["preview", "create"] as const)(
-		"links to Studio Usage when the %s refuses the plan allowance",
+		"links to the workspace Usage page when the %s refuses the plan allowance",
 		async (stage) => {
 			vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.ai");
 			const over = { ...PREVIEW, runs: { ...PREVIEW.runs, left: 0, fits: false } };

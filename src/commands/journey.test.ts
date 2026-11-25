@@ -70,8 +70,8 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("a standalone Studio journey", () => {
-	it("runs a domain-free goal once, follows the real run, and prints native evidence and its Studio report", async () => {
+describe("a standalone Ora platform evaluation", () => {
+	it("runs a domain-free goal once, follows the real run, and prints native evidence and its report", async () => {
 		const { requests, stdout } = server();
 		expect(await journeyCommand(input)).toBe(0);
 		expect(requests.map((r) => r.path)).toEqual([
@@ -84,7 +84,7 @@ describe("a standalone Studio journey", () => {
 		expect(JSON.parse(String(stdout.mock.calls[0][0]))).toEqual(evidence);
 	});
 
-	it("lets Studio choose a permitted harness when the caller omits it", async () => {
+	it("lets the platform choose a permitted harness when the caller omits it", async () => {
 		const { requests } = server();
 		await journeyCommand({ intent: goal, json: true });
 		expect(requests[1].body).toEqual({ goal });
@@ -115,17 +115,17 @@ describe("a standalone Studio journey", () => {
 		expect(requests.filter((r) => r.method === "POST" && r.path.startsWith("/ax/"))).toEqual([]);
 	});
 
-	it("returns a Studio refusal without trying another product or creating a second run", async () => {
+	it("returns a platform refusal without trying another product or creating a second run", async () => {
 		const { requests, stdout } = server({
 			status: 403,
-			body: { code: "PRODUCT_REQUIRED", message: "Studio access required." },
+			body: { code: "PRODUCT_REQUIRED", message: "Ora platform access required." },
 		});
 		expect(await journeyCommand(input)).toBe(2);
 		expect(requests.map((r) => r.path)).toEqual(["/auth/token", "/ax/v1/runs"]);
 		expect(JSON.parse(String(stdout.mock.calls[0][0])).code).toBe("PRODUCT_REQUIRED");
 	});
 
-	it("points a quota refusal to the matching Studio Usage page", async () => {
+	it("points a quota refusal to the workspace Usage page", async () => {
 		const body = { code: "LIMIT_EXCEEDED", message: "No runs remain." };
 		const { stdout } = server({ status: 402, body });
 		vi.stubEnv("ORA_PLATFORM_URL", "http://api.ora.localhost:8081");

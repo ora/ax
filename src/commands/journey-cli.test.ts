@@ -24,7 +24,7 @@ it("keeps the public JSON error code when the domain is missing", async () => {
 	expect(JSON.parse(String(stdout.mock.calls[0]?.[0])).error.code).toBe("INVALID_TARGET");
 });
 
-it("keeps a partner task public even when a Studio key is set", async () => {
+it("keeps a partner task public even when an Ora platform key is set", async () => {
 	vi.stubEnv("ORA_API_KEY", "ora_sk_test");
 	await runCommand(journey, {
 		rawArgs: ["Find docs", "--domain=example.com", "--api-key", "partner", "--no-stream"],
@@ -40,7 +40,7 @@ it("keeps a partner task public even when a Studio key is set", async () => {
 	expect(journeyCommand).not.toHaveBeenCalled();
 });
 
-it("runs one Studio goal even when a partner key is set", async () => {
+it("runs one goal on the Ora platform even when a partner key is set", async () => {
 	vi.stubEnv("ORA_PARTNER_API_KEY", "partner");
 	await runCommand(run, { rawArgs: ["Find docs", "--harness", "codex", "--json"] });
 	expect(journeyCommand).toHaveBeenCalledWith(

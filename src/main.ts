@@ -295,7 +295,7 @@ const login = defineCommand({
 	meta: {
 		name: "login",
 		description:
-			"Sign in to ora's platform through your browser, for a journey with a goal, a set of journeys and audit --tunnel ora (exit codes: 0 signed in, 2 address refused, 3 sign-in failed)",
+			"Sign in to the Ora platform through your browser, for a journey with a goal, a set of journeys and audit --tunnel ora (exit codes: 0 signed in, 2 address refused, 3 sign-in failed)",
 	},
 	args: {
 		"no-browser": {
@@ -335,7 +335,7 @@ const whoami = defineCommand({
 	meta: {
 		name: "whoami",
 		description:
-			"Who ax calls ora's platform as: your browser sign-in, or ORA_API_KEY (exit codes: 0, 2 not signed in or an address ax will not send to, 3 refused)",
+			"Show the account ax uses on the Ora platform: your browser sign-in, or ORA_API_KEY (exit codes: 0, 2 not signed in or an address ax will not send to, 3 refused)",
 	},
 	args: {
 		json: { type: "boolean", description: "Print the identity as JSON", default: false },
@@ -361,7 +361,7 @@ const learn = defineCommand({
 // would actually call.
 const oraSite = () => `ora.ai at ${resolveBase()} (set by ORA_API_URL)`;
 const oraPlatform = () =>
-	`ora's platform API at ${platformBase()} (set by ORA_PLATFORM_URL), signed in with ax login or with ORA_API_KEY`;
+	`Ora platform API at ${platformBase()} (set by ORA_PLATFORM_URL), signed in with ax login or with ORA_API_KEY`;
 const oraSignIn = () =>
 	`ora's sign-in server for ${platformBase()} (account.<domain>), then ${oraPlatform()}`;
 
@@ -464,15 +464,15 @@ function helpScreen(): string {
 		`    audit ${d("<url>")}         ${d("Score a site's agent readiness")}`,
 		`    webmcp-audit ${d("<url>")}  ${d("Audit a WebMCP surface in a real browser, localhost included")}`,
 		`    journey ${d("--domain <d>")} ${d("Send a real agent at a site on one of ora's curated tasks, drawn live; free, no key")}`,
-		`    run ${d("<goal>")}      ${d("Run a Studio goal (ax login or ORA_API_KEY)")}`,
+		`    run ${d("<goal>")}      ${d("Run a goal on the Ora platform (ax login or ORA_API_KEY)")}`,
 		`    run set create ${d("<goal>... --levels")} ${d("A set of journeys: goals × agents × levels of help, run, graded and counted by ora (needs ax login)")}`,
-		`    run view ${d("<run-id>")}  ${d("Open a standalone Studio run")}`,
+		`    run view ${d("<run-id>")}  ${d("Open a standalone run")}`,
 		`    run set list${d("|")}view${d("|")}cancel ${d("Your organization's sets: list them, follow one live (--watch), stop one")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
 		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
 		`    learn                ${d("Print the ax workflow from ora's skill")}`,
-		`    login                ${d("Sign in to ora's platform through your browser (for a goal, a set, and --tunnel ora)")}`,
-		`    whoami               ${d("Who ax calls ora's platform as")}`,
+		`    login                ${d("Sign in to the Ora platform through your browser (for a goal, a set, and --tunnel ora)")}`,
+		`    whoami               ${d("Show the account ax uses on the Ora platform")}`,
 		`    logout               ${d("End that sign-in")}`,
 		"",
 		`  ${d("Talks to:")}`,
@@ -541,14 +541,14 @@ function helpScreen(): string {
 		`    ${d("exit codes: 0 run succeeded (any verdict) · 1 run failed · 2 usage · 3 API unreachable/rate-limited")}`,
 		`    ${d("ax deep-journey <url> still runs this, and will be removed in a future major release")}`,
 		"",
-		`  ${d("run options (Studio):")}`,
+		`  ${d("run options (Ora platform):")}`,
 		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com)")}`,
-		`    --harness <h>    ${d("Agent harness from your Studio plan (default selected by Studio)")}`,
+		`    --harness <h>    ${d("Agent harness from your plan (omit to use the default)")}`,
 		`    --model <m>      ${d("Model override (harness default when omitted)")}`,
 		`    --json           ${d("Output as JSON")}`,
 		`    ${d("requires ax login (a browser sign-in), or ORA_API_KEY (see .env.example)")}`,
 		"",
-		`  ${d("run set create options (Studio):")}`,
+		`  ${d("run set create options (Ora platform):")}`,
 		`    --domain <d>     ${d("The site (required): a domain or an http(s) URL")}`,
 		`    --agents <list>  ${d("1 to 4 agents as harness or harness/model, comma separated (default: the one the preview names)")}`,
 		`    --levels         ${d("Run each goal at the levels of help: need only, brand named, docs linked, exact target")}`,

@@ -6,10 +6,10 @@ export function isRunLimitError(error: unknown): error is PlatformApiError {
 	return error instanceof PlatformApiError && error.status === 402;
 }
 
-export function studioUsageStep(): NextStep {
+export function workspaceUsageStep(): NextStep {
 	const api = URL.parse(platformBase());
 	if (!api?.hostname.startsWith("api.") || !["https:", "http:"].includes(api.protocol)) {
-		return { call: "Open Settings → Usage in your Studio workspace" };
+		return { call: "Open Settings → Usage in your Ora platform workspace" };
 	}
 	const link = new URL("/d", api.origin);
 	link.hostname = api.hostname.replace(/^api\./, "app.");

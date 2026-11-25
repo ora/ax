@@ -18,7 +18,7 @@
 npx ax audit https://stripe.com
 ```
 
-Public audits and curated journeys work without an account. To run your own goals in Studio, start with the [Studio evaluations quickstart](#studio-evaluations).
+Public audits and curated journeys work without an account. To run your own goals on the Ora platform, follow the [evaluations quickstart](#ora-platform-evaluations).
 
 If you previously used `ax journey` for signed-in evaluations, switch to `ax run "<goal>"` for one goal or `ax run set create` for a set. Public curated tasks and partner-key tasks still use `ax journey` or its `ax deep-journey` alias.
 
@@ -31,7 +31,7 @@ Commands:
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
 - **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is a supported alias.
-- **`run "<goal>"`** — run one Studio evaluation. For multiple goals, harnesses or repeats use [`ax run set create`](#evaluation-sets). Both require a Studio sign-in or API key.
+- **`run "<goal>"`** — run one evaluation on the Ora platform. For multiple goals, harnesses or repeats use [`ax run set create`](#evaluation-sets). Both require an Ora platform account or API key.
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
@@ -99,7 +99,7 @@ Budget notes: ora allows 30 scans + 6 `--force` scans per rolling 24h per IP (pl
 
 A local dev server only exists on your machine, so ora can't reach it. The simplest option is to audit a publicly reachable deployment of the same code (e.g. a preview URL). To audit localhost itself, run it through a tunnel. The result is stored as **ephemeral** either way: excluded from ora's rankings and leaderboard, served with `Cache-Control: no-store`, never indexed, and deleted after 7 days.
 
-**ora's own tunnel.** Signed in with [`ax login`](#sign-in), or with an ora platform key (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done — nothing to install, nothing left behind:
+**ora's own tunnel.** Signed in with [`ax login`](#sign-in), or with an Ora platform API key (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done — nothing to install, nothing left behind:
 
 ```
 ax audit localhost:3000 --tunnel ora
@@ -245,7 +245,7 @@ Runs a real AI agent at a site through ora's **public** journey API — no key, 
 
 Anonymous callers run curated intents (`pricing`, `signup`, `api-docs`, `integrate`, `support`, …) — list them with `GET https://ora.ai/api/journey/intents`, and the publicly offered agents with `GET https://ora.ai/api/journey/agents`. The public caps are 100 runs per rolling 24h per target and task, and 20 runs per 24h per IP (plus a 20/min burst limit and a shared ceiling of 3,000 anonymous runs a day across all callers); a target at its cap answers with the most recent stored run (`rate_limited: true`) instead of an error, so repeat CI invocations are cheap. Verdict and step count come from ora's contract as-is — the CLI never re-judges a run.
 
-**Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks a goal of your own — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; a goal of your own without a recognized key is an error. A goal with only a partner key set (no `ORA_API_KEY`) takes this path; with `ORA_API_KEY` set too, it runs on ora's platform unless you add a flag of this path (`--intent`, `--agent`, `--api-key`, `--no-stream`).
+**Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks a goal of your own — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; a goal of your own without a recognized key is an error. `ax journey` uses the public journey API even when `ORA_API_KEY` is set. To use your Ora platform account for a custom goal, use [`ax run`](#standalone-run).
 
 The CLI always follows the run's stream to the end, `--no-stream` included, because ora saves a finished run from inside the stream. If the stream drops or goes quiet (no frames for 120s), the CLI reopens it, which resumes the same run without re-running the agent. A stream `429` is waited out (up to 60s) before reopening; any other HTTP error from the stream (a `404`, an auth error, a `5xx`) ends the command at once. Only after five failed reopens does it fall back to polling the run detail, within a 15-minute budget shared with the stream.
 
@@ -260,7 +260,7 @@ The CLI always follows the run's stream to the end, `--no-stream` included, beca
 
 Exit codes: `0` run succeeded (any verdict) · `1` run failed · `2` usage error · `3` API unreachable / rate-limited.
 
-Mixing these flags with `--harness` or `--model`, which are for a goal of your own on ora's platform ([below](#journey)), is a usage error (exit 2) naming both. This is the zero-setup public path; the platform path renders the full trajectory graph.
+Use `--agent` to select a public journey agent. The `--harness` and `--model` flags belong to [`ax run`](#standalone-run). Passing either to `ax journey` exits with code `2`.
 
 ## skill
 
@@ -326,9 +326,9 @@ console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 
 `detail` is the contract's `JourneyRunDetail`; `fetchJourneyIntents` lists the curated intents. The same public caps apply — a capped target resolves with the most recent stored run (`cached: true` on the outcome), not an error.
 
-## Studio evaluations
+## Ora platform evaluations
 
-Sign in or create a Studio account in the browser when prompted. These examples let Studio choose an agent from your plan.
+Sign in to the Ora platform or create an account when the browser opens. These examples use the default agent from your plan.
 
 ```sh
 ax login
@@ -337,17 +337,17 @@ ax run set create "Find how Stripe authenticates API requests" \
   "Find Stripe's API rate limits" --domain stripe.com
 ```
 
-The standalone command starts one run immediately. The set previews two runs and asks before launching. Both use the same monthly simulations as Studio Playground. Workspaces created through `ax login` get the **Evaluations** tab automatically. Open it to see the standalone run or the set report. From the set report you can open each child run and its grade.
+The standalone command starts one run immediately. The set previews two runs and asks before launching. Both use the same monthly simulations as Playground. Workspaces created through `ax login` get the **Evaluations** tab automatically. Open it to see the standalone run or the set report. From the set report you can open each child run and its grade.
 
 ### Sign in
 
 ```
 ax login      # sign in through your browser
-ax whoami     # who ax calls ora's platform as
+ax whoami     # show the account ax uses on the Ora platform
 ax logout     # end the sign-in, on ora and on this machine
 ```
 
-`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. If ora's sign-in server stops answering for a moment while you do, ax waits a little longer and tries again. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `ax.sets:read` + `ax.sets:write` for Studio journeys and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
+`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. If ora's sign-in server stops answering for a moment while you do, ax waits a little longer and tries again. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `ax.sets:read` + `ax.sets:write` for standalone runs and sets and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
 
 The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_CONFIG_HOME/ax` when set, `%APPDATA%\ax` on Windows), readable by your account only. It lasts until you run `ax logout` or disconnect **ax** in ora under Settings › Connected apps. `ax logout` removes the file first and then ends the sign-in on ora, so nothing is left on disk even when ora can't be reached; it also removes a file this version of ax can't read. After that, ora refuses the next command, and a tunnel the sign-in opened closes within about half a minute. A sign-in is for the platform it was made for: point `ORA_PLATFORM_URL` elsewhere and ax neither uses nor sends it.
 
@@ -397,8 +397,8 @@ Edges come from ora's own per-step attribution (link-follows nest under the page
 
 | Flag | Effect |
 |---|---|
-| `--domain <d>` | Optional target site. Claude Code and Codex receive it as a prompt hint. Some Studio versions only show the site to `claude-consumer` and `chatgpt-consumer` if you name it in the goal. |
-| `--harness <h>` | An agent enabled on your Studio plan. Omit to use the plan default. |
+| `--domain <d>` | Optional target site. Claude Code and Codex receive it as a prompt hint. For `claude-consumer` and `chatgpt-consumer`, name the site in your goal to ensure the agent sees it. |
+| `--harness <h>` | An agent enabled on your plan. Omit to use the plan default. |
 | `--model <m>` | A model ID available for the selected harness. Omit to use its default model. |
 | `--json` | Full result as JSON: run metadata, usage, insight, and the raw trajectory |
 
@@ -408,7 +408,7 @@ For `ax run "<goal>"`, exit `0` means the run reached the `succeeded` state. A c
 
 #### Setup
 
-For CI, use a Studio API key with the `ax.sets:read` and `ax.sets:write` scopes.
+For CI, use an Ora platform API key with the `ax.sets:read` and `ax.sets:write` scopes.
 
 ```sh
 export ORA_API_KEY=ora_sk_...        # your shell, CI secret store, etc.
@@ -489,7 +489,7 @@ Launch 10 runs? [y/N]
 
 Answer `y` to launch. In CI or a pipe, pass `--yes` to confirm. Without it, AX prints the preview and exits `2`. A set takes up to 5 goals, 4 agents and 10 repeats, with a maximum of 200 runs per set.
 
-If a standalone run or set needs more simulations than your workspace has left, AX refuses the launch and points you to **Studio → Settings → Usage**. For a set that exceeds the 200-run maximum, reduce the number of goals, agents, levels, or repeats.
+If a standalone run or set needs more simulations than your workspace has left, AX refuses the launch and points you to **Settings → Usage** in the Ora platform. For a set that exceeds the 200-run maximum, reduce the number of goals, agents, levels, or repeats.
 
 #### The report
 
@@ -586,7 +586,7 @@ Set exit codes: `0` a report was printed, or you answered no · `2` usage, or th
 
 #### Setup for sets
 
-Sets use the same Studio sign-in or API key as standalone runs. A Studio key with only `ax.sets:read` can list and view sets.
+Sets use the same Ora platform sign-in or API key as standalone runs. A key with only `ax.sets:read` can list and view sets.
 
 ## Environment variables
 
@@ -600,7 +600,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | `ORA_PLATFORM_URL` | run, audit `--tunnel ora`, login, whoami, logout | `https://api.ora.ai` | Authenticated platform API base. `ax login` signs in at its `account.` host. `https://api.agentfront.sh`, the default before 0.12, serves the same API and still works with a key |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_KEY` | run, audit `--tunnel ora`, whoami | — (or `ax login`) | ora platform key (`ora_sk_…`); exchanged for a bearer token for a journey, the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes) and a set of journeys (`ax.sets:write` + `ax.sets:read`), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
+| `ORA_API_KEY` | run, audit `--tunnel ora`, whoami | — (or `ax login`) | Ora platform API key (`ora_sk_…`); exchanged for a bearer token for a journey, the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes) and a set of journeys (`ax.sets:write` + `ax.sets:read`), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
 | `ORA_SCAN_API_KEY` | audit, journey (free), webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). the free journey and webmcp-audit accept it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | journey (free), webmcp-audit | — (optional) | ora-issued partner API key; unlocks a goal of your own and the 1000/24h keyed allowance on the free journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |

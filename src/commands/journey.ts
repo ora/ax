@@ -5,7 +5,7 @@ import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
 import { onInterrupt } from "../journey-set/interrupt";
 import { watchRun } from "../journey-set/journey-progress";
-import { isRunLimitError, studioUsageStep } from "../journey-set/usage";
+import { isRunLimitError, workspaceUsageStep } from "../journey-set/usage";
 import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
@@ -44,7 +44,7 @@ function resultNext(input: JourneyCommandInput): NextStep {
  */
 function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
 	if (isRunLimitError(cause)) {
-		return { code: "LIMIT_EXCEEDED", message: cause.message, next: studioUsageStep() };
+		return { code: "LIMIT_EXCEEDED", message: cause.message, next: workspaceUsageStep() };
 	}
 	const retry = axCall([
 		"run",
