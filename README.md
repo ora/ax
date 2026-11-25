@@ -18,7 +18,9 @@
 npx ax audit https://stripe.com
 ```
 
-**Getting started:** public audits and curated journeys work without an account. Use [`ax login`](#sign-in) or a Studio API key to run a Studio evaluation.
+Public audits and curated journeys work without an account. To run your own goals in Studio, start with the [Studio evaluations quickstart](#studio-evaluations).
+
+If you previously used `ax journey` for signed-in evaluations, switch to `ax run "<goal>"` for one goal or `ax run set create` for a set. Public curated tasks and partner-key tasks still use `ax journey` or its `ax deep-journey` alias.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ora/ax/main/.github/assets/demo.gif" width="880" alt="ax audit https://stripe.com — live progress, then the layered report and ora's ranked top fixes" />
@@ -29,7 +31,7 @@ Commands:
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
 - **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is the older name and still works.
-- **`run "<goal>"`** — run one Studio evaluation and open its report. For multiple goals, harnesses or repeats use [`ax run set create`](#a-set-of-journeys). Both require a Studio sign-in or API key.
+- **`run "<goal>"`** — run one Studio evaluation. For multiple goals, harnesses or repeats use [`ax run set create`](#evaluation-sets). Both require a Studio sign-in or API key.
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
@@ -326,7 +328,16 @@ console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 
 ## Studio evaluations
 
-Use `ax login` to sign in to Studio or create an account in the browser, then return to the CLI to run a goal or set.
+Sign in or create a Studio account in the browser when prompted. These examples let Studio choose an agent from your plan.
+
+```sh
+ax login
+ax run "Find how Stripe authenticates API requests" --domain stripe.com
+ax run set create "Find how Stripe authenticates API requests" \
+  "Find Stripe's API rate limits" --domain stripe.com
+```
+
+The standalone command starts one run immediately. The set previews two runs and asks before launching. Both use the same monthly simulations as Studio Playground. Workspaces created through `ax login` get the **Evaluations** tab automatically. Open it to see the standalone run or the set report. From the set report you can open each child run and its grade.
 
 ### Sign in
 
@@ -348,13 +359,14 @@ The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_C
 
 ```
 ax run "<goal>" [--domain d] [--harness h] [--model m] [--json]
+ax run view <run-id> [--watch] [--wait <minutes>] [--json]
 ```
 
 ```
-ax run "Find the API docs and how to authenticate" --domain stripe.com
+ax run "Find the API docs and how to authenticate. Fetch the actual pages to verify." --domain stripe.com
 ```
 
-Starts one regular Studio run and draws its trajectory as steps arrive. When it finishes, ax prints the recorded evidence, the analyzer’s findings when available, and the link to the run in Studio’s Evaluations page:
+AX prints the run ID at launch and shows the agent's steps as they arrive. Use `ax run view <run-id>` for the latest result or `ax run view <run-id> --watch` to follow the same run live. When it finishes, AX prints the evidence, any available findings, and a report link if Evaluations is enabled for the workspace.
 
 ```
   ▶ stripe.com  ·  claude-code
@@ -385,51 +397,50 @@ Edges come from ora's own per-step attribution (link-follows nest under the page
 
 | Flag | Effect |
 |---|---|
-| `--domain <d>` | Site the agent targets (e.g. `stripe.com`) |
+| `--domain <d>` | Optional target site. Claude Code and Codex receive it as a prompt hint. Some Studio versions only show the site to `claude-consumer` and `chatgpt-consumer` if you name it in the goal. |
 | `--harness <h>` | An agent enabled on your Studio plan. Omit to use the plan default. |
-| `--model <m>` | Model override (e.g. `claude-haiku-4-5-20251001` — cheap and good for demos) |
+| `--model <m>` | A model ID available for the selected harness. Omit to use its default model. |
 | `--json` | Full result as JSON: run metadata, usage, insight, and the raw trajectory |
 
 Note: run-to-run variance is real — agents sometimes answer from search snippets without fetching, which scores differently. Run a few journeys before drawing conclusions.
 
-Journey exit codes: `0` run outcome `success` · `1` non-success outcome · `2` command error · `130` interrupted while watching.
+For `ax run "<goal>"`, exit `0` means the run reached the `succeeded` state. A completed run can still miss the goal. For that verdict, check `insight.intent_satisfied` in the JSON result when available. The command exits `1` for other terminal states, `2` on a command error or if the run is still active when the wait ends, and `130` when interrupted.
 
 #### Setup
 
-`ax run` needs a [sign-in](#sign-in), or a Studio API key with the `ax.sets:read` + `ax.sets:write` scopes:
-
-```sh
-ax login                             # once, at your terminal
-ax run "Find the pricing page" --domain example.com
-```
+For CI, use a Studio API key with the `ax.sets:read` and `ax.sets:write` scopes.
 
 ```sh
 export ORA_API_KEY=ora_sk_...        # your shell, CI secret store, etc.
-ax run "Find the pricing page" --domain example.com
+ax run "Find Stripe's pricing page" --domain stripe.com
 ```
 
 For local development, copy `.env.example` to `.env` — the CLI reads a `.env` in the working directory on startup (exported variables win over the file).
 
-### A set of journeys
+<a id="a-set-of-journeys"></a>
 
-One journey is one agent, one goal, one run. A set asks a wider question: across several goals, several agents and several amounts of help, where does your site lose the agent?
+### Evaluation sets
+
+A set runs each goal on every selected agent. `--domain` is required and identifies the site for grading. By default each agent receives the goal as written. Use [levels of help](#levels-of-help) to compare how agents do when given a brand name, documentation URL, or exact starting page.
 
 ```
-ax run set create "<goal>" ["<goal>" ...] --domain <site> [--agents <a>,...] [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]
+ax run set create "<goal>" ["<goal>" ...] --domain <site> [--agents <harness[/model]>,...]
+                  [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N]
+                  [--yes] [--watch] [--wait <minutes>] [--json]
 ax run set view <id> [--watch] [--wait <minutes>] [--json]
 ax run set list [--json]
 ax run set cancel <id> [--json]
 ```
 
-```
-ax run set create "Find how to create an issue from the API" \
-           "Find how to receive a webhook from Linear when an issue is updated." \
-  --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
+To compare two models on the same harness, pass both `harness/model` pairs to `--agents`. This example requires a plan that offers both models on Claude Code.
+
+```sh
+ax run set create "Find Linear's pricing" "Find how to import issues into Linear" \
+  --domain linear.app \
+  --agents claude-code/claude-haiku-5-5,claude-code/claude-sonnet-5-5
 ```
 
-`ax run set create` previews the run count before asking for confirmation. Use `ax run "<goal>"` for a standalone goal. Both spend simulations from the same Studio allowance. Reopen a standalone run with `ax run view <run-id>`.
-
-A set runs on ora's platform, in your organization. The platform starts the runs, has each one graded and counts them; ax asks, waits and prints. The report here, `--json` and the platform's own pages therefore show the same numbers, and nothing is kept on your machine: a set is found again by its id (`ax run set list`).
+The preview shows **4 runs**. Haiku runs both goals and Sonnet runs both goals. For exactly two runs with a different model assigned to each goal, issue two standalone `ax run` commands with the corresponding `--harness` and `--model`.
 
 #### Levels of help
 
@@ -450,7 +461,13 @@ A run counts as satisfied when a panel of judge models finds all three of: the a
 
 #### Preview, then launch
 
-Before anything starts, ax prints what the set is and what it will use (on stderr), then asks:
+To compare two harnesses at several levels of help, include `--levels` and a starting page. AX prints the preview on stderr and asks for confirmation.
+
+```sh
+ax run set create "Find how to create an issue from the API" \
+  "Find how to receive a webhook from Linear when an issue is updated." \
+  --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
+```
 
 ```
 linear.app: a set of journeys
@@ -470,7 +487,9 @@ linear.app: a set of journeys
 Launch 10 runs? [y/N]
 ```
 
-Answer `y` to launch. `--yes` launches without asking, and is required where there is no terminal to ask on (CI, a pipe): without it ax prints the preview and exits `2` having started nothing. A set takes up to 5 goals, 4 agents and 10 repeats, and may start at most 200 runs. Runs count against your plan like any other; a set that does not fit is refused before it starts.
+Answer `y` to launch. In CI or a pipe, pass `--yes` to confirm. Without it, AX prints the preview and exits `2`. A set takes up to 5 goals, 4 agents and 10 repeats, with a maximum of 200 runs per set.
+
+If a standalone run or set needs more simulations than your workspace has left, AX refuses the launch and points you to **Studio → Settings → Usage**. For a set that exceeds the 200-run maximum, reduce the number of goals, agents, levels, or repeats.
 
 #### The report
 
@@ -567,7 +586,7 @@ Set exit codes: `0` a report was printed, or you answered no · `2` usage, or th
 
 #### Setup for sets
 
-A set signs in the way a journey does: `ax login` once (a browser sign-in, which asks for the scopes a set needs), or an ora platform API key in `ORA_API_KEY` with the `ax.sets:write` and `ax.sets:read` scopes. A key with `ax.sets:read` alone can `list` and `view`. A Studio organization can use the same sign-in or Studio-scoped key for a single journey and a set.
+Sets use the same Studio sign-in or API key as standalone runs. A Studio key with only `ax.sets:read` can list and view sets.
 
 ## Environment variables
 
