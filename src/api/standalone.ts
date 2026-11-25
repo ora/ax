@@ -1,6 +1,6 @@
 import type { JourneyStep } from "./platform";
 
-/** An Ora platform evaluation, created using POST /ax/v1/runs. */
+/** A standalone evaluation on Ora's front, created using POST /ax/v1/runs. */
 export interface StandaloneRequest {
 	goal: string;
 	site?: string;

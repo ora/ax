@@ -551,7 +551,7 @@ export async function deepJourneyCommand(input: DeepJourneyCommandInput): Promis
 				code: "NEEDS_KEY",
 				message:
 					input.via === "journey"
-						? "a goal of your own on ora's public journeys needs an ora partner API key (set ORA_PARTNER_API_KEY or pass --api-key). To use your Ora platform account, sign in with ax login and use ax run."
+						? "a goal of your own on ora's public journeys needs an ora partner API key (set ORA_PARTNER_API_KEY or pass --api-key). To use your account on Ora's front, sign in with ax login and use ax run."
 						: "--task needs an ora partner API key — set ORA_PARTNER_API_KEY or pass --api-key (keys are issued by ora on request)",
 				next: {
 					call: keyedCall(undefined, input.agent),

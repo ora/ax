@@ -9,7 +9,7 @@ export function isRunLimitError(error: unknown): error is PlatformApiError {
 export function workspaceUsageStep(): NextStep {
 	const api = URL.parse(platformBase());
 	if (!api?.hostname.startsWith("api.") || !["https:", "http:"].includes(api.protocol)) {
-		return { call: "Open Settings → Usage in your Ora platform workspace" };
+		return { call: "Open Settings → Usage in your workspace on Ora's front" };
 	}
 	const link = new URL("/d", api.origin);
 	link.hostname = api.hostname.replace(/^api\./, "app.");

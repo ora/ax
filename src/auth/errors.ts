@@ -20,7 +20,7 @@ export class NotSignedInError extends Error {
 			? ` Your ax sign-in is for ${input.signedInFor}, not ${input.base}.`
 			: "";
 		super(
-			`Not signed in to the Ora platform. Run ax login to sign in through your browser, or set ORA_API_KEY to ${key} in your environment or a local .env file (see .env.example).${elsewhere}`,
+			`Not signed in to Ora's front. Run ax login to sign in through your browser, or set ORA_API_KEY to ${key} in your environment or a local .env file (see .env.example).${elsewhere}`,
 		);
 		this.name = "NotSignedInError";
 	}

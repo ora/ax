@@ -81,7 +81,7 @@ export const journey = defineCommand({
 			}
 			if (positionals.length > 1)
 				throw new UsageError(
-					"journey takes one public task. To run a set on the Ora platform, use ax run set create.",
+					"journey takes one public task. To run a set on Ora's front, use ax run set create.",
 				);
 			return deepJourneyCommand({
 				url: values.domain,
@@ -201,7 +201,7 @@ async function dispatchRun(rawArgs: string[]): Promise<number> {
 }
 
 export const run = defineCommand({
-	meta: { name: "run", description: "Run an evaluation on the Ora platform." },
+	meta: { name: "run", description: "Run an evaluation on Ora's front." },
 	async run({ rawArgs }) {
 		await dispatch(rawArgs, "ax run --help", () => dispatchRun(rawArgs));
 	},
@@ -227,6 +227,6 @@ export const runUsage = () =>
 		"ax run set view <set-id> [--watch] [--wait <minutes>] [--json]",
 		"ax run set cancel <set-id> [--json]",
 		"",
-		"Sign in to the Ora platform with ax login or set ORA_API_KEY. Omit the harness to use your plan’s default agent.",
+		"Sign in to Ora's front with ax login or set ORA_API_KEY. Omit the harness to use your plan’s default agent.",
 		"Set creation previews the run count and asks before launching. Use --yes to confirm.",
 	].join("\n");

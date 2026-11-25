@@ -70,7 +70,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("a standalone Ora platform evaluation", () => {
+describe("a standalone evaluation on Ora's front", () => {
 	it("runs a domain-free goal once, follows the real run, and prints native evidence and its report", async () => {
 		const { requests, stdout } = server();
 		expect(await journeyCommand(input)).toBe(0);
@@ -118,7 +118,7 @@ describe("a standalone Ora platform evaluation", () => {
 	it("returns a platform refusal without trying another product or creating a second run", async () => {
 		const { requests, stdout } = server({
 			status: 403,
-			body: { code: "PRODUCT_REQUIRED", message: "Ora platform access required." },
+			body: { code: "PRODUCT_REQUIRED", message: "Access to Ora's front is required." },
 		});
 		expect(await journeyCommand(input)).toBe(2);
 		expect(requests.map((r) => r.path)).toEqual(["/auth/token", "/ax/v1/runs"]);
