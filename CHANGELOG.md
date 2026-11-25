@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/ora/ax/compare/v0.14.0...v0.15.0) (2026-11-25)
+
+
+### Features
+
+* **run:** run evaluations on Ora's front ([#117](https://github.com/ora/ax/issues/117)) ([98c81d5](https://github.com/ora/ax/commit/98c81d529bb9c560cdcffb340dc872b62e405eaf))
+
 ## [0.14.0](https://github.com/ora/ax/compare/v0.13.0...v0.14.0) (2026-11-22)
 
 
