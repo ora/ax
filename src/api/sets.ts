@@ -1,5 +1,7 @@
 import type { PlatformCredential } from "../auth/credential";
+import { decodeEventBlock, type JourneyStep } from "./platform";
 import { jsonOrNull, PlatformApiError } from "./platform-error";
+import type { StandaloneEvidence, StandaloneRequest, StandaloneRun } from "./standalone";
 
 // Client for ora's sets API (`/ax/v1`): the backend of a set of journeys. The platform plans,
 // runs, grades and counts a set; this client asks and hands the answer over. It holds no state
@@ -196,7 +198,17 @@ function validationLines(body: unknown): string[] {
  * when the platform answers 401 (following a set can outlive one bearer). A 401 that survives the
  * renewal is the credential's own to word: a key ora rejects, a sign-in that has ended.
  */
-export function createSetsClient(options: SetsClientOptions): SetsClient {
+export interface AxClient extends SetsClient {
+	createRun(request: StandaloneRequest): Promise<StandaloneRun>;
+	getRun(runId: string): Promise<StandaloneEvidence>;
+	followRun(
+		runId: string,
+		onSnapshot: (steps: JourneyStep[]) => void,
+		signal: AbortSignal,
+	): Promise<void>;
+}
+
+export function createSetsClient(options: SetsClientOptions): AxClient {
 	const { base, credential } = options;
 	const doFetch = options.fetch ?? fetch;
 
@@ -224,7 +236,7 @@ export function createSetsClient(options: SetsClientOptions): SetsClient {
 		const payload = jsonOrNull(await res.text());
 		if (res.status === 401) {
 			throw credential.rejected(
-				"ora did not accept your credential for a set of journeys",
+				"ora did not accept your credential for journeys",
 				new PlatformApiError(messageOf(401, payload, credential), { status: 401, payload }),
 			);
 		}
@@ -238,17 +250,21 @@ export function createSetsClient(options: SetsClientOptions): SetsClient {
 		return payload as T;
 	};
 
-	const openStream = (id: string, token: string, signal: AbortSignal): Promise<Response> =>
-		doFetch(`${base}/ax/v1/sets/${encodeURIComponent(id)}/stream`, {
+	const openStream = (path: string, token: string, signal: AbortSignal): Promise<Response> =>
+		doFetch(`${base}/ax/v1${path}`, {
 			headers: { authorization: `Bearer ${token}`, accept: "text/event-stream" },
 			signal,
 		});
 
-	const follow: SetsClient["follow"] = async (id, onSet, signal) => {
-		let res = await openStream(id, await credential.bearer(), signal);
+	const stream = async (
+		path: string,
+		receive: (event: string, payload: unknown) => void,
+		signal: AbortSignal,
+	) => {
+		let res = await openStream(path, await credential.bearer(), signal);
 		if (res.status === 401) {
 			await res.body?.cancel().catch(() => {});
-			res = await openStream(id, await credential.renew(), signal);
+			res = await openStream(path, await credential.renew(), signal);
 		}
 		if (!res.ok || res.body === null) {
 			const payload = jsonOrNull(await res.text().catch(() => ""));
@@ -268,21 +284,39 @@ export function createSetsClient(options: SetsClientOptions): SetsClient {
 			while (end >= 0) {
 				const block = pending.slice(0, end);
 				pending = pending.slice(end + 2);
-				// One event: its data lines joined. A keepalive comment has none.
-				const data = block
-					.split("\n")
-					.filter((line) => line.startsWith("data:"))
-					.map((line) => line.slice(5).trimStart())
-					.join("\n");
-				const set = data === "" ? null : jsonOrNull(data);
-				if (set !== null && typeof set === "object" && "setId" in set) onSet(set as SetDocument);
+				const frame = decodeEventBlock(block);
+				if (frame) receive(frame.event, jsonOrNull(frame.data));
 				end = pending.indexOf("\n\n");
 			}
 		}
 	};
 
 	return {
-		follow,
+		createRun: (body) => call("POST", "/runs", body),
+		getRun: (runId) => call("GET", `/runs/${encodeURIComponent(runId)}`),
+		follow: (id, onSet, signal) =>
+			stream(
+				`/sets/${encodeURIComponent(id)}/stream`,
+				(_event, set) => {
+					if (set !== null && typeof set === "object" && "setId" in set) onSet(set as SetDocument);
+				},
+				signal,
+			),
+		followRun: (id, onSnapshot, signal) =>
+			stream(
+				`/runs/${encodeURIComponent(id)}/stream`,
+				(event, data) => {
+					if (
+						event === "trajectory" &&
+						data !== null &&
+						typeof data === "object" &&
+						"steps" in data &&
+						Array.isArray(data.steps)
+					)
+						onSnapshot(data.steps);
+				},
+				signal,
+			),
 		preview: (request) => call("POST", "/sets/preview", request),
 		create: (request) => call("POST", "/sets", request),
 		get: (id) => call("GET", `/sets/${encodeURIComponent(id)}`),

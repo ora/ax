@@ -215,7 +215,7 @@ export function liveSetLines(set: SetDocument, options: LiveViewOptions): string
 					line([{ text: "    Ctrl-C stops watching; the runs go on.", tint: pc.dim }]),
 					line([
 						{
-							text: `    Pick it up again: ax journey view ${plain(set.setId)} --watch`,
+							text: `    Pick it up again: ax run set view ${plain(set.setId)} --watch`,
 							tint: pc.dim,
 						},
 					]),

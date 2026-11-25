@@ -56,7 +56,7 @@ export function loginDeps(): LoginDeps {
 }
 
 const KEY_NEXT = {
-	call: "ORA_API_KEY=<platform key> ax journey ...",
+	call: "ORA_API_KEY=<platform key> ax run ...",
 	why: "a platform key works without a browser",
 };
 

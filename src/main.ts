@@ -7,7 +7,7 @@ import { SETS_FEATURE, scopeList, TUNNEL_FEATURE } from "./auth/platform-feature
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
-import { journey, journeyUsage, noStreamFlag } from "./commands/journey-cli";
+import { journey, journeyUsage, noStreamFlag, run, runUsage } from "./commands/journey-cli";
 import { learnCommand } from "./commands/learn";
 import { loginCommand } from "./commands/login";
 import { logoutCommand } from "./commands/logout";
@@ -295,7 +295,7 @@ const login = defineCommand({
 	meta: {
 		name: "login",
 		description:
-			"Sign in to ora's platform through your browser, for a journey with a goal, a set of journeys and audit --tunnel ora (exit codes: 0 signed in, 2 address refused, 3 sign-in failed)",
+			"Sign in to Ora's front through your browser, for a journey with a goal, a set of journeys and audit --tunnel ora (exit codes: 0 signed in, 2 address refused, 3 sign-in failed)",
 	},
 	args: {
 		"no-browser": {
@@ -335,7 +335,7 @@ const whoami = defineCommand({
 	meta: {
 		name: "whoami",
 		description:
-			"Who ax calls ora's platform as: your browser sign-in, or ORA_API_KEY (exit codes: 0, 2 not signed in or an address ax will not send to, 3 refused)",
+			"Show the account ax uses on Ora's front: your browser sign-in, or ORA_API_KEY (exit codes: 0, 2 not signed in or an address ax will not send to, 3 refused)",
 	},
 	args: {
 		json: { type: "boolean", description: "Print the identity as JSON", default: false },
@@ -361,7 +361,7 @@ const learn = defineCommand({
 // would actually call.
 const oraSite = () => `ora.ai at ${resolveBase()} (set by ORA_API_URL)`;
 const oraPlatform = () =>
-	`ora's platform API at ${platformBase()} (set by ORA_PLATFORM_URL), signed in with ax login or with ORA_API_KEY`;
+	`the API for Ora's front at ${platformBase()} (set by ORA_PLATFORM_URL), signed in with ax login or with ORA_API_KEY`;
 const oraSignIn = () =>
 	`ora's sign-in server for ${platformBase()} (account.<domain>), then ${oraPlatform()}`;
 
@@ -413,7 +413,7 @@ const COMMAND_HELP = new Map<unknown, CommandHelp>([
 	[
 		journey,
 		{
-			talksTo: () => `${oraSite()} with no goal of your own (free); ${oraPlatform()} with a goal`,
+			talksTo: oraSite,
 			usage: journeyUsage,
 			usageNext: {
 				call: axCall(["journey", "--domain", placeholder("domain")]),
@@ -421,6 +421,7 @@ const COMMAND_HELP = new Map<unknown, CommandHelp>([
 			},
 		},
 	],
+	[run, { talksTo: oraPlatform, usage: runUsage, usageNext: { call: "ax run --help" } }],
 	[
 		generateFiles,
 		{
@@ -463,21 +464,22 @@ function helpScreen(): string {
 		`    audit ${d("<url>")}         ${d("Score a site's agent readiness")}`,
 		`    webmcp-audit ${d("<url>")}  ${d("Audit a WebMCP surface in a real browser, localhost included")}`,
 		`    journey ${d("--domain <d>")} ${d("Send a real agent at a site on one of ora's curated tasks, drawn live; free, no key")}`,
-		`    journey ${d("<goal>")}      ${d("The same on a goal of your own (needs ax login, or a platform key)")}`,
-		`    journey ${d("<goal>... --levels")} ${d("A set of journeys: goals × agents × levels of help, run, graded and counted by ora (needs ax login)")}`,
-		`    journey list${d("|")}view${d("|")}cancel ${d("Your organization's sets: list them, follow one live (--watch), stop one")}`,
+		`    run ${d("<goal>")}      ${d("Run a goal on Ora's front (ax login or ORA_API_KEY)")}`,
+		`    run set create ${d("<goal>... --levels")} ${d("A set of journeys: goals × agents × levels of help, run, graded and counted by ora (needs ax login)")}`,
+		`    run view ${d("<run-id>")}  ${d("Open a standalone run")}`,
+		`    run set list${d("|")}view${d("|")}cancel ${d("Your organization's sets: list them, follow one live (--watch), stop one")}`,
 		`    skill ${d("[name]")}        ${d("List, print, or install ora's agent skills")}`,
 		`    generate-files ${d("<domain>")} ${d("Draft a domain's agent files: ARD catalog, poppy.json, llms.txt, robots.txt edit, …")}`,
 		`    learn                ${d("Print the ax workflow from ora's skill")}`,
-		`    login                ${d("Sign in to ora's platform through your browser (for a goal, a set, and --tunnel ora)")}`,
-		`    whoami               ${d("Who ax calls ora's platform as")}`,
+		`    login                ${d("Sign in to Ora's front through your browser (for a goal, a set, and --tunnel ora)")}`,
+		`    whoami               ${d("Show the account ax uses on Ora's front")}`,
 		`    logout               ${d("End that sign-in")}`,
 		"",
 		`  ${d("Talks to:")}`,
 		`    ${oraSite()}`,
-		`      ${d("audit, webmcp-audit, journey with no goal, generate-files, skill, learn")}`,
+		`      ${d("audit, webmcp-audit, journey, generate-files, skill, learn")}`,
 		`    ${oraPlatform()}`,
-		`      ${d("journey with a goal, a set of journeys, audit --tunnel ora, login, whoami, logout")}`,
+		`      ${d("run, audit --tunnel ora, login, whoami, logout")}`,
 		"",
 		`  ${d("Examples:")}`,
 		`    ${g} ${NAME} audit https://docs.example.com`,
@@ -486,9 +488,9 @@ function helpScreen(): string {
 		`    ${g} ${NAME} audit localhost:3000 --tunnel ora   ${d("# audit a local dev server")}`,
 		`    ${g} ${NAME} webmcp-audit http://localhost:3000`,
 		`    ${g} ${NAME} journey --domain stripe.com --intent pricing   ${d("# free, no key")}`,
-		`    ${g} ${NAME} journey "Find the API docs and how to authenticate" --domain stripe.com`,
-		`    ${g} ${NAME} journey "Find how to create an issue from the API" --domain linear.app --agents claude-code,codex --levels --watch   ${d("# a set of journeys")}`,
-		`    ${g} ${NAME} journey list   ${d("# your organization's sets; then journey view <id>, journey cancel <id>")}`,
+		`    ${g} ${NAME} run "Find the API docs and how to authenticate" --domain stripe.com`,
+		`    ${g} ${NAME} run set create "Find how to create an issue from the API" --domain linear.app --agents claude-code,codex --levels --watch   ${d("# a set of journeys")}`,
+		`    ${g} ${NAME} run set list   ${d("# your organization's sets; then run set view <id>, run set cancel <id>")}`,
 		`    ${g} ${NAME} generate-files example.com --out public`,
 		`    ${g} ${NAME} learn`,
 		"",
@@ -528,7 +530,7 @@ function helpScreen(): string {
 		`    --dir <path>     ${d("Install directory (default .claude/skills)")}`,
 		`    --json           ${d("Print the raw registry index as JSON")}`,
 		"",
-		`  ${d("journey options, free (no goal of your own):")}`,
+		`  ${d("journey options (public API):")}`,
 		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com)")}`,
 		`    --intent <id>    ${d("Curated task id, e.g. pricing, signup, api-docs (server default when omitted)")}`,
 		`    --agent <id>     ${d("Agent to run (default: cas-haiku, Claude Code on the Haiku model ora's roster lists)")}`,
@@ -539,14 +541,14 @@ function helpScreen(): string {
 		`    ${d("exit codes: 0 run succeeded (any verdict) · 1 run failed · 2 usage · 3 API unreachable/rate-limited")}`,
 		`    ${d("ax deep-journey <url> still runs this, and will be removed in a future major release")}`,
 		"",
-		`  ${d("journey options, on ora's platform (a goal of your own):")}`,
+		`  ${d("run options (Ora's front):")}`,
 		`    --domain <d>     ${d("Site the agent works on (e.g. stripe.com)")}`,
-		`    --harness <h>    ${d("Agent harness: claude-code (default), codex, openclaw, hermess, claude-agent, eve, …")}`,
+		`    --harness <h>    ${d("Agent harness from your plan (omit to use the default)")}`,
 		`    --model <m>      ${d("Model override (harness default when omitted)")}`,
 		`    --json           ${d("Output as JSON")}`,
 		`    ${d("requires ax login (a browser sign-in), or ORA_API_KEY (see .env.example)")}`,
 		"",
-		`  ${d("journey options, a set of journeys (several goals, agents, repeats or levels of help):")}`,
+		`  ${d("run set create options (Ora's front):")}`,
 		`    --domain <d>     ${d("The site (required): a domain or an http(s) URL")}`,
 		`    --agents <list>  ${d("1 to 4 agents as harness or harness/model, comma separated (default: the one the preview names)")}`,
 		`    --levels         ${d("Run each goal at the levels of help: need only, brand named, docs linked, exact target")}`,
@@ -558,11 +560,11 @@ function helpScreen(): string {
 		`    --wait <minutes> ${d("Minutes to watch before stopping (default 60); the runs go on either way")}`,
 		`    --watch          ${d("Follow the set live over ora's stream, printing what moves as it moves")}`,
 		`    --json           ${d("Print the set exactly as ora serves it")}`,
-		`    journey view ${d("<id> [--watch] [--wait <minutes>] [--json]")}  ${d("Print a set as it stands, or follow it")}`,
-		`    journey list ${d("[--json]")}    ${d("Your organization's sets, newest first")}`,
-		`    journey cancel ${d("<id> [--json]")}  ${d("Stop the runs still going; finished runs keep their results")}`,
+		`    run set view ${d("<id> [--watch] [--wait <minutes>] [--json]")}  ${d("Print a set as it stands, or follow it")}`,
+		`    run set list ${d("[--json]")}    ${d("Your organization's sets, newest first")}`,
+		`    run set cancel ${d("<id> [--json]")}  ${d("Stop the runs still going; finished runs keep their results")}`,
 		`    ${d(`a set takes 1 to 5 goals, 1 to 4 agents, 1 to 10 repeats and at most 200 runs; needs ax login, or ORA_API_KEY: ${scopeList(SETS_FEATURE)}`)}`,
-		`    ${d("exit codes: 0 a report printed, or the question was declined · 2 usage or a refusal before launch · 3 the platform failed · 130 Ctrl-C")}`,
+		`    ${d("exit codes: 0 a report printed, or the question was declined · 2 usage or a refusal before launch · 3 the API failed · 130 Ctrl-C")}`,
 		"",
 		...workflowLines(),
 	].join("\n");
@@ -579,6 +581,7 @@ const root = defineCommand({
 		"webmcp-audit": webmcpAudit,
 		"deep-journey": deepJourney,
 		journey,
+		run,
 		skill,
 		"generate-files": generateFiles,
 		learn,

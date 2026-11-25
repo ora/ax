@@ -35,13 +35,21 @@ export function renderPreview(preview: SetPreview): string {
 }
 
 /** Why a preview that answered cannot be launched, or null when it can. */
-export function previewProblem(preview: SetPreview): string | null {
+export function previewProblem(
+	preview: SetPreview,
+): { reason: "size" | "allowance"; message: string } | null {
 	if (preview.runs.total > preview.runs.limit) {
-		return `This set would start ${preview.runs.total} runs; a set may start at most ${preview.runs.limit}. Use fewer goals, agents, levels or repeats.`;
+		return {
+			reason: "size",
+			message: `This set would start ${preview.runs.total} runs; a set may start at most ${preview.runs.limit}. Use fewer goals, agents, levels or repeats.`,
+		};
 	}
 	if (!preview.runs.fits) {
 		const left = preview.runs.left;
-		return `This set needs ${preview.runs.total} runs${left === null ? "" : ` and your plan has ${left} left`}.`;
+		return {
+			reason: "allowance",
+			message: `This set needs ${preview.runs.total} runs${left === null ? "" : ` and your plan has ${left} left`}.`,
+		};
 	}
 	return null;
 }
@@ -130,7 +138,7 @@ function minuteOf(instant: string): string {
 	return `${at.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-/** `ax journey list`: the organization's sets, newest first, as the platform ordered them. */
+/** `ax run set list`: the organization's sets, newest first, as the platform ordered them. */
 export function renderList(list: SetList): string {
 	if (list.sets.length === 0) return "No sets yet.";
 	return list.sets

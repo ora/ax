@@ -1,158 +1,24 @@
-import pc from "picocolors";
-import {
-	type JourneyInsight,
-	type JourneyRun,
-	type JourneyStep,
-	launchJourney,
-	type RunRequest,
-	type RunSpend,
-	type RunSummary,
-} from "../api/platform";
 import { platformBase } from "../api/platform-origins";
-import { JOURNEY_FEATURE } from "../auth/platform-features";
+import { createSetsClient } from "../api/sets";
+import { runIsLive, type StandaloneRun } from "../api/standalone";
+import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
+import { onInterrupt } from "../journey-set/interrupt";
+import { watchRun } from "../journey-set/journey-progress";
+import { isRunLimitError, workspaceUsageStep } from "../journey-set/usage";
 import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
-import { flow, squeeze, stdoutWidth } from "../ui/ansi";
-import {
-	buildJourneyTree,
-	drawJourneyTree,
-	isSearchStep,
-	journeySummary,
-	splitUrl,
-} from "../ui/graph";
-import { LivePanel } from "../ui/panel";
 import { credentialFailure } from "./credential-failure";
+import { printRun } from "./journey-run-result";
+import { DEFAULT_WAIT_MINUTES, INTERRUPTED } from "./journey-set";
 
 export interface JourneyCommandInput {
 	intent: string;
 	domain?: string;
-	harness: string;
+	harness?: string;
 	model?: string;
 	json: boolean;
-}
-
-const wide = () => stdoutWidth(60, 120);
-
-// Present-tense caption for whatever the agent is doing right now.
-function activityLabel(step: JourneyStep): string {
-	if (step.type === "tool_call") {
-		const detail = step.input_display ?? step.summary ?? "";
-		if (isSearchStep(step)) return detail ? `searching ${squeeze(detail, 40)}` : "searching…";
-		const { host } = splitUrl(detail);
-		return host ? `fetching ${host}` : "fetching…";
-	}
-	if (step.type === "text" && step.kind === "reasoning") return "deciding next step…";
-	if (step.type === "text") return "writing the answer…";
-	return "working…";
-}
-
-const chipTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-
-function chipCost(usd: number): string {
-	if (usd < 0.01) return `$${usd.toFixed(4)}`;
-	if (usd < 1) return `$${usd.toFixed(3)}`;
-	return `$${usd.toFixed(2)}`;
-}
-
-function outcomeLines(summary: RunSummary, spend?: RunSpend): string[] {
-	const won = summary.outcome === "success";
-	const chips: string[] = [];
-	if (summary.num_turns != null) chips.push(`${summary.num_turns} turns`);
-	if (summary.duration_ms != null) chips.push(`${(summary.duration_ms / 1000).toFixed(1)}s`);
-	if (spend?.totalTokens != null) chips.push(`${chipTokens(spend.totalTokens)} tokens`);
-	if (spend?.costUsd != null) chips.push(chipCost(spend.costUsd));
-
-	return [
-		"",
-		`  ${pc.dim("─".repeat(Math.min(wide() - 4, 52)))}`,
-		`  ${won ? pc.green("✓") : pc.red("✗")} ${pc.bold(won ? "completed" : summary.outcome)}${
-			chips.length ? `  ${pc.dim(chips.join(" · "))}` : ""
-		}`,
-	];
-}
-
-function gauge(score: number, cells = 22): string {
-	const bound = Math.min(100, Math.max(0, score));
-	const lit = Math.round((bound / 100) * cells);
-	const paint = bound >= 70 ? pc.green : bound >= 50 ? pc.yellow : pc.red;
-	return paint("█".repeat(lit)) + pc.dim("░".repeat(cells - lit));
-}
-
-function priorityDot(priority?: string): string {
-	if (priority === "high") return pc.red("● high  ");
-	if (priority === "medium") return pc.yellow("● medium");
-	if (priority === "low") return pc.dim("● low   ");
-	return pc.dim("●       ");
-}
-
-function insightLines(insight: JourneyInsight): string[] {
-	const rows: string[] = [""];
-
-	if (insight.visibility_score != null) {
-		const score = insight.visibility_score;
-		const paint = score >= 70 ? pc.green : score >= 50 ? pc.yellow : pc.red;
-		const verdict = insight.intent_satisfied
-			? pc.green("✓ intent satisfied")
-			: pc.yellow("✗ intent not satisfied");
-		rows.push(
-			`  ${pc.bold("Visibility")}  ${gauge(score)} ${paint(pc.bold(`${score}/100`))}   ${verdict}`,
-		);
-	}
-	if (insight.summary) {
-		rows.push("");
-		for (const line of flow(insight.summary, wide() - 4)) rows.push(`  ${pc.dim(line)}`);
-	}
-	if (insight.friction_points?.length) {
-		rows.push("", `  ${pc.bold("Friction")}`);
-		for (const point of insight.friction_points) {
-			const [first, ...rest] = flow(point, wide() - 6);
-			rows.push(`    ${pc.yellow("·")} ${first}`);
-			for (const line of rest) rows.push(`      ${line}`);
-		}
-	}
-	if (insight.recommendations?.length) {
-		rows.push("", `  ${pc.bold("Recommendations")}`);
-		for (const rec of insight.recommendations) {
-			rows.push(`    ${priorityDot(rec.priority)}  ${pc.bold(rec.title)}`);
-			for (const line of flow(rec.detail, wide() - 8)) rows.push(`      ${pc.dim(line)}`);
-		}
-	}
-	rows.push("");
-	return rows;
-}
-
-function journeyRunJson(run: JourneyRun): string {
-	const insight = run.insight ?? {};
-	return JSON.stringify(
-		{
-			runId: run.runId,
-			intent: run.intent,
-			domain: run.domain,
-			harness: run.harness,
-			model: run.result?.effective_model ?? run.result?.model,
-			outcome: run.result?.outcome,
-			durationMs: run.result?.duration_ms,
-			numTurns: run.result?.num_turns,
-			totalTokens: run.usage?.totalTokens,
-			inputTokens: run.usage?.inputTokens,
-			outputTokens: run.usage?.outputTokens,
-			costUsd: run.usage?.costUsd,
-			visibilityScore: insight.visibility_score,
-			intentSatisfied: insight.intent_satisfied,
-			taskSatisfied: insight.task_satisfied,
-			summary: insight.summary,
-			keyObservations: insight.key_observations,
-			frictionPoints: insight.friction_points,
-			recommendations: insight.recommendations,
-			journeyLayers: insight.journey_layers,
-			intentCategory: insight.intent_category,
-			steps: run.trajectory,
-		},
-		null,
-		2,
-	);
 }
 
 /** A caller reading JSON keeps reading JSON on the next call. */
@@ -167,23 +33,24 @@ function resultNext(input: JourneyCommandInput): NextStep {
 		};
 	}
 	return {
-		call: axCall(["journey", input.intent, "--domain", placeholder("domain"), ...jsonWords(input)]),
+		call: axCall(["run", input.intent, "--domain", placeholder("domain"), ...jsonWords(input)]),
 		why: "name the site so the run can be traced back to it",
 	};
 }
 
 /**
- * A failed launch: a credential's failure reads as it does for every command (no credential is
- * MISSING_API_KEY, which scripts read; a sign-in that ended says ax login); anything else is
- * retried as the same call.
+ * A failed launch points to Usage for an exhausted plan, to sign-in for a credential failure,
+ * or back to the same call for a retry.
  */
 function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
+	if (isRunLimitError(cause)) {
+		return { code: "LIMIT_EXCEEDED", message: cause.message, next: workspaceUsageStep() };
+	}
 	const retry = axCall([
-		"journey",
+		"run",
 		input.intent,
 		...(input.domain ? ["--domain", input.domain] : []),
-		"--harness",
-		input.harness,
+		...(input.harness ? ["--harness", input.harness] : []),
 		...(input.model ? ["--model", input.model] : []),
 		...jsonWords(input),
 	]);
@@ -200,111 +67,87 @@ function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError
 	);
 }
 
-export interface JourneyDeps {
-	/** Which credential the run signs its calls with. */
-	credentials: PlatformCredentials;
-	/**
-	 * What to do when ora refuses the run because the organization does not hold the product a single
-	 * run belongs to. The caller's other way to run the goal; without one the refusal is reported.
-	 */
-	onProductRefused?: () => Promise<number>;
-}
-
-/** ora refused the call because the organization does not hold the product this API belongs to. */
-function productRefused(cause: unknown): boolean {
-	const failure = (cause ?? {}) as { status?: unknown; payload?: unknown };
-	const code = (failure.payload as { code?: unknown } | null | undefined)?.code;
-	return failure.status === 403 && typeof code === "string" && code.includes("PRODUCT");
-}
-
-// Exit codes: 0 run outcome "success" · 1 finished otherwise · 2 error.
+/** Create once, follow the native run stream, then read the same run’s stored evidence. */
 export async function journeyCommand(
 	input: JourneyCommandInput,
-	deps: JourneyDeps = { credentials: platformCredentials() },
+	deps: { credentials: PlatformCredentials } = { credentials: platformCredentials() },
 ): Promise<number> {
-	const fail = async (cause: unknown): Promise<number> => {
-		if (deps.onProductRefused && productRefused(cause)) return deps.onProductRefused();
+	let created: StandaloneRun | undefined;
+	const interrupt = onInterrupt();
+	try {
+		const base = platformBase();
+		const credential = deps.credentials.chain.resolve(base, SETS_FEATURE);
+		const client = createSetsClient({ base, credential, signal: interrupt.signal });
+		created = await client.createRun({
+			goal: input.intent,
+			...(input.domain !== undefined ? { site: input.domain } : {}),
+			...(input.harness ? { agent: input.harness } : {}),
+			...(input.model ? { model: input.model } : {}),
+		});
+		console.error(`Run ${created.runId} started.`);
+		const evidence = await watchRun(client, created, {
+			json: input.json,
+			interrupt: interrupt.signal,
+			waitMinutes: DEFAULT_WAIT_MINUTES,
+		});
+		printRun(evidence, input.json);
+		if (runIsLive(evidence)) {
+			printNext(runViewStep(created.runId, input.json), { stderr: true });
+			return 2;
+		}
+		printNext(resultNext(input), { stderr: input.json });
+		return evidence.state === "succeeded" ? 0 : 1;
+	} catch (cause) {
+		if (interrupt.signal.aborted) {
+			if (created) printNext(runViewStep(created.runId, input.json), { stderr: true });
+			return INTERRUPTED;
+		}
 		const error = launchFailure(input, cause);
+		if (created) error.next = runViewStep(created.runId, input.json);
 		reportError(error, {
 			json: input.json,
 			display: (message) => `Journey failed: ${message}`,
 			served: servedBody(cause),
 		});
 		return 2;
+	} finally {
+		interrupt.stop();
+	}
+}
+
+function runViewStep(runId: string, json: boolean): NextStep {
+	return {
+		call: axCall(["run", "view", runId, ...(json ? ["--json"] : [])]),
+		why: "open the run already started",
 	};
-	let request: RunRequest;
+}
+
+export async function viewRun(runId: string, json: boolean, waitMinutes?: number): Promise<number> {
+	const interrupt = onInterrupt();
 	try {
 		const base = platformBase();
-		request = {
-			intent: input.intent,
-			domain: input.domain,
-			harness: input.harness,
-			model: input.model,
-			baseUrl: base,
-			credential: deps.credentials.chain.resolve(base, JOURNEY_FEATURE),
-		};
+		const credential = platformCredentials().chain.resolve(base, SETS_FEATURE);
+		const client = createSetsClient({ base, credential, signal: interrupt.signal });
+		const run = await client.getRun(runId);
+		const evidence =
+			waitMinutes !== undefined && runIsLive(run)
+				? await watchRun(client, run, { json, waitMinutes, interrupt: interrupt.signal })
+				: run;
+		printRun(evidence, json);
+		return 0;
 	} catch (cause) {
-		return fail(cause);
-	}
-
-	if (input.json) {
-		try {
-			const run = await launchJourney(request);
-			process.stdout.write(`${journeyRunJson(run)}\n`);
-			printNext(resultNext(input), { stderr: true });
-			return run.result?.outcome === "success" ? 0 : 1;
-		} catch (cause) {
-			return fail(cause);
-		}
-	}
-
-	const panel = new LivePanel();
-	let steps: JourneyStep[] = [];
-	let settled = false;
-
-	const view = (): string[] => [
-		`  ${journeySummary(steps)}`,
-		"",
-		...drawJourneyTree(buildJourneyTree(steps, input.intent, settled)).map((row) => `  ${row}`),
-	];
-
-	console.log();
-	console.log(
-		`  ${pc.cyan("▶")} ${input.domain ? pc.bold(input.domain) : pc.dim("(no domain)")}  ${pc.dim("·")}  ${pc.dim(input.harness)}`,
-	);
-	console.log();
-	panel.open();
-	panel.draw(view(), "waking the agent");
-
-	try {
-		const run = await launchJourney(request, {
-			snapshot: (latest) => {
-				steps = latest;
-				const tail = latest[latest.length - 1];
-				panel.draw(view(), tail ? activityLabel(tail) : "working");
+		if (interrupt.signal.aborted) return INTERRUPTED;
+		const next = runViewStep(runId, json);
+		reportError(
+			credentialFailure(cause, { retry: next.call }) ?? {
+				code: "PLATFORM_ERROR",
+				message: cause instanceof Error ? cause.message : String(cause),
+				next,
 			},
-			finished: () => {
-				settled = true;
-				panel.draw(view(), "scoring the journey");
-			},
-		});
-
-		// Swap the live region for a permanent copy, then the finale under it.
-		panel.close();
-		settled = true;
-		if (run.trajectory.length) steps = run.trajectory;
-		for (const row of view()) console.log(row);
-		if (run.result) for (const row of outcomeLines(run.result, run.usage)) console.log(row);
-		if (run.insight) {
-			for (const row of insightLines(run.insight)) console.log(row);
-		} else if (run.result) {
-			console.log(pc.dim("  (insight not available for this run)"));
-			console.log();
-		}
-		printNext(resultNext(input), { stderr: false });
-		return run.result?.outcome === "success" ? 0 : 1;
-	} catch (cause) {
-		panel.close();
-		return fail(cause);
+			{ json, served: servedBody(cause) },
+		);
+		return 2;
+	} finally {
+		interrupt.stop();
 	}
 }

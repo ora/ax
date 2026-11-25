@@ -46,10 +46,12 @@ describe("previewProblem", () => {
 
 	it("is the platform's own numbers when the set is over the limit or over the plan", () => {
 		expect(
-			previewProblem({ ...PREVIEW, runs: { total: 240, limit: 200, left: 9000, fits: true } }),
+			previewProblem({ ...PREVIEW, runs: { total: 240, limit: 200, left: 9000, fits: false } })
+				?.message,
 		).toContain("would start 240 runs; a set may start at most 200");
 		expect(
-			previewProblem({ ...PREVIEW, runs: { total: 10, limit: 200, left: 4, fits: false } }),
+			previewProblem({ ...PREVIEW, runs: { total: 10, limit: 200, left: 4, fits: false } })
+				?.message,
 		).toBe("This set needs 10 runs and your plan has 4 left.");
 	});
 });

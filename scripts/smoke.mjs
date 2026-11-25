@@ -77,10 +77,10 @@ check(
 		const help = ax(["--help"]);
 		for (const piece of [
 			"a set of journeys",
-			"journey list",
-			"journey view",
-			"journey cancel",
-			// Every flag a set takes, in the top-level help itself, not only under ax journey --help.
+			"run set list",
+			"run set view",
+			"run set cancel",
+			// Every flag a set takes, in the top-level help itself, not only under ax run --help.
 			"--agents <list>",
 			"--levels",
 			"--brand <name>",
@@ -109,6 +109,7 @@ check("audit --help exits 0", () => ax(["audit", "--help"]));
 check("webmcp-audit --help exits 0", () => ax(["webmcp-audit", "--help"]));
 check("deep-journey --help exits 0", () => ax(["deep-journey", "--help"]));
 check("journey --help exits 0", () => ax(["journey", "--help"]));
+check("run --help exits 0", () => ax(["run", "--help"]));
 check("login --help exits 0", () => ax(["login", "--help"]));
 check("logout --help exits 0", () => ax(["logout", "--help"]));
 check("whoami --help exits 0", () => ax(["whoami", "--help"]));
@@ -181,12 +182,12 @@ check("journey with no goal takes the free path, which needs --domain", () => {
 
 // A set of journeys, through the bundled bin, against the mock sets server (the platform's real
 // answers, checked in). Unit tests drive the commands directly; only this proves the bin routes
-// `ax journey` to a set, signs the calls and prints the served document.
+// `ax run set create` to a set, signs the calls and prints the served document.
 check(
-	"journey list with no credential is a usage error that names both ways in, before any call",
+	"run set list with no credential is a usage error that names both ways in, before any call",
 	() => {
 		// A config home of its own: a sign-in stored on this machine must not answer for the check.
-		const run = spawnSync(process.execPath, [BIN, "journey", "list"], {
+		const run = spawnSync(process.execPath, [BIN, "run", "set", "list"], {
 			encoding: "utf8",
 			env: { ...process.env, XDG_CONFIG_HOME: home, ORA_API_KEY: "" },
 		});
@@ -218,35 +219,40 @@ function axSet(args) {
 	});
 }
 try {
-	check("journey view --json prints the set exactly as the platform served it", () => {
+	check("run set view --json prints the set exactly as the platform served it", () => {
 		const served = JSON.parse(
 			readFileSync("src/journey-set/__fixtures__/set-running.json", "utf8"),
 		);
-		const run = axSet(["journey", "view", served.setId, "--json"]);
+		const run = axSet(["run", "set", "view", served.setId, "--json"]);
 		if (run.status !== 0) throw new Error(`exit ${run.status}: ${run.stderr}`);
 		if (JSON.stringify(JSON.parse(run.stdout)) !== JSON.stringify(served))
 			throw new Error("stdout is not the served document");
 	});
 
-	check("two goals are a set: the preview is printed and nothing launches without --yes", () => {
-		const run = axSet([
-			"journey",
-			"Find the API docs",
-			"Find the pricing",
-			"--domain",
-			"linear.app",
-		]);
-		if (run.status !== 2) throw new Error(`exit ${run.status}, want 2`);
-		if (!run.stderr.includes("a set of journeys")) throw new Error("no preview on stderr");
-		if (!run.stderr.includes("Nothing was launched"))
-			throw new Error("did not say nothing launched");
-		if (run.stdout !== "") throw new Error("stdout is not empty");
-	});
+	check(
+		"run set create with two goals: the preview is printed and nothing launches without --yes",
+		() => {
+			const run = axSet([
+				"run",
+				"set",
+				"create",
+				"Find the API docs",
+				"Find the pricing",
+				"--domain",
+				"linear.app",
+			]);
+			if (run.status !== 2) throw new Error(`exit ${run.status}, want 2`);
+			if (!run.stderr.includes("a set of journeys")) throw new Error("no preview on stderr");
+			if (!run.stderr.includes("Nothing was launched"))
+				throw new Error("did not say nothing launched");
+			if (run.stdout !== "") throw new Error("stdout is not empty");
+		},
+	);
 
-	check("journey list prints each set and the next call", () => {
-		const run = axSet(["journey", "list"]);
+	check("run set list prints each set and the next call", () => {
+		const run = axSet(["run", "set", "list"]);
 		if (run.status !== 0) throw new Error(`exit ${run.status}: ${run.stderr}`);
-		if (!run.stdout.includes("Next: ax journey view ")) throw new Error("no Next line");
+		if (!run.stdout.includes("Next: ax run set view ")) throw new Error("no Next line");
 	});
 } finally {
 	mock.removeAllListeners("exit");

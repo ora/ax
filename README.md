@@ -18,18 +18,18 @@
 npx ax audit https://stripe.com
 ```
 
-**No account, no API key.** Everything below works out of the box. The exceptions are [`journey`](#for-ora-partners) on a goal of your own and `audit --tunnel ora`, which need you [signed in to ora](#sign-in) (`ax login`) or an ora platform key; a goal of your own on the free path needs a partner key instead.
+Public audits and curated journeys work without an account. To run your own goals on Ora's front, follow the [evaluations quickstart](#evaluations-on-oras-front).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ora/ax/main/.github/assets/demo.gif" width="880" alt="ax audit https://stripe.com — live progress, then the layered report and ora's ranked top fixes" />
 </p>
 
-Six commands:
+Commands:
 
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
-- **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is the older name and still works.
-- **`journey "<goal>"`** — send a real AI agent (claude-code, codex, …) at a site and watch its navigation live as a boxed node-graph, then get the scored insight, tokens, and cost. Partner-only: needs `ax login` or an `ORA_API_KEY` (see [For ora partners](#for-ora-partners)). Several goals, agents, repeats or levels of help against one site are [a set of journeys](#a-set-of-journeys), run and graded on ora's platform.
+- **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is a supported alias.
+- **`run "<goal>"`** — run one evaluation on Ora's front. For multiple goals, harnesses or repeats use [`ax run set create`](#evaluation-sets). Both require a sign-in or API key for Ora's front.
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
 
@@ -97,7 +97,7 @@ Budget notes: ora allows 30 scans + 6 `--force` scans per rolling 24h per IP (pl
 
 A local dev server only exists on your machine, so ora can't reach it. The simplest option is to audit a publicly reachable deployment of the same code (e.g. a preview URL). To audit localhost itself, run it through a tunnel. The result is stored as **ephemeral** either way: excluded from ora's rankings and leaderboard, served with `Cache-Control: no-store`, never indexed, and deleted after 7 days.
 
-**ora's own tunnel.** Signed in with [`ax login`](#sign-in), or with an ora platform key (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done — nothing to install, nothing left behind:
+**ora's own tunnel.** Signed in with [`ax login`](#sign-in), or with an API key from Ora's front (`ora_sk_…`, scopes `tunnels:write` + `tunnels:connect`) in `ORA_API_KEY`, `ax` creates a tunnel, connects it, audits the public hostname, and deletes the tunnel when done — nothing to install, nothing left behind:
 
 ```
 ax audit localhost:3000 --tunnel ora
@@ -225,7 +225,7 @@ ax journey --domain stripe.com --intent pricing
 ax journey "Find how to build a Slack → Sheets zap" --domain zapier.com --api-key k   # needs a partner key
 ```
 
-`ax deep-journey <url>` is the older name for this command. It keeps its flags (`--task` included) and exit codes, prints the `ax journey` call it stands for on stderr, and will be removed in a future major release.
+`ax deep-journey <url>` is an alias for `ax journey --domain <url>`. It accepts `--task`, keeps its exit codes, and prints the equivalent `ax journey` command on stderr. The alias will be removed in a future major release.
 
 Runs a real AI agent at a site through ora's **public** journey API — no key, no workspace needed for curated tasks. The agent's trajectory streams live as progress lines; the terminal output is ora's verdict, the billable step count, and the generated insight:
 
@@ -243,7 +243,7 @@ Runs a real AI agent at a site through ora's **public** journey API — no key, 
 
 Anonymous callers run curated intents (`pricing`, `signup`, `api-docs`, `integrate`, `support`, …) — list them with `GET https://ora.ai/api/journey/intents`, and the publicly offered agents with `GET https://ora.ai/api/journey/agents`. The public caps are 100 runs per rolling 24h per target and task, and 20 runs per 24h per IP (plus a 20/min burst limit and a shared ceiling of 3,000 anonymous runs a day across all callers); a target at its cap answers with the most recent stored run (`rate_limited: true`) instead of an error, so repeat CI invocations are cheap. Verdict and step count come from ora's contract as-is — the CLI never re-judges a run.
 
-**Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks a goal of your own — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; a goal of your own without a recognized key is an error. A goal with only a partner key set (no `ORA_API_KEY`) takes this path; with `ORA_API_KEY` set too, it runs on ora's platform unless you add a flag of this path (`--intent`, `--agent`, `--api-key`, `--no-stream`).
+**Keyed tier:** an ora-issued partner API key (`--api-key`, or `ORA_PARTNER_API_KEY` / `ORA_SCAN_API_KEY` in the environment) unlocks a goal of your own — a free-text task of 4–300 characters that replaces the curated intent — and moves the caller to an allowance of 1000 runs per rolling 24h per key with no per-target cap and no burst guard. Keys are issued manually by ora (no self-serve signup). A wrong or unrecognized key with a *curated* intent silently degrades to the anonymous tier; a goal of your own without a recognized key is an error. `ax journey` uses the public journey API even when `ORA_API_KEY` is set. To use your account on Ora's front for a custom goal, use [`ax run`](#standalone-run).
 
 The CLI always follows the run's stream to the end, `--no-stream` included, because ora saves a finished run from inside the stream. If the stream drops or goes quiet (no frames for 120s), the CLI reopens it, which resumes the same run without re-running the agent. A stream `429` is waited out (up to 60s) before reopening; any other HTTP error from the stream (a `404`, an auth error, a `5xx`) ends the command at once. Only after five failed reopens does it fall back to polling the run detail, within a 15-minute budget shared with the stream.
 
@@ -258,7 +258,7 @@ The CLI always follows the run's stream to the end, `--no-stream` included, beca
 
 Exit codes: `0` run succeeded (any verdict) · `1` run failed · `2` usage error · `3` API unreachable / rate-limited.
 
-Mixing these flags with `--harness` or `--model`, which are for a goal of your own on ora's platform ([below](#journey)), is a usage error (exit 2) naming both. This is the zero-setup public path; the platform path renders the full trajectory graph.
+Use `--agent` to select a public journey agent. The `--harness` and `--model` flags belong to [`ax run`](#standalone-run). Passing either to `ax journey` exits with code `2`.
 
 ## skill
 
@@ -324,37 +324,47 @@ console.log(detail.verdict, detail.step_count, detail.result?.insight?.summary);
 
 `detail` is the contract's `JourneyRunDetail`; `fetchJourneyIntents` lists the curated intents. The same public caps apply — a capped target resolves with the most recent stored run (`cached: true` on the outcome), not an error.
 
-## For ora partners
+## Evaluations on Ora's front
 
-Everything above runs without an account. The commands in this section are for teams working with ora directly, and there is no self-serve signup: accounts and keys come from ora (contact [hello@ora.ai](mailto:hello@ora.ai)). `journey` on a goal of your own (and `audit --tunnel ora`) runs on ora's platform as a member of your organization: [sign in](#sign-in) with `ax login`, or use an ora platform key (`ora_sk_…`). A separate partner or scan key, passed with `--api-key`, lifts the anonymous rate limits on `audit` and the free `journey`, and the daily limit on `webmcp-audit`.
+Sign in to Ora's front or create an account when the browser opens. These examples use the default agent from your plan.
+
+```sh
+ax login
+ax run "Find how Stripe authenticates API requests" --domain stripe.com
+ax run set create "Find how Stripe authenticates API requests" \
+  "Find Stripe's API rate limits" --domain stripe.com
+```
+
+The standalone command starts one run immediately. The set previews two runs and asks before launching. Both use the same monthly simulations as Playground. Workspaces created through `ax login` get the **Evaluations** tab automatically. Open it to see the standalone run or the set report. From the set report you can open each child run and its grade.
 
 ### Sign in
 
 ```
 ax login      # sign in through your browser
-ax whoami     # who ax calls ora's platform as
+ax whoami     # show the account ax uses on Ora's front
 ax logout     # end the sign-in, on ora and on this machine
 ```
 
-`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. If ora's sign-in server stops answering for a moment while you do, ax waits a little longer and tries again. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `runs:read` + `runs:write` for journeys and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
+`ax login` prints a link and a short code, opens the link in your browser, and waits while you sign in and approve. If ora's sign-in server stops answering for a moment while you do, ax waits a little longer and tries again. Pass `--no-browser` to only print the link, for example over SSH. Approve only a sign-in you started yourself. ax asks for what its commands use and nothing more: `ax.sets:read` + `ax.sets:write` for standalone runs and sets and `tunnels:write` + `tunnels:connect` for `--tunnel ora`, which creates, connects and deletes its tunnel and never lists one. ora never grants more than your role allows. A viewer, for example, can hand over read access only.
 
-The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_CONFIG_HOME/ax` when set, `%APPDATA%\ax` on Windows), readable by your account only. It lasts until you run `ax logout` or disconnect **ax** in ora under Settings › Connected apps. `ax logout` removes the file first and then ends the sign-in on ora, so nothing is left on disk even when ora can't be reached; it also removes a file this version of ax can't read. After that, ora refuses the next command, and a tunnel the sign-in opened closes within about half a minute. A sign-in is for the platform it was made for: point `ORA_PLATFORM_URL` elsewhere and ax neither uses nor sends it.
+The sign-in renews itself, and is stored in `~/.config/ax/session.json` (`$XDG_CONFIG_HOME/ax` when set, `%APPDATA%\ax` on Windows), readable by your account only. It lasts until you run `ax logout` or disconnect **ax** in ora under Settings › Connected apps. `ax logout` removes the file first and then ends the sign-in on ora, so nothing is left on disk even when ora can't be reached; it also removes a file this version of ax can't read. After that, ora refuses the next command, and a tunnel the sign-in opened closes within about half a minute. A sign-in is tied to its API address. If `ORA_PLATFORM_URL` points elsewhere, ax keeps the saved credential on this machine.
 
 `ORA_API_KEY`, when set, is used before the sign-in, so CI and scripts work as before. Use a key wherever no person is at the terminal.
 
-`ax whoami` asks ora who the credential ax would use is, a sign-in or a key alike, and exits `0` · `2` neither a sign-in nor a key, or a platform address ax will not send one to · `3` ora refused the credential or could not answer. `ax login` exits `0` signed in · `2` a platform address ax will not sign in to · `3` the sign-in did not complete (cancelled, expired, or ora unreachable).
+`ax whoami` asks ora who the credential ax would use is, a sign-in or a key alike, and exits `0` · `2` neither a sign-in nor a key, or an API address ax will not send one to · `3` ora refused the credential or could not answer. `ax login` exits `0` signed in · `2` an API address ax will not sign in to · `3` the sign-in did not complete (cancelled, expired, or ora unreachable).
 
-### journey
-
-```
-ax journey "<goal>" [--domain d] [--harness h] [--model m] [--json]
-```
+### Standalone run
 
 ```
-ax journey "Find the API docs and how to authenticate" --domain stripe.com
+ax run "<goal>" [--domain d] [--harness h] [--model m] [--json]
+ax run view <run-id> [--watch] [--wait <minutes>] [--json]
 ```
 
-Triggers a real agent run on ora's platform and renders the journey live — the whole graph repaints in place as the agent moves:
+```
+ax run "Find the API docs and how to authenticate. Fetch the actual pages to verify." --domain stripe.com
+```
+
+AX prints the run ID at launch and shows the agent's steps as they arrive. Use `ax run view <run-id>` for the latest result or `ax run view <run-id> --watch` to follow the same run live. When it finishes, AX prints the evidence, any available findings, and a report link if Evaluations is enabled for the workspace.
 
 ```
   ▶ stripe.com  ·  claude-code
@@ -385,51 +395,50 @@ Edges come from ora's own per-step attribution (link-follows nest under the page
 
 | Flag | Effect |
 |---|---|
-| `--domain <d>` | Site the agent targets (e.g. `stripe.com`) |
-| `--harness <h>` | Agent harness: `claude-code` (default), `codex`, `openclaw`, `hermess`, `claude-agent`, `eve`, … |
-| `--model <m>` | Model override (e.g. `claude-haiku-4-5-20251001` — cheap and good for demos) |
+| `--domain <d>` | Optional target site. Claude Code and Codex receive it as a prompt hint. For `claude-consumer` and `chatgpt-consumer`, name the site in your goal to ensure the agent sees it. |
+| `--harness <h>` | An agent enabled on your plan. Omit to use the plan default. |
+| `--model <m>` | A model ID available for the selected harness. Omit to use its default model. |
 | `--json` | Full result as JSON: run metadata, usage, insight, and the raw trajectory |
 
 Note: run-to-run variance is real — agents sometimes answer from search snippets without fetching, which scores differently. Run a few journeys before drawing conclusions.
 
-Journey exit codes: `0` run outcome `success` · `1` non-success outcome · `2` any error.
+For `ax run "<goal>"`, exit `0` means the run reached the `succeeded` state. A completed run can still miss the goal. For that verdict, check `insight.intent_satisfied` in the JSON result when available. The command exits `1` for other terminal states, `2` on a command error or if the run is still active when the wait ends, and `130` when interrupted.
 
 #### Setup
 
-`journey` needs a [sign-in](#sign-in), or an ora platform API key with the `runs:read` + `runs:write` scopes:
-
-```sh
-ax login                             # once, at your terminal
-ax journey "Find the pricing page" --domain example.com
-```
+For CI, use an API key from Ora's front with the `ax.sets:read` and `ax.sets:write` scopes.
 
 ```sh
 export ORA_API_KEY=ora_sk_...        # your shell, CI secret store, etc.
-ax journey "Find the pricing page" --domain example.com
+ax run "Find Stripe's pricing page" --domain stripe.com
 ```
 
 For local development, copy `.env.example` to `.env` — the CLI reads a `.env` in the working directory on startup (exported variables win over the file).
 
-### A set of journeys
+<a id="a-set-of-journeys"></a>
 
-One journey is one agent, one goal, one run. A set asks a wider question: across several goals, several agents and several amounts of help, where does your site lose the agent?
+### Evaluation sets
 
-```
-ax journey "<goal>" ["<goal>" ...] --domain <site> [--agents <a>,...] [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N] [--yes] [--wait <minutes>] [--json]
-ax journey view <id> [--watch] [--wait <minutes>] [--json]
-ax journey list [--json]
-ax journey cancel <id> [--json]
-```
+A set runs each goal on every selected agent. `--domain` is required and identifies the site for grading. By default each agent receives the goal as written. Use [levels of help](#levels-of-help) to compare how agents do when given a brand name, documentation URL, or exact starting page.
 
 ```
-ax journey "Find how to create an issue from the API" \
-           "Find how to receive a webhook from Linear when an issue is updated." \
-  --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
+ax run set create "<goal>" ["<goal>" ...] --domain <site> [--agents <harness[/model]>,...]
+                  [--levels] [--brand <b>] [--docs <url>] [--exact <url>] [--repeat N]
+                  [--yes] [--watch] [--wait <minutes>] [--json]
+ax run set view <id> [--watch] [--wait <minutes>] [--json]
+ax run set list [--json]
+ax run set cancel <id> [--json]
 ```
 
-`ax journey` runs a set when you give it more than one goal or any set flag (`--agents`, `--levels`, `--brand`, `--docs`, `--exact`, `--repeat`, `--yes`, `--wait`, `--watch`). One goal with none of them is the single journey above. If ora refuses that run because your organization does not have the product single runs belong to, ax runs the goal as a set of one instead (one run, on the agent you named or your plan's own) and follows it live.
+To compare two models on the same harness, pass both `harness/model` pairs to `--agents`. This example requires a plan that offers both models on Claude Code.
 
-A set runs on ora's platform, in your organization. The platform starts the runs, has each one graded and counts them; ax asks, waits and prints. The report here, `--json` and the platform's own pages therefore show the same numbers, and nothing is kept on your machine: a set is found again by its id (`ax journey list`).
+```sh
+ax run set create "Find Linear's pricing" "Find how to import issues into Linear" \
+  --domain linear.app \
+  --agents claude-code/claude-haiku-5-5,claude-code/claude-sonnet-5-5
+```
+
+The preview shows **4 runs**. Haiku runs both goals and Sonnet runs both goals. For exactly two runs with a different model assigned to each goal, issue two standalone `ax run` commands with the corresponding `--harness` and `--model`.
 
 #### Levels of help
 
@@ -450,7 +459,13 @@ A run counts as satisfied when a panel of judge models finds all three of: the a
 
 #### Preview, then launch
 
-Before anything starts, ax prints what the set is and what it will use (on stderr), then asks:
+To compare two harnesses at several levels of help, include `--levels` and a starting page. AX prints the preview on stderr and asks for confirmation.
+
+```sh
+ax run set create "Find how to create an issue from the API" \
+  "Find how to receive a webhook from Linear when an issue is updated." \
+  --domain linear.app --agents claude-code,codex --levels --exact https://linear.app/developers
+```
 
 ```
 linear.app: a set of journeys
@@ -470,7 +485,9 @@ linear.app: a set of journeys
 Launch 10 runs? [y/N]
 ```
 
-Answer `y` to launch. `--yes` launches without asking, and is required where there is no terminal to ask on (CI, a pipe): without it ax prints the preview and exits `2` having started nothing. A set takes up to 5 goals, 4 agents and 10 repeats, and may start at most 200 runs. Runs count against your plan like any other; a set that does not fit is refused before it starts.
+Answer `y` to launch. In CI or a pipe, pass `--yes` to confirm. Without it, AX prints the preview and exits `2`. A set takes up to 5 goals, 4 agents and 10 repeats, with a maximum of 200 runs per set.
+
+If a standalone run or set needs more simulations than your workspace has left, AX refuses the launch and points you to **Settings → Usage** in your workspace on Ora's front. For a set that exceeds the 200-run maximum, reduce the number of goals, agents, levels, or repeats.
 
 #### The report
 
@@ -501,8 +518,8 @@ Next: ax audit linear.app
 ```
 
 - A cell is `satisfied of graded` runs for one goal, level and agent. From 5 graded runs it also shows the rate, as `60% (3 of 5)`. Use `--repeat` to get there: one run per cell is a first look, not a measurement.
-- Under a cell, ax lists the runs that need a second look: `never visited your site` (the agent answered without opening a page of yours), `blocked by your site` (your site refused the agent's request), `excluded` (the run was lost to the platform's own infrastructure, never to your site, and is never counted against you) and `still running`.
-- A closing line names a gap between two neighbouring levels when the platform's comparison finds one. `An early signal: not enough runs to decide.` means exactly that: the direction is visible, the evidence is thin.
+- Under a cell, ax lists the runs that need a second look: `never visited your site` (the agent answered without opening a page of yours), `blocked by your site` (your site refused the agent's request), `excluded` (an infrastructure failure interrupted the run and it does not count against you) and `still running`.
+- A closing line names a gap between two neighbouring levels when the comparison finds one. `An early signal: not enough runs to decide.` means exactly that: the direction is visible, the evidence is thin.
 
 #### Watching live
 
@@ -530,7 +547,7 @@ With `--watch` on a terminal, ax follows the set over ora's live stream and repa
 
     ■ passed  × not passed  · excluded  ▣ grading  ▸ running  □ waiting
     Ctrl-C stops watching; the runs go on.
-    Pick it up again: ax journey view ebafe3d5-8a74-4eb4-b532-2732055d31c0 --watch
+    Pick it up again: ax run set view ebafe3d5-8a74-4eb4-b532-2732055d31c0 --watch
 ```
 
 When watching ends, the panel's last frame stays on screen, and the report under it leaves out the cells the panel already shows. When the set is complete and ora has read it closely, an end view follows instead of the closing lines:
@@ -556,18 +573,18 @@ Off a terminal (CI, a pipe, a file) `--watch` prints a line each time something 
 | `--yes` | Launch without asking |
 | `--wait <minutes>` | How long to watch (default 60). When it runs out ax prints the set as it stands and exits `0` |
 | `--watch` | Follow the set over ora's live stream: on a terminal a live panel (see *Watching live*), elsewhere a line each time the state or a level and agent's runs move. Without it ax reads the set every few seconds and prints the state. If the stream is not available ax says so and reads instead |
-| `--json` | The set exactly as the platform served it, on stdout; the preview and progress stay on stderr |
-| `ax journey view <id>` | Print a set as it stands now; with `--wait`, watch it until it finishes |
-| `ax journey list` | Your organization's sets, newest first |
-| `ax journey cancel <id>` | Stop the runs still going. Runs that already finished keep their results; the set then reads `stopped`, and a cell whose runs were stopped reads `no grade`. A set with no run still going is left as it is: ax prints what ora says about it and exits `0` |
+| `--json` | The set exactly as the API returned it, on stdout; the preview and progress stay on stderr |
+| `ax run set view <id>` | Print a set by ID. Add `--wait` to follow it until it finishes |
+| `ax run set list` | Your organization's sets, newest first |
+| `ax run set cancel <id>` | Stop the runs still going. Runs that already finished keep their results; the set then reads `stopped`, and a cell whose runs were stopped reads `no grade`. A set with no run still going is left as it is: ax prints what ora says about it and exits `0` |
 
-The runs go on at the platform whether or not ax is watching. Ctrl-C stops watching, prints the set as it stands and exits `130`; `ax journey view <id>` picks it up again.
+Runs continue on Ora's front after you stop watching. Ctrl-C stops watching, prints the set as it stands and exits `130`; `ax run set view <id>` picks it up again.
 
-Set exit codes: `0` a report was printed, or you answered no · `2` usage, or the platform refused the set before launch (not enough runs left, an unknown agent, a missing scope, no terminal and no `--yes`) · `3` the platform failed · `130` Ctrl-C.
+Set exit codes: `0` a report was printed, or you answered no · `2` usage, or the API refused the set before launch (not enough runs left, an unknown agent, a missing scope, no terminal and no `--yes`) · `3` the API failed · `130` Ctrl-C.
 
 #### Setup for sets
 
-A set signs in the way a journey does: `ax login` once (a browser sign-in, which asks for the scopes a set needs), or an ora platform API key in `ORA_API_KEY` with the `ax.sets:write` and `ax.sets:read` scopes. A key with `ax.sets:read` alone can `list` and `view`. Your organization also needs ora Study, the product a set runs on and is billed to. A new account made on the way through `ax login` starts on it; for an existing organization, an owner or admin adds it on the approval page of the sign-in.
+Sets use the same sign-in or API key as standalone runs. A key with only `ax.sets:read` can list and view sets.
 
 ## Environment variables
 
@@ -578,10 +595,10 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
 | `ORA_API_URL` | audit, webmcp-audit, journey (free), skill, generate-files | `https://ora.ai` | Public API base (no auth); also the ingest base for `webmcp-audit` |
-| `ORA_PLATFORM_URL` | journey, audit `--tunnel ora`, login, whoami, logout | `https://api.ora.ai` | Authenticated platform API base. `ax login` signs in at its `account.` host. `https://api.agentfront.sh`, the default before 0.12, serves the same API and still works with a key |
+| `ORA_PLATFORM_URL` | run, audit `--tunnel ora`, login, whoami, logout | `https://api.ora.ai` | Base URL for the authenticated API. `ax login` signs in at its `account.` host. `https://api.agentfront.sh`, the default before 0.12, serves the same API and still works with a key |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
 | `ORA_TUNNEL_CMD` | audit | — (optional) | Tunnel command for a local target (same as `--tunnel-cmd`); wins over `ORA_TUNNEL` |
-| `ORA_API_KEY` | journey, audit `--tunnel ora`, whoami | — (or `ax login`) | ora platform key (`ora_sk_…`); exchanged for a bearer token for a journey, the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes) and a set of journeys (`ax.sets:write` + `ax.sets:read`), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
+| `ORA_API_KEY` | run, audit `--tunnel ora`, whoami | — (or `ax login`) | API key from Ora's front (`ora_sk_…`); exchanged for a bearer token for a journey, the tunnel (which needs the `tunnels:write` + `tunnels:connect` scopes) and a set of journeys (`ax.sets:write` + `ax.sets:read`), and sent as itself to ora's `/auth/identity` by `whoami`, held to the same address rule. Used before a sign-in when both are there |
 | `ORA_SCAN_API_KEY` | audit, journey (free), webmcp-audit | — (optional) | ora-issued scan API key; lifts every scan rate limit (issued manually by ora). the free journey and webmcp-audit accept it as a partner-key fallback |
 | `ORA_PARTNER_API_KEY` | journey (free), webmcp-audit | — (optional) | ora-issued partner API key; unlocks a goal of your own and the 1000/24h keyed allowance on the free journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |

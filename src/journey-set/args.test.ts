@@ -1,61 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { positionals, setRequestOf, subcommandOf, wholeNumber } from "./args";
+import { setRequestOf, wholeNumber } from "./args";
 
-const VALUE_FLAGS = new Set([
-	"--domain",
-	"--agents",
-	"--repeat",
-	"--brand",
-	"--docs",
-	"--exact",
-	"--wait",
-	"--harness",
-	"--model",
-]);
 const flags = (over: Record<string, unknown> = {}) => ({
 	domain: "linear.app",
 	levels: false,
 	...over,
-});
-
-describe("positionals", () => {
-	it("are the words that are neither flags nor a flag's value, in order", () => {
-		expect(
-			positionals(
-				[
-					"Find pricing",
-					"--domain",
-					"linear.app",
-					"Find docs",
-					"--levels",
-					"--repeat=3",
-					"Find signup",
-				],
-				VALUE_FLAGS,
-			),
-		).toEqual(["Find pricing", "Find docs", "Find signup"]);
-	});
-
-	it("everything after -- is a goal, even a word that looks like a flag", () => {
-		expect(
-			positionals(["--domain", "linear.app", "--", "--help me find pricing"], VALUE_FLAGS),
-		).toEqual(["--help me find pricing"]);
-	});
-});
-
-describe("subcommandOf", () => {
-	it("is view, list or cancel exactly, and nothing else", () => {
-		expect([subcommandOf("view"), subcommandOf("list"), subcommandOf("cancel")]).toEqual([
-			"view",
-			"list",
-			"cancel",
-		]);
-		expect([
-			subcommandOf("View"),
-			subcommandOf("view the pricing page"),
-			subcommandOf(undefined),
-		]).toEqual([undefined, undefined, undefined]);
-	});
 });
 
 describe("setRequestOf", () => {

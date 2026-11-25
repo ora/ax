@@ -8,17 +8,19 @@ import { type PlatformCredentials, platformCredentials } from "../auth/resolve-c
 import { type SetFlags, setRequestOf, wholeNumber } from "../journey-set/args";
 import { type EndViewOptions, endNextWhy, endViewLines } from "../journey-set/end-view";
 import { type FollowEnd, followSet } from "../journey-set/follow-set";
+import { onInterrupt } from "../journey-set/interrupt";
 import { progressFor } from "../journey-set/live-watch";
 import { previewProblem, renderList, renderPreview, renderReport } from "../journey-set/render";
 import type { SetProgress } from "../journey-set/set-progress";
+import { isRunLimitError, workspaceUsageStep } from "../journey-set/usage";
 import { errorChain, servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
 import { credentialFailure } from "./credential-failure";
 import { EXIT } from "./exit-codes";
 
-// A set of journeys: `ax journey "<goal>" ["<goal>" ...] --domain <site>` with any set flag, and
-// `ax journey view | list | cancel`. The platform plans, runs, grades and counts a set; ax asks,
+// A set of journeys: `ax run set create "<goal>" ["<goal>" ...] --domain <site>` and
+// `ax run set view | list | cancel`. The platform plans, runs, grades and counts a set; ax asks,
 // waits and prints. It signs as every platform command does: ORA_API_KEY when set, else the
 // sign-in `ax login` stored (auth/resolve-credential.ts). Lines for a person (the preview, the question, progress, the Next line under
 // --json) go to stderr; stdout carries the report, or under --json the platform's answer as served.
@@ -90,14 +92,6 @@ export interface SetRunInput extends Seams {
 	ask?: (question: string) => Promise<string | null>;
 }
 
-/** A signal that aborts on the first Ctrl-C, and the call that stops listening. */
-function onInterrupt(): { signal: AbortSignal; stop: () => void } {
-	const controller = new AbortController();
-	const handler = () => controller.abort();
-	process.once("SIGINT", handler);
-	return { signal: controller.signal, stop: () => process.removeListener("SIGINT", handler) };
-}
-
 async function askOnTerminal(question: string): Promise<string | null> {
 	if (!process.stdin.isTTY) return null;
 	const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -112,7 +106,7 @@ async function askOnTerminal(question: string): Promise<string | null> {
 }
 
 const viewStep = (id: string, json: boolean): NextStep => ({
-	call: axCall(["journey", "view", id, ...(json ? ["--json"] : [])]),
+	call: axCall(["run", "set", "view", id, ...(json ? ["--json"] : [])]),
 });
 function fail(error: CommandError, exit: number, json: boolean, served?: unknown): number {
 	reportError(error, { json, served });
@@ -212,7 +206,15 @@ function report(
 export async function journeySetRun(input: SetRunInput): Promise<number> {
 	const { json } = input;
 	const usage: NextStep = {
-		call: axCall(["journey", placeholder("goal"), "--domain", placeholder("site"), "--levels"]),
+		call: axCall([
+			"run",
+			"set",
+			"create",
+			placeholder("goal"),
+			"--domain",
+			placeholder("site"),
+			"--levels",
+		]),
 		why: "a set of journeys",
 	};
 	const built = setRequestOf(input.goals, input.flags);
@@ -238,7 +240,11 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 		const problem = previewProblem(preview);
 		if (problem)
 			return fail(
-				{ code: "SET_REFUSED", message: `${problem} Nothing was launched.`, next: usage },
+				{
+					code: "SET_REFUSED",
+					message: `${problem.message} Nothing was launched.`,
+					next: problem.reason === "allowance" ? workspaceUsageStep() : usage,
+				},
 				EXIT.USAGE,
 				json,
 				preview,
@@ -253,7 +259,10 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 						code: "CONFIRMATION_NEEDED",
 						message:
 							"There is no terminal to ask on, and --yes was not given. Nothing was launched.",
-						next: { call: `${axCall(["journey", "..."])} --yes`, why: "launch without asking" },
+						next: {
+							call: `${axCall(["run", "set", "create", "..."])} --yes`,
+							why: "launch without asking",
+						},
 					},
 					EXIT.USAGE,
 					json,
@@ -266,7 +275,7 @@ export async function journeySetRun(input: SetRunInput): Promise<number> {
 		}
 		created = await client.create(built.request);
 	} catch (error) {
-		return failedCall(error, json, usage);
+		return failedCall(error, json, isRunLimitError(error) ? workspaceUsageStep() : usage);
 	}
 
 	console.error(`Set ${created.setId} started.`);
@@ -295,10 +304,13 @@ export interface SetViewInput extends Seams {
 
 export async function journeySetView(input: SetViewInput): Promise<number> {
 	const { json } = input;
-	const listStep: NextStep = { call: axCall(["journey", "list"]), why: "your sets and their ids" };
+	const listStep: NextStep = {
+		call: axCall(["run", "set", "list"]),
+		why: "your sets and their ids",
+	};
 	if (!input.id)
 		return fail(
-			{ code: "INVALID_SET", message: "ax journey view needs a set id", next: listStep },
+			{ code: "INVALID_SET", message: "ax run set view needs a set id", next: listStep },
 			EXIT.USAGE,
 			json,
 		);
@@ -351,7 +363,9 @@ export async function journeySetList(
 				? viewStep(first.setId, json)
 				: {
 						call: axCall([
-							"journey",
+							"run",
+							"set",
+							"create",
 							placeholder("goal"),
 							"--domain",
 							placeholder("site"),
@@ -365,7 +379,7 @@ export async function journeySetList(
 	} catch (error) {
 		// A credential's failure gets its own line from failedCall; any other refusal says its own fix, so the way on is the list again.
 		return failedCall(error, json, {
-			call: axCall(["journey", "list", ...(json ? ["--json"] : [])]),
+			call: axCall(["run", "set", "list", ...(json ? ["--json"] : [])]),
 			why: "once that is fixed",
 		});
 	}
@@ -375,10 +389,13 @@ export async function journeySetCancel(
 	input: { id: string | undefined; json: boolean } & Pick<Seams, "client" | "credentials">,
 ): Promise<number> {
 	const { json } = input;
-	const listStep: NextStep = { call: axCall(["journey", "list"]), why: "your sets and their ids" };
+	const listStep: NextStep = {
+		call: axCall(["run", "set", "list"]),
+		why: "your sets and their ids",
+	};
 	if (!input.id)
 		return fail(
-			{ code: "INVALID_SET", message: "ax journey cancel needs a set id", next: listStep },
+			{ code: "INVALID_SET", message: "ax run set cancel needs a set id", next: listStep },
 			EXIT.USAGE,
 			json,
 		);
