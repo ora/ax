@@ -5,6 +5,7 @@ import { SETS_FEATURE } from "../auth/platform-features";
 import { type PlatformCredentials, platformCredentials } from "../auth/resolve-credential";
 import { onInterrupt } from "../journey-set/interrupt";
 import { watchRun } from "../journey-set/journey-progress";
+import { isRunLimitError, studioUsageStep } from "../journey-set/usage";
 import { servedBody } from "../report/error-chain";
 import { type CommandError, reportError } from "../report/json-error";
 import { axCall, type NextStep, placeholder, printNext } from "../report/next-line";
@@ -38,11 +39,13 @@ function resultNext(input: JourneyCommandInput): NextStep {
 }
 
 /**
- * A failed launch: a credential's failure reads as it does for every command (no credential is
- * MISSING_API_KEY, which scripts read; a sign-in that ended says ax login); anything else is
- * retried as the same call.
+ * A failed launch points to Usage for an exhausted plan, to sign-in for a credential failure,
+ * or back to the same call for a retry.
  */
 function launchFailure(input: JourneyCommandInput, cause: unknown): CommandError {
+	if (isRunLimitError(cause)) {
+		return { code: "LIMIT_EXCEEDED", message: cause.message, next: studioUsageStep() };
+	}
 	const retry = axCall([
 		"run",
 		input.intent,

@@ -26,7 +26,7 @@ const evidence = {
 	trajectory: { steps: [{ id: 0, type: "text", kind: "output", turn: 1, text: "See the docs." }] },
 };
 
-function server(refusal?: number) {
+function server(refusal?: { status: number; body: { code: string; message: string } }) {
 	vi.stubEnv("ORA_PLATFORM_URL", "http://localhost:29123");
 	vi.stubEnv("ORA_API_KEY", "ora_sk_local_test");
 	const requests: { method: string; path: string; body?: unknown }[] = [];
@@ -43,11 +43,7 @@ function server(refusal?: number) {
 			expect(new Headers(init.headers).get("authorization")).toBe("Bearer bearer-for-ax");
 			switch (path) {
 				case "/ax/v1/runs":
-					if (refusal)
-						return Response.json(
-							{ code: "PRODUCT_REQUIRED", message: "Studio access required." },
-							{ status: refusal },
-						);
+					if (refusal) return Response.json(refusal.body, { status: refusal.status });
 					return Response.json(created, { status: 201 });
 				case "/ax/v1/sets/run-one":
 					return Response.json({ code: "SET_NOT_FOUND" }, { status: 404 });
@@ -120,9 +116,25 @@ describe("a standalone Studio journey", () => {
 	});
 
 	it("returns a Studio refusal without trying another product or creating a second run", async () => {
-		const { requests, stdout } = server(403);
+		const { requests, stdout } = server({
+			status: 403,
+			body: { code: "PRODUCT_REQUIRED", message: "Studio access required." },
+		});
 		expect(await journeyCommand(input)).toBe(2);
 		expect(requests.map((r) => r.path)).toEqual(["/auth/token", "/ax/v1/runs"]);
 		expect(JSON.parse(String(stdout.mock.calls[0][0])).code).toBe("PRODUCT_REQUIRED");
+	});
+
+	it("points a quota refusal to the matching Studio Usage page", async () => {
+		const body = { code: "LIMIT_EXCEEDED", message: "No runs remain." };
+		const { stdout } = server({ status: 402, body });
+		vi.stubEnv("ORA_PLATFORM_URL", "http://api.ora.localhost:8081");
+		expect(await journeyCommand(input)).toBe(2);
+		expect(console.error).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"http://app.ora.localhost:8081/d?to=%2F%5Borg%5D%2Fsettings%3Ftab%3Dusage",
+			),
+		);
+		expect(JSON.parse(String(stdout.mock.calls[0][0]))).toEqual(body);
 	});
 });

@@ -70,7 +70,10 @@ beforeEach(() => {
 		stderr += `${args.join(" ")}\n`;
 	});
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
+});
 
 const run = (over: Record<string, unknown> = {}, client = fakeClient()) =>
 	journeySetRun({
@@ -154,14 +157,33 @@ describe("ax journey: a set", () => {
 		const client = fakeClient({
 			preview: async () => ({
 				...PREVIEW,
-				runs: { total: 240, limit: 200, left: 9000, fits: true },
+				runs: { total: 240, limit: 200, left: 9000, fits: false },
 			}),
 		});
 		const { exit } = await run({}, client);
 		expect(exit).toBe(EXIT.USAGE);
 		expect(stderr).toContain("would start 240 runs");
 		expect(stderr).toContain("Nothing was launched.");
+		expect(stderr).not.toContain("/d?to=");
 	});
+
+	it.each(["preview", "create"] as const)(
+		"links to Studio Usage when the %s refuses the plan allowance",
+		async (stage) => {
+			vi.stubEnv("ORA_PLATFORM_URL", "https://api.ora.ai");
+			const over = { ...PREVIEW, runs: { ...PREVIEW.runs, left: 0, fits: false } };
+			const body = { code: "LIMIT_EXCEEDED", message: "No runs remain." };
+			const client = fakeClient({
+				preview: async () => (stage === "preview" ? over : PREVIEW),
+				create: async () => {
+					throw new PlatformApiError(body.message, { status: 402, payload: body });
+				},
+			});
+			expect((await run({ json: true }, client)).exit).toBe(EXIT.USAGE);
+			expect(stderr).toContain("https://app.ora.ai/d?to=%2F%5Borg%5D%2Fsettings%3Ftab%3Dusage");
+			expect(JSON.parse(stdout)).toEqual(stage === "preview" ? over : body);
+		},
+	);
 
 	it("a usage mistake never reaches the platform", async () => {
 		const client = fakeClient();
