@@ -30,7 +30,7 @@ Commands:
 
 - **`audit <url>`** — run ora's hosted agent-readiness audit against a site: live progress, then a layered report of what passed, what's broken, and ora's ranked list of the highest-impact fixes (or `--json` for the raw contract payload). No account or API key needed. Gate CI with `--min-score`.
 - **`webmcp-audit <url>`** — audit a page's `document.modelContext` tools in a real browser. Works on any http(s) URL, localhost included, so you can check a surface before you publish it. Measures the page the way ora's capture worker does and has ora score it; nothing is stored, published, or ranked.
-- **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is the older name and still works.
+- **`journey --domain <site>`** — run a real AI agent at a site on one of ora's curated tasks through the public journey API: no key, no workspace. A partner API key unlocks a goal of your own and a larger allowance. `ax deep-journey <url>` is a supported alias.
 - **`run "<goal>"`** — run one Studio evaluation. For multiple goals, harnesses or repeats use [`ax run set create`](#evaluation-sets). Both require a Studio sign-in or API key.
 - **`skill [name]`** — list, print, or install ora's agent skills, digest-verified from the public registry.
 - **`generate-files <domain>`** — draft the files agents look for on a site (`ard.json`, `ai-catalog.json`, `poppy.json`, `llms.txt`, a `robots.txt` edit, an API catalog, MCP server cards), filled in from ora's last scan of the domain.
@@ -227,7 +227,7 @@ ax journey --domain stripe.com --intent pricing
 ax journey "Find how to build a Slack → Sheets zap" --domain zapier.com --api-key k   # needs a partner key
 ```
 
-`ax deep-journey <url>` is the older name for this command. It keeps its flags (`--task` included) and exit codes, prints the `ax journey` call it stands for on stderr, and will be removed in a future major release.
+`ax deep-journey <url>` is an alias for `ax journey --domain <url>`. It accepts `--task`, keeps its exit codes, and prints the equivalent `ax journey` command on stderr. The alias will be removed in a future major release.
 
 Runs a real AI agent at a site through ora's **public** journey API — no key, no workspace needed for curated tasks. The agent's trajectory streams live as progress lines; the terminal output is ora's verdict, the billable step count, and the generated insight:
 

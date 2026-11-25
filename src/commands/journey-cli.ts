@@ -213,7 +213,7 @@ export const journeyUsage = () =>
 		'ax journey "<partner task>" --domain <site> [--api-key <key>] [--agent <id>] [--no-stream] [--json]',
 		"",
 		"Curated tasks are free. A custom task needs an ora partner key (--api-key or ORA_PARTNER_API_KEY).",
-		"The older ax deep-journey <url> spelling and its --task option are also supported.",
+		"The ax deep-journey <url> alias also accepts --task.",
 	].join("\n");
 
 export const runUsage = () =>
