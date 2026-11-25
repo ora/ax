@@ -20,8 +20,6 @@ npx ax audit https://stripe.com
 
 Public audits and curated journeys work without an account. To run your own goals on Ora's front, follow the [evaluations quickstart](#evaluations-on-oras-front).
 
-If you previously used `ax journey` for signed-in evaluations, switch to `ax run "<goal>"` for one goal or `ax run set create` for a set. Public curated tasks and partner-key tasks still use `ax journey` or its `ax deep-journey` alias.
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/ora/ax/main/.github/assets/demo.gif" width="880" alt="ax audit https://stripe.com — live progress, then the layered report and ora's ranked top fixes" />
 </p>
