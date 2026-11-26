@@ -1,4 +1,5 @@
 import type { PlatformCredential } from "../auth/credential";
+import { cliFetch, type UsageOperation } from "../cli-usage";
 import { decodeEventBlock, type JourneyStep } from "./platform";
 import { jsonOrNull, PlatformApiError } from "./platform-error";
 import type { StandaloneEvidence, StandaloneRequest, StandaloneRun } from "./standalone";
@@ -213,12 +214,13 @@ export function createSetsClient(options: SetsClientOptions): AxClient {
 	const doFetch = options.fetch ?? fetch;
 
 	const send = async (
+		request: typeof fetch,
 		method: string,
 		path: string,
 		body: unknown,
 		token: string,
 	): Promise<Response> =>
-		doFetch(`${base}/ax/v1${path}`, {
+		request(`${base}/ax/v1${path}`, {
 			method,
 			headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
 			...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -227,11 +229,17 @@ export function createSetsClient(options: SetsClientOptions): AxClient {
 				: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 		});
 
-	const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-		let res = await send(method, path, body, await credential.bearer());
+	const call = async <T>(
+		operation: UsageOperation,
+		method: string,
+		path: string,
+		body?: unknown,
+	): Promise<T> => {
+		const request = cliFetch(base, operation, doFetch);
+		let res = await send(request, method, path, body, await credential.bearer());
 		if (res.status === 401) {
 			await res.body?.cancel().catch(() => {});
-			res = await send(method, path, body, await credential.renew());
+			res = await send(request, method, path, body, await credential.renew());
 		}
 		const payload = jsonOrNull(await res.text());
 		if (res.status === 401) {
@@ -292,8 +300,8 @@ export function createSetsClient(options: SetsClientOptions): AxClient {
 	};
 
 	return {
-		createRun: (body) => call("POST", "/runs", body),
-		getRun: (runId) => call("GET", `/runs/${encodeURIComponent(runId)}`),
+		createRun: (body) => call("runCreate", "POST", "/runs", body),
+		getRun: (runId) => call("runView", "GET", `/runs/${encodeURIComponent(runId)}`),
 		follow: (id, onSet, signal) =>
 			stream(
 				`/sets/${encodeURIComponent(id)}/stream`,
@@ -317,10 +325,10 @@ export function createSetsClient(options: SetsClientOptions): AxClient {
 				},
 				signal,
 			),
-		preview: (request) => call("POST", "/sets/preview", request),
-		create: (request) => call("POST", "/sets", request),
-		get: (id) => call("GET", `/sets/${encodeURIComponent(id)}`),
-		list: () => call("GET", "/sets"),
-		cancel: (id) => call("POST", `/sets/${encodeURIComponent(id)}/cancel`, {}),
+		preview: (request) => call("setPreview", "POST", "/sets/preview", request),
+		create: (request) => call("setCreate", "POST", "/sets", request),
+		get: (id) => call("setView", "GET", `/sets/${encodeURIComponent(id)}`),
+		list: () => call("setList", "GET", "/sets"),
+		cancel: (id) => call("setCancel", "POST", `/sets/${encodeURIComponent(id)}/cancel`, {}),
 	};
 }

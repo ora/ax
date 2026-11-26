@@ -4,6 +4,7 @@ import pkg from "../package.json";
 import { platformBase } from "./api/platform-origins";
 import { resolveBase } from "./api/skills";
 import { SETS_FEATURE, scopeList, TUNNEL_FEATURE } from "./auth/platform-features";
+import { withCliUsage } from "./cli-usage";
 import { auditCommand } from "./commands/audit";
 import { deepJourneyCommand } from "./commands/deep-journey";
 import { generateFilesCommand } from "./commands/generate-files";
@@ -611,20 +612,23 @@ const HELP_FLAGS = new Set(["--help", "-h"]);
 // command talks to and the workflow. citty also lands here when it rejects
 // the arguments (a missing positional), before printing its error and exiting
 // 1; that path gets a Next line on stderr instead of the footer.
-runMain(root, {
-	showUsage: async (cmd, parent) => {
-		const asked = process.argv.slice(2).some((arg) => HELP_FLAGS.has(arg));
-		const help = COMMAND_HELP.get(cmd);
-		if (cmd === root) console.log(helpScreen());
-		else if (asked && help) {
-			const usage = help.usage ? help.usage() : (await renderUsage(cmd, parent)).trimEnd();
-			console.log(`${usage}\n\n${commandFooter(help)}`);
-		} else if (help?.usage) console.log(`${help.usage()}\n`);
-		else await showUsage(cmd, parent);
-		if (!asked) {
-			printNext(help?.usageNext ?? { call: axCall(["audit", placeholder("domain")]) }, {
-				stderr: true,
-			});
-		}
-	},
-});
+const main = () =>
+	runMain(root, {
+		showUsage: async (cmd, parent) => {
+			const asked = process.argv.slice(2).some((arg) => HELP_FLAGS.has(arg));
+			const help = COMMAND_HELP.get(cmd);
+			if (cmd === root) console.log(helpScreen());
+			else if (asked && help) {
+				const usage = help.usage ? help.usage() : (await renderUsage(cmd, parent)).trimEnd();
+				console.log(`${usage}\n\n${commandFooter(help)}`);
+			} else if (help?.usage) console.log(`${help.usage()}\n`);
+			else await showUsage(cmd, parent);
+			if (!asked) {
+				printNext(help?.usageNext ?? { call: axCall(["audit", placeholder("domain")]) }, {
+					stderr: true,
+				});
+			}
+		},
+	});
+
+withCliUsage(pkg.version, process.argv.slice(2), main);

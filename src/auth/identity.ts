@@ -1,5 +1,6 @@
 import { fetchText } from "../api/network-failure";
 import { jsonOrNull, PlatformApiError } from "../api/platform-error";
+import { cliFetch } from "../cli-usage";
 import { plainLines } from "../ui/ansi";
 
 // Who a credential is, as `ax login` and `ax whoami` print it.
@@ -22,7 +23,7 @@ export async function fetchIdentity(
 		`${base}/auth/identity`,
 		{ headers: { authorization: `Bearer ${bearer}`, accept: "application/json" } },
 		IDENTITY_TIMEOUT_MS,
-		fetchFn,
+		cliFetch(base, "identity", fetchFn),
 	);
 	const body = jsonOrNull(text);
 	if (!res.ok || body === null || typeof body !== "object") {

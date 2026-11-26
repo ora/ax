@@ -1,3 +1,4 @@
+import { cliFetch } from "../cli-usage";
 import type {
 	JourneyNextAction,
 	JourneyRun,
@@ -274,7 +275,8 @@ async function triggerRun(
 
 	let res: Response;
 	try {
-		res = await fetch(`${base}${JOURNEY_RUNS_PATH}`, {
+		const request = cliFetch(base, "journey");
+		res = await request(`${base}${JOURNEY_RUNS_PATH}`, {
 			method: "POST",
 			headers: {
 				"content-type": "application/json",

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PlatformCredential } from "../auth/credential";
+import { withCliUsage } from "../cli-usage";
 import { PlatformApiError } from "./platform-error";
 import { createSetsClient } from "./sets";
 
@@ -14,13 +15,15 @@ function mockFetch(answers: { status: number; body: unknown }[]) {
 		url: string;
 		method: string;
 		authorization: string;
+		usage: string | null;
 		body: string | undefined;
 	}[] = [];
 	const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
 		requests.push({
 			url: String(url),
 			method: init?.method ?? "GET",
-			authorization: String((init?.headers as Record<string, string> | undefined)?.authorization),
+			authorization: new Headers(init?.headers).get("authorization") ?? "",
+			usage: new Headers(init?.headers).get("x-ora-cli"),
 			body: init?.body as string | undefined,
 		});
 		const answer = answers.shift() ?? { status: 500, body: null };
@@ -118,6 +121,40 @@ describe("createSetsClient", () => {
 		expect(await client.list()).toEqual({ sets: [] });
 		expect(requests.map((r) => r.authorization)).toEqual(["Bearer bearer-1", "Bearer bearer-2"]);
 		expect(asked.renew).toBe(1);
+	});
+
+	it("tags a CLI preview, launch and auth retry with one invocation, excluding follow-up reads", async () => {
+		const args = [
+			"run",
+			"set",
+			"create",
+			"private goal",
+			"--domain",
+			"secret.test",
+			"--watch",
+			"--json",
+		];
+		const request = { site: "secret.test", goals: ["private goal"] };
+		const { client, requests } = clientOver(
+			[401, 200, 201, 200, 200, 200].map((status) => ({ status, body: {} })),
+		);
+		await withCliUsage("1.2.3", args, async () => {
+			await client.preview(request);
+			await client.create(request);
+			await client.get("private-set-id");
+		});
+		const header = requests[0].usage;
+		expect(header).toMatch(
+			/^ax\/1\.2\.3 [\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12} run-set-create jw$/,
+		);
+		expect(requests.slice(0, 4).map((r) => r.usage)).toEqual([header, header, header, null]);
+
+		await withCliUsage("1.2.3", ["run", "set", "view", "private-set-id", "--watch"], async () => {
+			await client.get("private-set-id");
+			await client.get("private-set-id");
+		});
+		expect(requests[4].usage).toMatch(/ run-set-view w$/);
+		expect(requests[5].usage).toBeNull();
 	});
 
 	it("a 401 that survives the renewal is the credential's own failure, with ora's answer as its cause", async () => {

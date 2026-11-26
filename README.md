@@ -594,6 +594,7 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 
 | Var | Used by | Default | Purpose |
 |---|---|---|---|
+| `DO_NOT_TRACK` | CLI usage reporting | — | Set to `1` to omit the command usage header |
 | `ORA_API_URL` | audit, webmcp-audit, journey (free), skill, generate-files | `https://ora.ai` | Public API base (no auth); also the ingest base for `webmcp-audit` |
 | `ORA_PLATFORM_URL` | run, audit `--tunnel ora`, login, whoami, logout | `https://api.ora.ai` | Base URL for the authenticated API. `ax login` signs in at its `account.` host. `https://api.agentfront.sh`, the default before 0.12, serves the same API and still works with a key |
 | `ORA_TUNNEL` | audit | — (optional) | `ora` opens ora's own tunnel for a local target (same as `--tunnel ora`) |
@@ -603,6 +604,8 @@ A `.env` in the working directory is read on startup — copy `.env.example` and
 | `ORA_PARTNER_API_KEY` | journey (free), webmcp-audit | — (optional) | ora-issued partner API key; unlocks a goal of your own and the 1000/24h keyed allowance on the free journey, and lifts webmcp-audit's daily limit |
 | `CHROME_PATH` | webmcp-audit | — (auto-detected) | The Chrome to launch, when yours is not in a standard location |
 | `AX_WEBMCP_NO_SANDBOX` | webmcp-audit | — (unset) | `1` launches Chrome without its sandbox. Containers only: the audited page is untrusted and the sandbox contains it |
+
+When you run an audit, journey, evaluation or `generate-files`, ax adds a usage header to the request it makes to Ora. It also sends the header when `login` or `whoami` reads your identity. The header contains the command name, ax version, `--json` and `--watch` selections, and a random ID used for that invocation. A set’s preview and launch share that ID. Ora can associate authenticated requests with the account that made them. To turn off the header, run, for example, `DO_NOT_TRACK=1 npx ax run set list`.
 
 `ORA_API_URL` and `ORA_PLATFORM_URL` decide where your keys go, so ax checks them before it sends one. Their defaults always work. Any other host gets a key only over https (plain http only to this machine, such as `localhost`), and only when you set the variable in your shell: a `.env` belongs to whatever directory you run in, so a host named there is refused before anything is sent (`ax journey` exits 2 with `KEY_DESTINATION_REFUSED`). The exceptions are `localhost`, `127.0.0.1` and `[::1]`. Requests that carry no key are not checked. `ax login` holds `ORA_PLATFORM_URL` to the same rule, since the sign-in's tokens will go there.
 
