@@ -1,3 +1,4 @@
+import { cliFetch } from "../cli-usage";
 import type { AuditScanResult, AuditScoreResult } from "../contract";
 import { warnOnNewerContract } from "../contract";
 import { assertKeyDestination } from "./key-destination";
@@ -154,7 +155,8 @@ async function consumeScanStream(
 
 	let res: Response;
 	try {
-		res = await fetch(streamUrl(base, target, options), {
+		const request = cliFetch(base, "audit");
+		res = await request(streamUrl(base, target, options), {
 			headers: { accept: "text/event-stream", ...authHeaders(options.apiKey) },
 			signal: options.signal ? AbortSignal.any([dog.signal, options.signal]) : dog.signal,
 		});

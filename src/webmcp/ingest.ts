@@ -1,3 +1,4 @@
+import { cliFetch } from "../cli-usage";
 /**
  * The ingest hop: POST a locally-taken capture to ora, stream the scored audit
  * back.
@@ -202,7 +203,8 @@ export async function ingestCapture(
 
 	let res: Response;
 	try {
-		res = await fetch(`${base}/api/webmcp/audit/ingest`, {
+		const request = cliFetch(base, "webmcp");
+		res = await request(`${base}/api/webmcp/audit/ingest`, {
 			method: "POST",
 			headers: {
 				accept: "text/event-stream",

@@ -1,3 +1,4 @@
+import { cliFetch } from "../cli-usage";
 import { errorBody } from "./shared";
 
 // Client for ora's agent files generator, GET /api/agent-files/{domain}: the
@@ -108,7 +109,8 @@ export async function fetchAgentFiles(
 	const url = `${base}/api/agent-files/${encodeURIComponent(normalizeDomainInput(domain))}?include=all`;
 	let res: Response;
 	try {
-		res = await fetch(url, {
+		const request = cliFetch(base, "agentFiles");
+		res = await request(url, {
 			headers: { accept: "application/json" },
 			signal: AbortSignal.timeout(TIMEOUT_MS),
 		});
